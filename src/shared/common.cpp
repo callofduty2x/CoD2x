@@ -9,6 +9,8 @@
     #include "../mss32/discord.h"
     #include "../mss32/steam.h"
     #include "../mss32/screenshot.h"
+    #include "../mss32/url_protocol.h"
+    #include "../mss32/mbedtls.h"
 #endif
 
 #if COD2X_LINUX
@@ -38,10 +40,12 @@ void __cdecl hook_Com_Init(char* cmdline) {
     Com_Printf("CoD2x " APP_VERSION " loaded\n");
     Com_Printf("-----------------------------------\n");
 
-    start_discord_thread();
+    //start_discord_thread();
     screenshot_init();
     steam_init();
+    //url_protocol_init();
 
+    request_init();
 
     #if COD2X_LINUX
         updater_hook_Com_Init();

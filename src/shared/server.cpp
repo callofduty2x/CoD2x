@@ -167,7 +167,7 @@ void server_hook_init_cvars()
             (dvarFlags_e)(DVAR_LATCH | DVAR_CHANGEABLE_RESET) : // allow the value to be changed via cmd when starting the game
             (dvarFlags_e)(DVAR_ROM | DVAR_CHANGEABLE_RESET);    // then make it read-only to avoid changes
 
-        sv_masterServer = Dvar_RegisterString("sv_masterServer", "cod2master.activision.com", flags);
+        sv_masterServer = Dvar_RegisterString("sv_masterServer", "master.cod2x.me", flags);
         sv_masterPort = Dvar_RegisterInt("sv_masterPort", 20710, 0, 65535, flags);
         sv_cracked = Dvar_RegisterBool("sv_cracked", true, flags);
     }

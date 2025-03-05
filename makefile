@@ -115,7 +115,8 @@ WIN_AS = nasm
 WIN_CFLAGS = $(CFLAGS) -mwindows -static
 WIN_LFLAGS = -shared -m32
 WIN_ASFLAGS = -f win32	# Output format for NASM (32-bit Windows)
-WIN_LIBS = -lkernel32 -lwininet -static-libgcc -static-libstdc++ -ldiscord_game_sdk -lsteam_api -lgdi32
+#WIN_LIBS = -lkernel32 -lwininet -static-libgcc -static-libstdc++ -ldiscord_game_sdk -lsteam_api -lgdi32 
+WIN_LIBS = -lkernel32 -lwininet -static-libgcc -static-libstdc++ -ldiscord_game_sdk -lsteam_api -lgdi32 -lmbedtls -lmbedx509 -lmbedcrypto -lws2_32 -lbcrypt -lssh2 -lssl -lcrypto -lws2_32 -lz
 # -mwindows: Link with the Windows GUI subsystem (no console)
 # -static: Link libraries statically
 
