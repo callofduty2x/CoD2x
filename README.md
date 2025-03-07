@@ -190,6 +190,11 @@ These functions act as a proxy to the original functions in the original mss32.d
 When our mss32.dll is loaded, it loads mss32_original.dll and redirect all exported functions.
 It also runs patching process that modifies the game memory to fix some bugs and add new features.
 
+# How to build docker and run docker
+```
+docker build -t cod2x:latest -t cod2x:v1.4.2.3 . --no-cache
+docker compose up -d
+```
 
 # References
 - [CoD2rev_Server](https://github.com/voron00/CoD2rev_Server)
