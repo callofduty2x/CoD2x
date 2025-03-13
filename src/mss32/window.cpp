@@ -41,7 +41,6 @@
 #define win_wheelRool               (*((UINT*)0x00d7712c))
 
 #define input_mode                  (*((int*)0x0096b654))
-#define clientState                 (*((clientState_e*)0x00609fe0))
 
 dvar_t* m_debug;
 

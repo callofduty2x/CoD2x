@@ -6,7 +6,6 @@
 
 
 #define com_maxFps                    (*((dvar_t**)0x00c28b10))
-#define clientState                   (*((clientState_e*)0x00609fe0))
 #define demo_isPlaying                (*((int*)0x0064a170))
 
 dvar_t* com_maxFps_limit;

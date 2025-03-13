@@ -5,8 +5,6 @@
 #include "shared.h"
 #include "../shared/common.h"
 
-
-#define clientState                   (*((clientState_e*)0x00609fe0))
 #define sv_cheats                     (*((dvar_t**)0x00c5c5cc))
 
 static int clientStateLast = -1;
