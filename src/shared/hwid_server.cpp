@@ -100,14 +100,6 @@ void AddCommand_Ban()
 }
 
 /**
- * Command function to kick a user based on client number.
- */
-void AddCommand_Kick()
-{
-    // new kick code
-}
-
-/**
  * Called every frame at the start of the frame.
  */
 void hwid_server_frame()
@@ -120,15 +112,4 @@ void hwid_server_frame()
 void hwid_server_init()
 {
     Cmd_AddCommand("ban", AddCommand_Ban);
-    //Cmd_AddCommand("kick", AddCommand_Kick);
-}
-
-/**
- * Called before the entry point is executed. Used to patch memory.
- */
-void hwid_server_patch()
-{
-    // disable kick
-    //patch_nop(0x0452a3d, 5);
-    //patch_nop(0x0452a7c, 5);
 }

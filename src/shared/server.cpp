@@ -169,6 +169,8 @@ void server_init()
         //patch_byte(0x00539727 + 1, PROTOCOL_VERSION);
         patch_byte(0x00539727 + 1, 118);
     #endif
+
+    hwid_server_init();
 }
 
 

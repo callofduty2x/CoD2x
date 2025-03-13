@@ -4,6 +4,7 @@
  * This module provides functions to generate and manage HWIDs based on system components such as CPU ID and Hard Drive Serial.
  * It also includes hashing functions to generate unique identifiers.
  */
+#include "hwid.h"
 
 // Include system headers
 #include <iostream>
@@ -20,12 +21,9 @@
 
 // Include internal project headers
 #include "shared.h"
-#include "hwid.h"
 
 // Define external variables
-int globalVariable = 0;
 dvar_t *x_hwid;
-#define BUFFER_SIZE 256 // Buffer size for strings and hash storage
 
 /**
  * Generates a SHA-256 hash from the given input string.

@@ -34,8 +34,6 @@ void common_init() {
     Com_Printf("-----------------------------------\n");
     Com_Printf("CoD2x " APP_VERSION " loaded\n");
     Com_Printf("-----------------------------------\n");
-
-    hwid_server_init();
 }
 
 
