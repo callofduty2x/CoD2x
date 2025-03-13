@@ -13,16 +13,6 @@
 // Discord SDK requires success result to proceed
 #define DISCORD_REQUIRE(x) assert(x == DiscordResult_Ok)
 
-// Global variables for client state and server data
-#define clientState (*((clientState_e *)0x00609fe0)) // Client state, possibly controlling game behavior
-
-#define svr_players ((int *)0x001518F80) // Pointer to the number of players on the server
-#define clc_stringData ((PCHAR)0x0096FD5C) // Pointer to client string data
-#define clc_stringOffsets ((PINT)0x0096DD5C) // Pointer to offsets in client string data
-
-#define cs0 (clc_stringData + clc_stringOffsets[0]) 
-#define cs1 (clc_stringData + clc_stringOffsets[1]) 
-
 static struct Application discord; // Discord application instance
 static bool discordInitialized = false; // Flag to track if Discord is initialized
 EDiscordResult discordResult = DiscordResult_NotRunning; // Holds the result of Discord operations

@@ -10,6 +10,16 @@
 
 #define APP_MODULE_NAME "mss32.dll"
 
+// Global variables for client state and server data
+#define clientState (*((clientState_e *)0x00609fe0)) // Client state, possibly controlling game behavior
+
+#define svr_players ((int *)0x001518F80) // Pointer to the number of players on the server
+#define clc_stringData ((PCHAR)0x0096FD5C) // Pointer to client string data
+#define clc_stringOffsets ((PINT)0x0096DD5C) // Pointer to offsets in client string data
+
+#define cs0 (clc_stringData + clc_stringOffsets[0]) 
+#define cs1 (clc_stringData + clc_stringOffsets[1]) 
+
 void getErrorMessage(DWORD errorCode, char* buffer, size_t bufferSize);
 void showErrorBox(const char *file, const char *function, int line, const char *format, ...);
 void showErrorBoxWithLastError(const char *file, const char *function, int line, const char *format, ...);
