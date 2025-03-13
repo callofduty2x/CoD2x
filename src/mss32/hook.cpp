@@ -14,6 +14,7 @@
 #include "updater.h"
 #include "../shared/common.h"
 #include "../shared/server.h"
+#include "discord.h"
 
 
 HMODULE hModule;
@@ -58,6 +59,7 @@ void __cdecl hook_Com_Init(char* cmdline) {
     fps_init();
     game_init();
     server_init();
+    discord_init();
 
     // Call the original function
 	((void (__cdecl *)(char*))0x00434460)(cmdline);
@@ -75,6 +77,7 @@ void __cdecl hook_Com_Frame() {
     freeze_frame();
     fps_frame();
     game_frame();
+    discord_frame();
 
     // Call the original function
 	((void (__cdecl *)())0x00434f70)();
