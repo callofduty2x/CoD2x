@@ -16,3 +16,4 @@ bin/windows/main/*.iwd
 bin/windows/main/*.log
 bin/windows/main/players/default/config_mp.cfg
 
+bin/windows/CoD2MP_s server.bat

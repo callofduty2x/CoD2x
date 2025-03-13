@@ -60,5 +60,7 @@
 #include "cod2.h"
 
 
+#include "sv_cracked.h"
+
 #endif
 
