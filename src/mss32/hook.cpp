@@ -14,6 +14,7 @@
 #include "updater.h"
 #include "../shared/common.h"
 #include "../shared/server.h"
+#include "affinity.h"
 
 
 HMODULE hModule;
@@ -51,6 +52,7 @@ int __cdecl hook_gfxDll() {
  */
 void __cdecl hook_Com_Init(char* cmdline) {
 
+    set_affinity();
     exception_init();
     freeze_init();
     window_init();
