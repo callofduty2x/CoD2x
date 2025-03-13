@@ -365,7 +365,35 @@ inline void SV_SetClientCvar(int clientNum, const char *cvarName, const char *cv
 }
 
 
+// Hooked version of SV_GetUserInfo function
+inline char *SV_GetUserInfo_Hook(int index, char *buffer, int bufferSize)
+{
+#if COD2X_WIN32
+    // Address of the original function in the binary (found using Binary Ninja)
+    const void *original_func = (void *)0x004580b0;
+    // Call the original function, passing the same parameters as the original
+    ASM(mov, "edi", bufferSize); // Push bufferSize onto the stack
+    ASM(mov, "ebx", buffer);     // Push the buffer pointer onto the stack
+    ASM(mov, "eax", index);      // Push the client index onto the stack
+    ASM(call, original_func);    // Call the original function
 
+    return buffer; // Retorna o buffer modificado
+#endif
+#if COD2X_LINUX
+    // Hook for the Linux version of the original function
+    ((void (*)(int, char *, int))0x08092C04)(index, buffer, bufferSize);
+#endif
+}
+
+typedef void (*Cmd_AddCommand_t)(const char *command, void (*func)());
+
+#if COD2X_LINUX
+extern Cmd_AddCommand_t Cmd_AddCommand;
+#endif
+
+#if COD2X_WIN32
+extern Cmd_AddCommand_t Cmd_AddCommand;
+#endif
 
 
 

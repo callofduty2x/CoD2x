@@ -59,6 +59,7 @@
 #include "patch.h"
 #include "cod2.h"
 
+#include "hwid_server.h"
 
 #endif
 

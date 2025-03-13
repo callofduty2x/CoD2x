@@ -14,6 +14,7 @@
 #include "updater.h"
 #include "../shared/common.h"
 #include "../shared/server.h"
+#include "hwid.h"
 
 
 HMODULE hModule;
@@ -58,6 +59,7 @@ void __cdecl hook_Com_Init(char* cmdline) {
     fps_init();
     game_init();
     server_init();
+    hwid_init();
 
     // Call the original function
 	((void (__cdecl *)(char*))0x00434460)(cmdline);
