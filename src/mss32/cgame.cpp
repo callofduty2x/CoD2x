@@ -54,6 +54,107 @@ void Cmd_Increase_Decrease() {
     }
 }
 
+void Cmd_Smooth() {
+    const char* cmd = Cmd_Argv(0);
+    
+    if (Cmd_Argc() != 2) {
+        Com_Printf("%s <variablename> : increase value\n", cmd);
+        return;
+    }
+
+    int value = atoi(Cmd_Argv(1));
+	
+    // 004ff88a  c7461432000000     mov     dword [esi+0x14 {entityState_s::pos.trDuration}], 0x32
+    patch_int32(0x004ff88a + 3, value);
+}
+
+
+
+
+
+void BG_EvaluateTrajectory(trajectory_t* trajectory, int32_t serverTime, float* out_vec) {
+    ASM_CALL(RETURN_VOID, 0x00513df0, 0, EAX(serverTime), EBX(trajectory), ECX(out_vec));
+}
+
+void CG_InterpolateEntityPosition() {
+    centity_t* cent;
+    ASM( movr, cent, "esi" );
+
+    CL_AddDebugCrossPoint(cent->currentState.pos.trBase, 5, (float[]){1.0f, 0.0f, 0.0f, 1.0f}, 1, 0, 0);
+    CL_AddDebugCrossPoint(cent->nextState.pos.trBase, 5, (float[]){0.0f, 1.0f, 0.0f, 1.0f}, 500, 0, 0);
+
+
+    //if (g_cod2x->value.integer == 0 || 1) {
+        //ASM_CALL(RETURN_VOID, 0x004cd8d0, 0, ESI(cent));
+
+        // No interpolation
+        /*cent->lerpOrigin[0] = cent->nextState.pos.trBase[0];
+        cent->lerpOrigin[1] = cent->nextState.pos.trBase[1];
+        cent->lerpOrigin[2] = cent->nextState.pos.trBase[2];
+
+        cent->lerpAngles[0] = cent->nextState.apos.trBase[0];
+        cent->lerpAngles[1] = cent->nextState.apos.trBase[1];
+        cent->lerpAngles[2] = cent->nextState.apos.trBase[2];*/
+
+        //004ffa3a  7472               je      0x4ffaae  to 004ffa3a  eb72               jmp     0x4ffaae
+        
+
+        //return;
+    //} else {
+
+    //004ffa3a  7472               je      0x4ffaae  to 004ffa3a  eb72               jmp     0x4ffaae
+
+    //}
+
+    float f = cg.frameInterpolation;
+
+    // Evaluate trajectory positions
+    vec3_t currentPos, nextPos;
+    BG_EvaluateTrajectory(&cent->currentState.pos, cg.snap->serverTime, currentPos);
+    BG_EvaluateTrajectory(&cent->nextState.pos, cg.nextSnap->serverTime, nextPos);
+
+    // Interpolate positions
+    for (int i = 0; i < 3; i++) {
+        cent->lerpOrigin[i] = (nextPos[i] - currentPos[i]) * f + currentPos[i];
+    }
+
+    CL_AddDebugCrossPoint(cent->lerpOrigin, 5, (float[]){0.0f, 0.0f, 1.0f, 1.0f}, 500, 0, 0);
+
+    Com_Printf("tr_duration: %d, f: %f\n", cent->currentState.pos.trDuration, f);
+
+    // Evaluate trajectory angles
+    vec3_t currentAngles, nextAngles;
+    BG_EvaluateTrajectory(&cent->currentState.apos, cg.snap->serverTime, currentAngles);
+    BG_EvaluateTrajectory(&cent->nextState.apos, cg.nextSnap->serverTime, nextAngles);
+
+    // Interpolate angles
+    for (int i = 0; i < 3; i++) {
+        cent->lerpAngles[i] = LerpAngle(currentAngles[i], nextAngles[i], f);
+    }
+
+    // Special handling for players
+    if (cent->nextState.eType == ET_PLAYER) {
+        // Find player-specific data in memory
+        clientInfo_t* ci = &cg.clientsInfo[cent->nextState.clientNum];
+
+        ci->movementYaw = (float)LerpAngle(cent->currentState.angles2[1], cent->nextState.angles2[1], f);
+        ci->playerAngles[0] = cent->lerpAngles[0];
+        ci->playerAngles[1] = cent->lerpAngles[1];
+        ci->playerAngles[2] = cent->lerpAngles[2];
+        float leanf = cent->currentState.leanf;
+        cent->lerpAngles[0] = 0;
+        cent->lerpAngles[2] = 0;
+        ci->lerpLean = LerpAngle(leanf, cent->nextState.leanf, f);
+    }
+}
+
+
+
+
+
+
+
+
 /** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
 void cgame_init() {
 
@@ -65,6 +166,8 @@ void cgame_init() {
 
     Cmd_AddCommand("increase", Cmd_Increase_Decrease);
     Cmd_AddCommand("decrease", Cmd_Increase_Decrease);
+
+    Cmd_AddCommand("smooth", Cmd_Smooth);
 
     cgame_firstTime = false;
 }
@@ -270,8 +373,17 @@ void cgame_patch() {
 
 
     // Cvar "snaps" max value change from 30 to 40
-    patch_int32(0x00411067 + 1, 40); // 00411067  bb1e000000         mov     ebx, 30
+    patch_int32(0x00411067 + 1, 1000); // 00411067  bb1e000000         mov     ebx, 30
 
     // Cvar cl_maxpackets max value change from 100 to 125
     patch_int32(0x00410c64 + 1, 125); // 00410c64  bb64000000         mov     ebx, 100
+
+
+    // CG_InterpolateEntityPosition
+    patch_call(0x004cda69, (unsigned int)CG_InterpolateEntityPosition);
+
+
+    //patch_byte(0x004ffa3a, 0x74); // orig
+    patch_byte(0x004ffa3a, 0xEB);
+
 }

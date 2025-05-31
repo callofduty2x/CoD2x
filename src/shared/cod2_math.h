@@ -187,7 +187,23 @@ inline void AnglesToAxis( const vec3_t angles, vec3_t axis[3] )
 	VectorSubtract(vec3_origin, right, axis[1] );
 }
 
+inline float LerpAngle( float from, float to, float frac ) {
+	if ( to - from > 180 ) {
+		to -= 360;
+	}
+	if ( to - from < -180 ) {
+		to += 360;
+	}
 
+	return( from + frac * ( to - from ) );
+}
+
+inline void LerpPosition( vec3_t start, vec3_t end, float frac, vec3_t out ) {
+	vec3_t dist;
+
+	VectorSubtract( end, start, dist );
+	VectorMA( start, frac, dist, out );
+}
 
 
 

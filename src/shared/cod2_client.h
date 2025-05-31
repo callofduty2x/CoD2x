@@ -7,7 +7,7 @@
 
 #define cg         			(*((cg_t *)0x014ee080))
 #define cg_entities         (*((centity_t (*)[1024])0x015E2A80))
-#define clientInfo          (*((clientInfo_t (*)[64])0x015CF994)) // client side info
+#define clientInfo          (*((clientInfo_t (*)[64])0x015CF994)) // same as cg->clientsInfo client side info
 
 // https://github.com/id-Software/Enemy-Territory/blob/40342a9e3690cb5b627a433d4d5cbf30e3c57698/src/game/q_shared.h#L1621
 enum clientState_e{
@@ -43,7 +43,8 @@ typedef struct {
 	int				currentValid;
 	int				pad[2];
 	vec3_t			lerpOrigin;
-	int				pad2[11];
+	vec3_t			lerpAngles;
+	int				pad2[8];
 } centity_t; //size=548, dw=137
 
 
@@ -62,15 +63,38 @@ typedef struct
 	byte areamask[8];
 } refdef_t;
 
+typedef struct {
+    int field_0;
+    int x;
+    int y;
+    int yaw;
+    int field_10;
+    int lastTimeFired;
+    int field_18;
+} compassWeaponFire_t;
+static_assert((sizeof(compassWeaponFire_t) == 0x1c));
+
+struct snapshot_t
+{
+    int32_t snapFlags;
+    int32_t ping;
+    int32_t serverTime;
+    playerState_t ps;
+};
+
 typedef struct
 {
 	int clientFrame;
 	int clientNum;
-	int padding[7];
-	void *snap;
-	void *nextSnap;
+	int padding[6];
+	snapshot_t *snap;
+	snapshot_t *nextSnap;
 
-	byte padding0[154520];
+	byte padding0[154496];
+
+	float frameInterpolation;
+
+	byte padding7[24];
 
 	playerState_t predictedPlayerState;
 
@@ -84,13 +108,25 @@ typedef struct
 	int padding3[3];
 	int crosshairClientHealth;
 	int padding4[173];
-	vec3_t kick_angles;
-	int padding1[205363];
-	byte padding6[48];
+	vec3_t kick_angles; //0x02c098
+
+	int padding2222[333];
+
+	compassWeaponFire_t compassWeaponFire[64];
+
+	byte padding95[740412];
+
+	clientInfo_t clientsInfo[0x40];
+
+	byte padding1[652];
 } cg_t;
 static_assert((sizeof(cg_t) == 0xf49a0));
+static_assert(offsetof(cg_t, frameInterpolation) == 0x025ba8);
 static_assert(offsetof(cg_t, predictedPlayerState) == 0x025bc4);
 static_assert(offsetof(cg_t, refdef) == 0x028570);
+static_assert(offsetof(cg_t, kick_angles) == 0x02c098);
+static_assert(offsetof(cg_t, compassWeaponFire) == 0x02c5d8);
+static_assert(offsetof(cg_t, clientsInfo) == 0x0e1914);
 
 
 

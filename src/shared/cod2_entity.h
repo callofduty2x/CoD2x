@@ -65,6 +65,22 @@ inline const char **get_entityFlagStrings(int mask)
 }
 
 
+enum entityType_e
+{
+	ET_GENERAL = 0x0,
+	ET_PLAYER = 0x1,
+	ET_PLAYER_CORPSE = 0x2,
+	ET_ITEM = 0x3,
+	ET_MISSILE = 0x4,
+	ET_INVISIBLE = 0x5,
+	ET_SCRIPTMOVER = 0x6,
+	ET_FX = 0x7,
+	ET_LOOP_FX = 0x8,
+	ET_TURRET = 0x9,
+	ET_EVENTS = 0xA,
+};
+
+
 typedef enum
 {
 	TR_STATIONARY,

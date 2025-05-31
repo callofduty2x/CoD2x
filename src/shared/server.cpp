@@ -124,9 +124,9 @@ void SV_UserinfoChanged( client_t *cl )
 			i = 1;
 		}
 		// CoD2x: from 30 to 40
-		else if ( i > 40 )
+		else if ( i > 1000 )
 		{
-			i = 40;
+			i = 1000;
 		}
 		// CoD2x: end
 		cl->snapshotMsec = 1000/i;
