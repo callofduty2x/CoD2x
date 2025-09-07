@@ -169,6 +169,23 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
     return result;
 }
 
+// .text:004020D0 const char *__usercall CL_GetConfigString@<eax>(int idx@<eax>)
+const char* CL_GetConfigString(int idx) {
+    const char* ret;
+    ASM_CALL(RETURN(ret), 0x004020d0, 0, EAX(idx));
+
+    return ret;
+}
+
+void CG_RegisterItems() {
+    if (strlen(CL_GetConfigString(8)) >= 0x108u) {
+        Com_Error(ERR_DROP, "CG_RegisterItems: overflowed");
+    }
+
+    // Call the original function
+    ((void(*)())0x004d5270)();
+}
+
 
 
 void CG_TraceCapsule(trace_t *result, const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end, int skipNumber, int mask) {
@@ -279,4 +296,8 @@ void cgame_patch() {
 
     // Make "RECORDING %s" message smaller
     patch_float(0x004147e0 + 1, 0.2f); // 004147e0  68abaaaa3e push    0.333333343
+
+
+    patch_jump(0x004d0c6b, (unsigned int)CG_RegisterItems);
+    patch_call(0x004bff65, (unsigned int)CG_RegisterItems); 
 }
