@@ -20,6 +20,7 @@ dvar_t* cg_thirdPersonMode;
 
 extern dvar_t* g_cod2x;
 static dvar_t* cg_zoomSensitivityFixed;
+static dvar_t* cg_zoomSensitivityScale;
 
 static float* const cg_zoomSensitivity = reinterpret_cast<float*>(0x01518678);
 static float* const cg_adsFovMin = reinterpret_cast<float*>(0x01516604);
@@ -28,6 +29,7 @@ static float* const cg_adsMouseScale = reinterpret_cast<float*>(0x014e5714);
 static float* const cg_adsAngles = reinterpret_cast<float*>(0x01516608);
 static int* const cg_adsBobCycle = reinterpret_cast<int*>(0x01513c30);
 static int* const cg_zoomSensitivityTable = reinterpret_cast<int*>(0x0166bb78);
+static float* const cg_zoomTransition = reinterpret_cast<float*>(0x014ee190);
 
 using CG_GetCurrentFov_t = float(__cdecl*)();
 static const CG_GetCurrentFov_t CG_GetCurrentFov = reinterpret_cast<CG_GetCurrentFov_t>(0x004cf1a0);
@@ -55,11 +57,19 @@ static float __fastcall CG_UpdateZoomSensitivity()
     *cg_adsFovMax = adsPitchAdjusted;
 
     float zoomSensitivity = adsPitchAdjusted / *(float*)(*cg_zoomSensitivityTable + 8);
-	if (cg_zoomSensitivityFixed != NULL && cg_zoomSensitivityFixed->value.boolean) { 
-        zoomSensitivity = 0.99f; 
+    if ((cg_zoomSensitivityFixed != NULL) && cg_zoomSensitivityFixed->value.boolean) {
+        zoomSensitivity = 1.0f;
     }
 
-    *cg_zoomSensitivity = zoomSensitivity;
+    float sensitivityScale = 1.0f;
+    if (cg_zoomSensitivityScale != NULL) {
+        sensitivityScale = cg_zoomSensitivityScale->value.decimal;
+    }
+
+    const bool isZooming = (cg_zoomTransition != NULL) && (*cg_zoomTransition > 0.01f);
+    const float appliedZoomSensitivity = isZooming ? (zoomSensitivity * sensitivityScale) : 1.0f;
+
+    *cg_zoomSensitivity = appliedZoomSensitivity;
 
     return adsPitchAdjusted;
 }
@@ -107,7 +117,8 @@ void cgame_init() {
     // Add another mode to thirdperson
     cg_thirdPersonMode = Dvar_RegisterInt("cg_thirdPersonMode", 0, 0, 1, (enum dvarFlags_e)(DVAR_CHEAT | DVAR_CHANGEABLE_RESET));
     cg_zoomSensitivityFixed = Dvar_RegisterBool("cg_zoomSensitivityFixed", false, (enum dvarFlags_e)(DVAR_CHANGEABLE_RESET));
-
+	cg_zoomSensitivityScale = Dvar_RegisterFloat("cg_zoomSensitivityScale", 1.0f, 0.1f, 5.0f, (enum dvarFlags_e)(DVAR_CHANGEABLE_RESET));
+	
     Cmd_AddCommand("increase", Cmd_Increase_Decrease);
     Cmd_AddCommand("decrease", Cmd_Increase_Decrease);
 
