@@ -3,11 +3,16 @@
 #include <sys/mman.h> // mprotect
 
 #include "shared.h"
+#include "../shared/iwd.h"
 #include "../shared/cod2_common.h"
 #include "../shared/common.h"
+#include "../shared/weapons.h"
 #include "../shared/server.h"
+#include "../shared/dvar.h"
 #include "../shared/game.h"
 #include "../shared/animation.h"
+#include "../shared/gsc.h"
+#include "../shared/match.h"
 #include "updater.h"
 
 
@@ -19,6 +24,10 @@ void __cdecl hook_Com_Frame() {
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x080626f4);
+
+    gsc_frame();
+    match_frame();
+    iwd_frame();
 }
 
 
@@ -34,10 +43,14 @@ void hook_SV_Init() {
 
     // Shared & Server
     common_init();
+    weapons_init();
     server_init();
+    dvar_init();
     updater_init();
     game_init();
     animation_init();
+    match_init();
+    iwd_init();
 
     ASM_CALL(RETURN_VOID, 0x08093adc);
 }
@@ -54,6 +67,7 @@ void __cdecl hook_Com_Init(char* cmdline) {
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x080620c0, 1, PUSH(cmdline));
 
+    gsc_init();
     updater_checkForUpdate(); // depends on dedicated and network system
     common_printInfo();
 }
@@ -74,11 +88,16 @@ bool hook_patch() {
     patch_call(0x0806281a, (unsigned int)hook_Com_Frame);
 
 
+    weapons_patch();
     common_patch();
     server_patch();
     game_patch();
+    dvar_patch();
     updater_patch();
     animation_patch();
+    gsc_patch();
+    match_patch();
+    iwd_patch();
 
     return true;
 }

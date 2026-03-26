@@ -195,8 +195,9 @@ bool updater_downloadAndReplaceDllFile(const char *url, char *errorBuffer, size_
     // Schedule the deletion of the old DLL
     // Since the DLL is locked by the application, we can't delete it immediately
     if (!MoveFileEx(dllFilePathOld, NULL, MOVEFILE_DELAY_UNTIL_REBOOT)) {
-        snprintf(errorBuffer, errorBufferSize, "Error scheduling old DLL deletion: '%s'.", dllFilePathOld);
-        return false;
+        // Since its possible to execute only with admin rights, dont show error
+        //snprintf(errorBuffer, errorBufferSize, "Error scheduling old DLL deletion: '%s'.", dllFilePathOld);
+        //return false;
     }
 
     return true;
@@ -347,7 +348,10 @@ void updater_updatePacketResponse(struct netaddr_s addr)
             // Forced update
             if (updateAvailable == 2) {
                 updater_forcedUpdate = true;
-                updater_showForceUpdateDialog();
+
+                if (dedicated->value.integer == 0 && clientState > CLIENT_STATE_DISCONNECTED && clientState < CLIENT_STATE_CONNECTED && demo_isPlaying == 0) {
+                    updater_showForceUpdateDialog();
+                }
             }
         }
 
@@ -371,8 +375,8 @@ void updater_dialogConfirmed() {
     char errorBuffer[1024];
     bool ok = updater_downloadAndReplaceDllFile(cl_updateFiles->value.string, errorBuffer, sizeof(errorBuffer));
     if (ok) {
-        // Restart the application
-        ShellExecute(NULL, "open", EXE_PATH, NULL, NULL, SW_SHOWNORMAL);
+        // Restart the application with command line arguments
+        ShellExecute(NULL, "open", EXE_PATH, EXE_COMMAND_LINE, NULL, SW_SHOWNORMAL);
         ExitProcess(0);
     } else {
         Com_Error(ERR_DROP, "Failed to download and replace file.\n\n%s", errorBuffer);
@@ -402,7 +406,7 @@ void updater_renderer() {
 /** Called every frame on frame start. */
 void updater_frame() {
     // If the forced update is available and player leaves main menu, show error
-    if (updater_forcedUpdate && dedicated->value.integer == 0 && clientState > CLIENT_STATE_DISCONNECTED && demo_isPlaying == 0) {
+    if (updater_forcedUpdate && dedicated->value.integer == 0 && clientState > CLIENT_STATE_DISCONNECTED && clientState < CLIENT_STATE_CONNECTED && demo_isPlaying == 0) {
         updater_showForceUpdateDialog();
     }  
     

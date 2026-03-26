@@ -25,14 +25,14 @@ VERSION_MINOR = 4
 # Should be increased only if the changed functionalities that affect both server and client
 # Newer client can connect older server
 # Older client can not connect newer server
-VERSION_PROTOCOL = 4
+VERSION_PROTOCOL = 6
 
 # CoD2x patch version
 # Should be increased when new version is released and the changes are backward compatible
 VERSION_PATCH = 6
 
 # CoD2x test version (e.g. -test.1)
-VERSION_TEST = 
+VERSION_TEST =
 VERSION_IS_TEST = 0
 
 # Full version string
@@ -46,96 +46,105 @@ VERSION_COMMA = $(VERSION_MAJOR),$(VERSION_MINOR),$(VERSION_PROTOCOL),$(VERSION_
 # ========================================================================================================
 DEBUG ?= 1
 
-# Output directories
-WIN_BIN_DIR = bin/windows
-LINUX_BIN_DIR = bin/linux
-
-# Targets
-WIN_MSS32_TARGET = $(WIN_BIN_DIR)/mss32.dll
-LINUX_TARGET = $(LINUX_BIN_DIR)/libCoD2x.so
-
-# Source and object directories
-WIN_MSS32_SRC_DIR = src/mss32
-WIN_MSS32_OBJ_DIR = obj/mss32
-LINUX_OBJ_DIR = obj/linux
-LINUX_SRC_DIR = src/linux
-SHARED_SRC_DIR = src/shared
-SHARED_OBJ_DIR = obj/shared
-
-RCEDIT = tools/rcedit/rcedit-x86.exe
-
-# Define source files and target paths
-ZIP_EXEC = 7za.exe
-ZIP_WIN_DIR = zip/windows
-ZIP_WIN_FILES = $(WIN_MSS32_TARGET) bin/windows/mss32_original.dll
-ZIP_WIN_NAME = CoD2x_$(VERSION)_windows.zip
-ZIP_WIN_OUTPUT = $(ZIP_WIN_DIR)/$(ZIP_WIN_NAME)
-
-ZIP_LINUX_DIR = zip/linux
-ZIP_LINUX_FILES = $(LINUX_TARGET) bin/linux/cod2_lnxded
-ZIP_LINUX_NAME = CoD2x_$(VERSION)_linux.zip
-ZIP_LINUX_OUTPUT = $(ZIP_LINUX_DIR)/$(ZIP_LINUX_NAME)
-
-# Source files
-MSS32_C_SOURCES = $(wildcard $(WIN_MSS32_SRC_DIR)/*.cpp)
-MSS32_ASM_SOURCES = $(wildcard $(WIN_MSS32_SRC_DIR)/*.asm)
-LINUX_C_SOURCES = $(wildcard $(LINUX_SRC_DIR)/*.cpp)
-SHARED_C_SOURCES = $(wildcard $(SHARED_SRC_DIR)/*.cpp)
-
-# Shared object files for Windows and Linux
-SHARED_WIN_OBJECTS = $(patsubst $(SHARED_SRC_DIR)/%.cpp, $(WIN_MSS32_OBJ_DIR)/shared_%.o, $(SHARED_C_SOURCES))
-SHARED_LINUX_OBJECTS = $(patsubst $(SHARED_SRC_DIR)/%.cpp, $(LINUX_OBJ_DIR)/shared_%.o, $(SHARED_C_SOURCES))
-
-# Platform-specific object files
-WIN_MSS32_OBJECTS = $(patsubst $(WIN_MSS32_SRC_DIR)/%.cpp, $(WIN_MSS32_OBJ_DIR)/%.o, $(MSS32_C_SOURCES)) \
-                    $(patsubst $(WIN_MSS32_SRC_DIR)/%.asm, $(WIN_MSS32_OBJ_DIR)/%.o, $(MSS32_ASM_SOURCES)) \
-					$(SHARED_WIN_OBJECTS)
-LINUX_OBJECTS = $(patsubst $(LINUX_SRC_DIR)/%.cpp, $(LINUX_OBJ_DIR)/%.o, $(LINUX_C_SOURCES)) \
-				$(SHARED_LINUX_OBJECTS)
-
-
-# ========================================================================================================
-# Compilation Settings
-# ========================================================================================================
-
-# Compilation flags
-CFLAGS = -Wall -Wextra -Wno-unused-parameter -Wno-address-of-packed-member -g -m32 -lstdc++ -msse -O0
-# Flag explanations:
-# -Wall: Enable all compiler warnings
-# -Wextra: Enable extra compiler warnings
-# -Wno-unused-parameter: Disable warnings for unused function parameters
-# -Wno-address-of-packed-member: Disable warnings for address of packed structures
-# -g: Include debugging information
-# -m32: Generate 32-bit code
-# -lstdc++: Link with the C++ standard library
-# -msse: Enable SSE instructions (only to be able to add registers xmm0-xmm7 to clobber list for inline assembly)
-# -O0: Disable optimizations
-
-# Add macro definition for debug mode
 ifeq ($(DEBUG),1)
-    DEBUG_FLAG = -DDEBUG
+	BUILD_TYPE = Debug
 else
-    DEBUG_FLAG =
+	BUILD_TYPE = Release
 endif
-DEVELOPER_FLAG = -DDEVELOPER=\"$(COMPUTERNAME)_$(USERNAME)\"
 
-# Windows toolchain
-WIN_CC = gcc.exe
-WIN_AS = nasm
-WIN_CFLAGS = $(CFLAGS) $(DEBUG_FLAG) $(DEVELOPER_FLAG) -mwindows -static
-WIN_LFLAGS = -shared -m32
-WIN_ASFLAGS = -f win32	# Output format for NASM (32-bit Windows)
-WIN_LIBS = -lkernel32 -lwininet -static-libgcc -static-libstdc++ -lstdc++ -ldbghelp -lole32 -loleaut32 -luuid -lgdi32
-# -mwindows: Link with the Windows GUI subsystem (no console)
-# -static: Link libraries statically
+CMAKE = cmake
 
-# Linux toolchain
-LINUX_CC = gcc
-LINUX_CFLAGS = $(CFLAGS) $(DEBUG_FLAG) $(DEVELOPER_FLAG) -fPIC
-LINUX_LFLAGS = -shared -m32
-LINUX_LIBS = -ldl -pthread
-# -fPIC: Generate position-independent code
-# -shared: Create a shared library (SO)
+# Windows settings
+WIN_BUILD_DIR = build\win-$(BUILD_TYPE)
+WIN_GAME_DIR  = bin\windows
+WIN_GENERATOR = "Ninja"
+WIN_TARGET    = mss32
+
+# Linux settings
+LINUX_BUILD_DIR = build/linux-$(BUILD_TYPE)
+LINUX_GAME_DIR  = bin/linux
+LINUX_GENERATOR = "Ninja"
+LINUX_TARGET    = linux
+
+
+
+# ========================================================================================================
+# Clean all
+# ========================================================================================================
+.PHONY: clean
+
+clean: clean_win clean_linux
+
+
+
+# =========================================
+# Windows targets
+# =========================================
+.PHONY: rebuild_win build_win configure_win clean_win
+
+rebuild_win: clean_win build_win
+
+configure_win:
+	@echo ">> Configuring Windows $(BUILD_TYPE) build...";
+	$(CMAKE) -S . -B $(WIN_BUILD_DIR) -G $(WIN_GENERATOR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
+
+build_win: prebuild configure_win
+	$(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+ifeq ($(BUILD_TYPE),Release)
+	@echo Re-building with accurate mss32 symbols...
+	$(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+endif
+
+	@echo Renaming mss32.build.dll to mss32.dll + deleting old versions...
+	@del /Q "$(WIN_GAME_DIR)\mss32.dll*" >nul 2>&1
+	@del /Q "$(WIN_GAME_DIR)\mss32_hotreload_*.dll" >nul 2>&1
+	@cmd /Q /C "cd "$(WIN_GAME_DIR)" && for /L %i in (1,1,10) do if not exist mss32.dll.%i.old (ren mss32.dll mss32.dll.%i.old >nul 2>&1 & goto :done) & :done"
+	@move /Y "$(WIN_GAME_DIR)\mss32.build.dll" "$(WIN_GAME_DIR)\mss32.dll" >nul 2>&1
+	@echo Done.
+	@echo.
+
+clean_win:
+ifeq ($(OS),Windows_NT)
+	@if exist "build/win-Release" rmdir /S /Q "build/win-Release"
+	@if exist "build/win-Debug" rmdir /S /Q "build/win-Debug"
+else
+	@rm -rf build/win-Release build/win-Debug
+endif
+
+
+# =========================================
+# Linux targets
+# =========================================
+.PHONY: rebuild_linux build_linux configure_linux clean_linux
+
+rebuild_linux: clean build_linux
+
+configure_linux:
+	@echo ">> Configuring Linux $(BUILD_TYPE) build...";
+	$(CMAKE) -S . -B $(LINUX_BUILD_DIR) -G $(LINUX_GENERATOR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
+
+build_linux: prebuild configure_linux
+	@echo ">> Building Linux $(BUILD_TYPE)...";
+	$(CMAKE) --build $(LINUX_BUILD_DIR) --target $(LINUX_TARGET) --parallel
+
+clean_linux:
+ifeq ($(OS),Windows_NT)
+	@if exist "build/linux-Release" rmdir /S /Q "build/linux-Release"
+	@if exist "build/linux-Debug" rmdir /S /Q "build/linux-Debug"
+else
+	@rm -rf build/linux-Release build/linux-Debug
+endif
+
+
+
+
+# ========================================================================================================
+# Prebuild
+# ========================================================================================================
+.PHONY: prebuild
+
+prebuild: src/shared/version.h src/mss32/version.rc
+	@echo "Current working directory: $(CURDIR)"
 
 
 ifeq ($(OS),Windows_NT)
@@ -146,211 +155,83 @@ else
 	ECHO_QUOTE_ESCAPED = \"
 endif
 
-
-# ========================================================================================================
-# Build Targets and Rules
-# ========================================================================================================
-
-
-# Default target
-all: prebuild build_mss32_win build_cod2x_linux
-	@echo "Build completed for all targets."
-
-# Prebuild target to ensure version.h is updated when makefile changes.
-prebuild: $(SHARED_SRC_DIR)/version.h
-	@echo "Prebuild complete."
-
 # Rule to generate version.h every time the makefile changes
-$(SHARED_SRC_DIR)/version.h: makefile
+VERSION_H = src/shared/version.h
+src/shared/version.h: makefile
 	@echo Generating version.h...
 
-	@echo $(ECHO_QUOTE)#define APP_VERSION_MAJOR $(VERSION_MAJOR)$(ECHO_QUOTE) 			>  $(SHARED_SRC_DIR)/version.h
-	@echo $(ECHO_QUOTE)#define APP_VERSION_MINOR $(VERSION_MINOR)$(ECHO_QUOTE) 			>> $(SHARED_SRC_DIR)/version.h
-	@echo $(ECHO_QUOTE)#define APP_VERSION_PROTOCOL $(VERSION_PROTOCOL)$(ECHO_QUOTE) 	>> $(SHARED_SRC_DIR)/version.h
-	@echo $(ECHO_QUOTE)#define APP_VERSION_PATCH $(VERSION_PATCH)$(ECHO_QUOTE) 			>> $(SHARED_SRC_DIR)/version.h
-	@echo $(ECHO_QUOTE)#define APP_VERSION_IS_TEST $(VERSION_IS_TEST)$(ECHO_QUOTE) 		>> $(SHARED_SRC_DIR)/version.h
-	@echo $(ECHO_QUOTE)#define APP_VERSION $(ECHO_QUOTE_ESCAPED)$(VERSION)$(ECHO_QUOTE_ESCAPED)$(ECHO_QUOTE) 					>> $(SHARED_SRC_DIR)/version.h
+	@echo $(ECHO_QUOTE)#define APP_VERSION_MAJOR $(VERSION_MAJOR)$(ECHO_QUOTE) 										>  $(VERSION_H)
+	@echo $(ECHO_QUOTE)#define APP_VERSION_MINOR $(VERSION_MINOR)$(ECHO_QUOTE) 										>> $(VERSION_H)
+	@echo $(ECHO_QUOTE)#define APP_VERSION_PROTOCOL $(VERSION_PROTOCOL)$(ECHO_QUOTE) 								>> $(VERSION_H)
+	@echo $(ECHO_QUOTE)#define APP_VERSION_PATCH $(VERSION_PATCH)$(ECHO_QUOTE) 										>> $(VERSION_H)
+	@echo $(ECHO_QUOTE)#define APP_VERSION_IS_TEST $(VERSION_IS_TEST)$(ECHO_QUOTE) 									>> $(VERSION_H)
+	@echo $(ECHO_QUOTE)#define APP_VERSION $(ECHO_QUOTE_ESCAPED)$(VERSION)$(ECHO_QUOTE_ESCAPED)$(ECHO_QUOTE) 		>> $(VERSION_H)
 	
-	@echo $(VERSION) writed to $(SHARED_SRC_DIR)/version.h
+	@echo $(VERSION) writed to $(VERSION_H)
 	@echo   Done.
 
-
-
-# ========================================================================================================
-# Windows MSS32
-# ========================================================================================================
-
-# MSS32 Windows target
-build_mss32_win:
-	$(MAKE) prebuild
-	$(MAKE) build_mss32_win_target
-	@echo.
-	@echo "MSS32 (Windows) build complete."
-	@echo.
-	@echo.
-
-build_mss32_win_target: $(WIN_MSS32_TARGET)
-	@echo.
-	@echo.
-
-rebuild_mss32_win:
-	$(MAKE) clean_win
-	$(MAKE) build_mss32_win
-	@echo.
-	@echo "MSS32 (Windows) rebuild complete."
-	@echo.
-	@echo.
-
-# Linking files into mss32.dll
-$(WIN_MSS32_TARGET): $(WIN_MSS32_OBJECTS) $(WIN_MSS32_OBJ_DIR)/version.res
-	@echo Renaming '$@' to ensure it is not locked by another process...
-	@-if exist "$(subst /,\,$(abspath $@.2.old))" move "$(subst /,\,$(abspath $@.2.old))" "$(subst /,\,$(abspath $@.3.old))"
-	@-if exist "$(subst /,\,$(abspath $@.1.old))" move "$(subst /,\,$(abspath $@.1.old))" "$(subst /,\,$(abspath $@.2.old))"
-	@-if exist "$(subst /,\,$(abspath $@))" move "$(subst /,\,$(abspath $@))" "$(subst /,\,$(abspath $@.1.old))"
-	@echo.
-
-	@echo Deleting any mss32_hotreload_*.dll files...
-	@for %%f in ("$(WIN_BIN_DIR)\mss32_hotreload_*.dll") do (del /Q "%%f" || exit /b 0)	
-	@echo   Done.
-
-	@echo.
-	@echo "Linking $@..."
-	$(WIN_CC) $(WIN_LFLAGS) -o $@ $^ $(WIN_LIBS) $(WIN_MSS32_SRC_DIR)/mss32.def
-	@echo   Done.
-
-	@echo.
-	@if "$(DEBUG)"=="0" ( echo RELEASE, stripping debug info from $@... && strip $@ ) else ( echo DEBUG=1, skipping strip )
-	@echo   Done.
-	@echo.
-
-# Compile C++ files
-$(WIN_MSS32_OBJ_DIR)/%.o: $(WIN_MSS32_SRC_DIR)/%.cpp | $(WIN_MSS32_OBJ_DIR) $(SHARED_SRC_DIR)/version.h
-	@echo "Compiling $< for MSS32 (Windows)..."
-	$(WIN_CC) $(WIN_CFLAGS) -MMD -MP -c -o $@ $<
-	@echo   Done.  "$<"
-	@echo.
-
-# Assemble ASM files
-$(WIN_MSS32_OBJ_DIR)/%.o: $(WIN_MSS32_SRC_DIR)/%.asm | $(WIN_MSS32_OBJ_DIR) $(SHARED_SRC_DIR)/version.h
-	@echo "Assembling $< for MSS32 (Windows)..."
-	$(WIN_AS) $(WIN_ASFLAGS) $< -o $@
-	@echo   Done.  "$<"
-	@echo.
-
-
+ifeq ($(OS),Windows_NT)
 # Generate version.rc file if makefile has changed
-$(TMP)/version.rc: makefile
+VERSION_RC = src/mss32/version.rc
+src/mss32/version.rc: makefile
 	@echo Generating version.rc...
 
-	@echo 1 VERSIONINFO                                			>  $(TMP)/version.rc
-	@echo FILEVERSION $(VERSION_COMMA)                			>> $(TMP)/version.rc
-	@echo PRODUCTVERSION $(VERSION_COMMA)             			>> $(TMP)/version.rc
-	@echo BEGIN                                       			>> $(TMP)/version.rc
-	@echo     BLOCK "StringFileInfo"                  			>> $(TMP)/version.rc
-	@echo     BEGIN                                   			>> $(TMP)/version.rc
-	@echo         BLOCK "040904b0"                    			>> $(TMP)/version.rc
-	@echo         BEGIN                               			>> $(TMP)/version.rc
-	@echo             VALUE "ProductName", "CoD2x"    			>> $(TMP)/version.rc
-	@echo             VALUE "ProductVersion", "$(VERSION)" 		>> $(TMP)/version.rc
-	@echo         END                                 			>> $(TMP)/version.rc
-	@echo     END                                     			>> $(TMP)/version.rc
-	@echo     BLOCK "VarFileInfo"                     			>> $(TMP)/version.rc
-	@echo     BEGIN                                   			>> $(TMP)/version.rc
-	@echo         VALUE "Translation", 0x0409, 1200  			>> $(TMP)/version.rc
-	@echo     END                                     			>> $(TMP)/version.rc
-	@echo END                                         			>> $(TMP)/version.rc
+	@echo 1 VERSIONINFO                                			>  $(VERSION_RC)
+	@echo FILEVERSION $(VERSION_COMMA)                			>> $(VERSION_RC)
+	@echo PRODUCTVERSION $(VERSION_COMMA)             			>> $(VERSION_RC)
+	@echo BEGIN                                       			>> $(VERSION_RC)
+	@echo     BLOCK "StringFileInfo"                  			>> $(VERSION_RC)
+	@echo     BEGIN                                   			>> $(VERSION_RC)
+	@echo         BLOCK "040904b0"                    			>> $(VERSION_RC)
+	@echo         BEGIN                               			>> $(VERSION_RC)
+	@echo             VALUE "ProductName", "CoD2x"    			>> $(VERSION_RC)
+	@echo             VALUE "ProductVersion", "$(VERSION)" 		>> $(VERSION_RC)
+	@echo         END                                 			>> $(VERSION_RC)
+	@echo     END                                     			>> $(VERSION_RC)
+	@echo     BLOCK "VarFileInfo"                     			>> $(VERSION_RC)
+	@echo     BEGIN                                   			>> $(VERSION_RC)
+	@echo         VALUE "Translation", 0x0409, 1200  			>> $(VERSION_RC)
+	@echo     END                                     			>> $(VERSION_RC)
+	@echo END                                         			>> $(VERSION_RC)
 
 	@echo   Done.
 	@echo.
-
-# Compile version.rc into a .res file
-$(WIN_MSS32_OBJ_DIR)/version.res: $(TMP)/version.rc
-	@echo Compiling version.res...
-
-	windres $(TMP)\version.rc -O coff -o $(WIN_MSS32_OBJ_DIR)\version.res
-
-	@echo   Done.
-	@echo.
-
-
-# Include dependency files
--include $(WIN_MSS32_OBJ_DIR)/*.d
-
-# Create directories
-$(WIN_MSS32_OBJ_DIR) $(WIN_BIN_DIR):
-	@if not exist $(subst /,\, $@) mkdir $(subst /,\, $@)
-
+endif
 
 
 # ========================================================================================================
-# Linux
+# Create .cpp and .h template
 # ========================================================================================================
+# Depend on the files to not overwrite existing files
+template: $(DIR)/$(CLASSNAME).h $(DIR)/$(CLASSNAME).cpp
 
-# CoD2x Linux target
-build_cod2x_linux:
-	$(MAKE) prebuild
-	$(MAKE) build_cod2x_linux_target
-	@echo ""
-	@echo "CoD2x (Linux) build complete."
-	@echo ""
-
-build_cod2x_linux_target: $(LINUX_TARGET)
-	@echo ""
-
-rebuild_cod2x_linux:
-	$(MAKE) clean_lin
-	$(MAKE) build_cod2x_linux
-	@echo ""
-	@echo "CoD2x (Linux) rebuild complete."
-	@echo ""
+$(DIR)/$(CLASSNAME).h $(DIR)/$(CLASSNAME).cpp: src/_template.h.in src/_template.cpp.in
+	@powershell -Command "Get-Content src/_template.h.in | ForEach-Object { $$_ -replace '@CLASSNAME@','$(CLASSNAME)' }" > $(DIR)/$(CLASSNAME).h
+	@powershell -Command "Get-Content src/_template.cpp.in | ForEach-Object { $$_ -replace '@CLASSNAME@','$(CLASSNAME)' }" > $(DIR)/$(CLASSNAME).cpp
+	@echo Created $(DIR)/$(CLASSNAME).h and $(DIR)/$(CLASSNAME).cpp
 	
-$(LINUX_TARGET): $(LINUX_OBJECTS)
-	@echo "Linking to $@..."
-	$(LINUX_CC) $(LINUX_LFLAGS) -o $@ $^ $(LINUX_LIBS)
-	@echo   Done.  "$<"
-	@echo ""
-
-$(LINUX_OBJ_DIR)/%.o: $(LINUX_SRC_DIR)/%.cpp | $(LINUX_OBJ_DIR) $(SHARED_SRC_DIR)/version.h
-	@echo "Compiling $< for CoD2x (Linux)..."
-	$(LINUX_CC) $(LINUX_CFLAGS) -MMD -MP -c -o $@ $<
-	@echo   Done.  "$<"
-	@echo ""
-
-
-# Include dependency files
--include $(LINUX_OBJ_DIR)/*.d
-
-# Create directories
-$(LINUX_OBJ_DIR) $(LINUX_BIN_DIR):
-	@mkdir -p $@
-
+	@code --reuse-window $(DIR)/$(CLASSNAME).cpp
 
 
 # ========================================================================================================
-# Shared for Windows and Linux
+# Ziping
 # ========================================================================================================
+.PHONY: zip_all
+zip_all: zip_win zip_linux
 
-# Compile shared functionality objects for Windows
-$(WIN_MSS32_OBJ_DIR)/shared_%.o: $(SHARED_SRC_DIR)/%.cpp | $(WIN_MSS32_OBJ_DIR) $(SHARED_SRC_DIR)/version.h
-	@echo "Compiling $< for shared functionality (Windows)..."
-	$(WIN_CC) $(WIN_CFLAGS) -MMD -MP -c -o $@ $<
-	@echo   Done.  "$<"
-	@echo.
-
-# Compile shared functionality objects for Linux
-$(LINUX_OBJ_DIR)/shared_%.o: $(SHARED_SRC_DIR)/%.cpp | $(LINUX_OBJ_DIR)
-	@echo "Compiling $< for shared functionality (Linux)..."
-	$(LINUX_CC) $(LINUX_CFLAGS) -MMD -MP -c -o $@ $<
-	@echo   Done.  "$<"
-	@echo ""
-
-
-
+ZIP_EXEC = 7za.exe
 
 
 # ========================================================================================================
-# Zip output files for Windows
+# Zip windows files
 # ========================================================================================================
+.PHONY: zip_win zip_win_clean
+
+# Define source files and target paths
+ZIP_WIN_DIR = zip/windows
+ZIP_WIN_FILES = bin/windows/mss32.dll bin/windows/mss32_original.dll
+ZIP_WIN_NAME = CoD2x_$(VERSION)_windows.zip
+ZIP_WIN_OUTPUT = $(ZIP_WIN_DIR)/$(ZIP_WIN_NAME)
 
 # Rule to create the zip file
 $(ZIP_WIN_OUTPUT): $(ZIP_WIN_FILES) | $(ZIP_WIN_DIR)
@@ -377,10 +258,15 @@ zip_win_clean:
 	)
 
 
+# ========================================================================================================
+# Zip Linux files
+# ========================================================================================================
+.PHONY: zip_linux zip_linux_clean
 
-# ========================================================================================================
-# Zip output files for Linux
-# ========================================================================================================
+ZIP_LINUX_DIR = zip/linux
+ZIP_LINUX_FILES = bin/linux/libCoD2x.so bin/linux/cod2_lnxded
+ZIP_LINUX_NAME = CoD2x_$(VERSION)_linux.zip
+ZIP_LINUX_OUTPUT = $(ZIP_LINUX_DIR)/$(ZIP_LINUX_NAME)
 
 # Rule to create the Linux zip file
 $(ZIP_LINUX_OUTPUT): $(ZIP_LINUX_FILES) | $(ZIP_LINUX_DIR)
@@ -407,34 +293,18 @@ zip_linux_clean:
 	)
 
 
-
-zip_all: zip_win zip_linux
-
-
-
-
 # ========================================================================================================
-# Cleaning Up
+# Zip embedded IWD files
 # ========================================================================================================
+.PHONY: zip_iwd
 
-clean_win:
-	@echo "Cleaning up Windows build files..."
-	@if exist $(subst /,\, $(WIN_MSS32_OBJ_DIR))\*.o del /Q $(subst /,\, $(WIN_MSS32_OBJ_DIR))\*.o
-	@if exist $(subst /,\, $(WIN_MSS32_OBJ_DIR))\*.d del /Q $(subst /,\, $(WIN_MSS32_OBJ_DIR))\*.d
-	@if exist $(subst /,\, $(WIN_MSS32_TARGET)) del /Q $(subst /,\, $(WIN_MSS32_TARGET))
-	@if exist $(subst /,\, $(WIN_MSS32_OBJ_DIR)/version.res) del /Q $(subst /,\, $(WIN_MSS32_OBJ_DIR)/version.res)
-	@echo "Windows clean done."
+# IWD number, increase for each new IWD created
+IWD_NUM ?= 01
 
-clean_lin:
-	@echo "Cleaning up Linux build files..."
-	@rm -f $(LINUX_OBJ_DIR)/*.o
-	@rm -f $(LINUX_OBJ_DIR)/*.d
-	@rm -f $(LINUX_TARGET)
-	@echo "Linux clean done."
+IWD_DIR = src/embedded/iw_CoD2x_$(IWD_NUM)
+IWD_FILE = iw_CoD2x_$(IWD_NUM).iwd
 
-
-# ========================================================================================================
-# Phony Targets
-# ========================================================================================================
-
-.PHONY: all clean build_mss32_win build_cod2x_linux zip_win zip_win_clean
+zip_iwd:
+	@echo Zipping files from $(IWD_DIR) into $(IWD_FILE) ...
+	@cd $(IWD_DIR) && if exist "..\$(IWD_FILE)" del "..\$(IWD_FILE)" && $(ZIP_EXEC) a -tzip "..\$(IWD_FILE)" *
+	@echo Done: $(IWD_FILE)

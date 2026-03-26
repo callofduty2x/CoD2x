@@ -1,0 +1,15 @@
+#ifndef @CLASSNAME@_H
+#define @CLASSNAME@_H
+
+// [DELETEME] Include system headers
+#include <iostream>
+#include <string>
+
+// [DELETEME] Include shared headers
+#include "shared.h"
+
+void @CLASSNAME@_frame();
+void @CLASSNAME@_init();
+void @CLASSNAME@_patch();
+
+#endif

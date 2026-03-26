@@ -64,6 +64,9 @@ ASM_CALL(RETURN_VOID, 0x00434460, 1, EAX(var1), ECX(var2), PUSH(var3));
 #define ESI(var) ASM__mov("esi", var)
 #define PUSH(var) ASM__push(var)
 #define RETURN(var) ASM__movr(var, "eax")
+#define RETURN_SHORT(var) __asm__ volatile("movw %%ax, %0\n" : "=m"(var) : : "memory", "cc")
+#define RETURN_ST0_FLOAT(var) __asm__ volatile("fstps %0" : "=m"(var) : : "memory")
+#define RETURN_ST0_DOUBLE(var) __asm__ volatile("fstpl %0" : "=m"(var) : : "memory")
 #define RETURN_VOID
 
 // Push 32-bit word from a struct by offset.
@@ -150,9 +153,26 @@ ASM_CALL(RETURN_VOID, 0x00434460, 1, EAX(var1), ECX(var2), PUSH(var3));
  * - Param 4. `...` – Arguments of the function - can be PUSH(variable) or EAX(variable), ECX(variable), etc.
  */
 #define ASM_CALL(...) \
+    { \
     GET_ASM_CALL_MACRO(__VA_ARGS__, \
-        ASM_CALL_13, ASM_CALL_12, ASM_CALL_11, ASM_CALL_10, ASM_CALL_9, ASM_CALL_8, ASM_CALL_7, ASM_CALL_6, ASM_CALL_5, ASM_CALL_4, ASM_CALL_3, ASM_CALL_2, ASM_CALL_1, ASM_CALL_0)(__VA_ARGS__)
+        ASM_CALL_13, ASM_CALL_12, ASM_CALL_11, ASM_CALL_10, ASM_CALL_9, ASM_CALL_8, ASM_CALL_7, ASM_CALL_6, ASM_CALL_5, ASM_CALL_4, ASM_CALL_3, ASM_CALL_2, ASM_CALL_1, ASM_CALL_0)(__VA_ARGS__)\
+    }
 
+/**
+ * Call a function with a variable number of arguments and return the value.
+ * 
+ * Example:
+ * - `inline materialHandle_t* CG_RegisterMaterial(const char* name, materialType_e type) {`
+ * - `   ASM_CALL_RETURN(materialHandle_t*, 0x00402160, 0, ECX(name), EAX(type))`
+ * - `}`
+ * 
+ */
+#define ASM_CALL_RETURN(type, ...) \
+    { \
+    type _variable_to_return; \
+    ASM_CALL(RETURN(_variable_to_return), __VA_ARGS__) \
+    return _variable_to_return; \
+    }
 
         
 // Make structure packed - remove paddding, ensure that the structure is aligned to 1 byte

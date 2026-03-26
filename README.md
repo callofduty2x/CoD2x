@@ -2,30 +2,41 @@
 ![alt text](images/cod2-window.png)
 
 CoD2x is a modification of Call of Duty 2. It is build on top of 1.3 version.
-
 It focuses on fixing bugs and adding new features to the game.
 
-# Version history
+⚠️ Disclaimer
+- The CoD2x patch is a community-made, unofficial modification for Call of Duty 2.
+- It is provided free of charge, “as is”, without any warranty of functionality or support.
+- You use it entirely at your own risk. The authors are not affiliated with Activision or Infinity Ward and take no responsibility for any issues or damages resulting from its use.
+- To use this patch, you must own a legitimate, original copy of Call of Duty 2 purchased from an official distributor.
+- This software may be terminated or withdrawn at any time
 
-- 2025-07-25 - 1.4.4.6 - current
-- 2025-07-12 - 1.4.4.5 - current
-- 2025-07-04 - 1.4.4.4
-- 2025-06-27 - 1.4.4.3
-- 2025-06-23 - 1.4.4.2
-- 2025-06-20 - 1.4.4.1
+# Version history
+- 2026-03-25 - **[1.4.6.6](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.6)** - **current**
 
 <details>
   <summary>Older versions</summary>
 
-- 2025-06-08 - 1.4.3.5
-- 2025-06-06 - 1.4.3.4
-- 2025-06-06 - 1.4.3.3
-- 2025-06-02 - 1.4.3.2
-- 2025-05-25 - 1.4.3.1
-- 2025-03-06 - 1.4.2.3
-- 2025-03-02 - 1.4.2.2
-- 2025-01-23 - 1.4.2.1
-- 2025-01-23 - 1.4.1.1
+- 2026-03-24: **[1.4.6.5](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.5)**
+- 2026-02-22: **[1.4.6.4](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.4)**
+- 2025-11-18: **[1.4.6.3](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.3)**
+- 2025-11-06: **[1.4.6.2](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.2)**
+- 2025-11-04: **[1.4.6.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.1)**
+- 2025-07-25: **[1.4.4.6](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.6)**
+- 2025-07-12: **[1.4.4.5](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.5)**
+- 2025-07-04: **[1.4.4.4](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.4)**
+- 2025-06-27: **[1.4.4.3](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.3)**
+- 2025-06-23: **[1.4.4.2](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.2)**
+- 2025-06-20: **[1.4.4.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.1)**
+- 2025-06-08: **[1.4.3.5](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.3.5)**
+- 2025-06-06: **[1.4.3.4](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.3.4)**
+- 2025-06-06: **[1.4.3.3](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.3.3)**
+- 2025-06-02: **[1.4.3.2](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.3.2)**
+- 2025-05-25: **[1.4.3.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.3.1)**
+- 2025-03-06: **[1.4.2.3](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.2.3)**
+- 2025-03-02: **[1.4.2.2](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.2.2)**
+- 2025-01-23: **[1.4.2.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.2.1)**
+- 2025-01-23: **[1.4.1.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.1.1)**
 
 </details>
 
@@ -72,6 +83,13 @@ It focuses on fixing bugs and adding new features to the game.
 - Smaller font size of text
   - When downloading IWD file
   - Text "RECORDING" in the left bottom corner when recording demo
+- Behavior tweaks: automatically set `developer 2` and `sv_cheats 1` when playing demos
+- Increased number of visible cvars in console
+- Increased dvar limit from 1280 to 4096
+- DDoS protection via rate limiter for incoming UDP packets
+- Shogun consistent pellet spread
+  - ![alt text](images/pellet_spread.png)
+  - changeable via new cvar `g_shotgun_spread_fix`
 
 #### Improvements
 - Added windowed and borderless window mode:
@@ -135,10 +153,58 @@ It focuses on fixing bugs and adding new features to the game.
     - `r_lodScale 0.5` - better model detail in distance
     - `r_lodScale 0` - best model detail in distance
 - Disabled VirtualStore folder redirection by checking for privileges
+- New GSC functions - list in [GSC functions](#gsc-functions)
+- Match system
+- Automatic demo uploading
+- Detection of uninitialized sound system
+- Radar
+- vMIX support
+- URL protocol to launch the game from web links: `cod2x://`
+- Toggle killfeed custom color rendering (`con_printDoubleColors`);
+- Bullet trace debugging (`cg_debugBullets`);
+- Automatic zPAM updates
+- Smarter IWD handling and configs: always use `main/config_mp.cfg`; improved filtering to prevent sum/name mismatch; for demos only IWDs used at record-time are loaded; for listen servers only the latest zPAM files are loaded; assets in `movie` are included for demo playback; automatic extraction of `iw_CoD2x_01.iwd`.
+- Cvar to disable saving changes to config via cvar `com_writeConfig`
+
+
+# GSC functions
+### Level
+```markdown
+- `http_fetch` - Fetches data from an HTTP endpoint asynchronously. Allows specifying HTTP method, data, headers, and callbacks for success or error handling.
+
+- `websocket_connect` - Establishes a WebSocket connection to a specified URL with optional headers and callbacks for connection, message, close, and error events.
+- `websocket_sendText` - Sends a text message over an active WebSocket connection.
+- `websocket_close` - Closes an active WebSocket connection by its connection ID.
+
+- `matchUploadData` - Uploads match-related data to the server with optional callbacks for success or error handling.
+- `matchSetData` - Sets global match data using key-value pairs.
+- `matchGetData` - Retrieves global match data for a specified key.
+- `matchRedownloadData` - Redownloads match-related data from the server.
+- `matchClearData` - Clears all match-related progress data.
+- `matchIsActivated` - Checks if the match system is currently activated.
+- `matchCancel` - Cancels the ongoing match with an optional reason.
+- `matchFinish` - Marks the match as finished, kicking all players and performing a fast restart.
+```
+
+### Player
+```markdown
+- `getIp` - Retrieves the IP address of the player.
+- `getHWID` - Retrieves the hardware ID (HWID2) of the player, used for unique identification.
+- `getCDKeyHash` - Retrieves the MD5 hash of the player's CD key, which is sent during connection.
+- `getAuthorizationStatus` - Retrieves the authorization status of the player's CD key, such as validity or ban status.
+
+- `getViewOrigin` - Retrieves the player's current view origin as a 3D vector.
+- `getStance` - Retrieves the player's current stance (e.g., stand, crouch, prone).
+- `isUsingTurret` - Checks if the player is currently using a turret.
+
+- `matchPlayerGetData` - Retrieves match-related data for a player using a specified key.
+- `matchPlayerSetData` - Sets match-related data for a player using key-value pairs.
+- `matchPlayerIsAllowed` - Checks if a player is allowed to join the match based on their credentials.
+```
 
 # How to install (client on Windows)
 1. You need original Call of Duty 2 with version [1.3](https://www.moddb.com/games/call-of-duty-2/downloads/call-of-duty-2-pc-patch-v-13) installed.
-2. Download latest version of CoD2x - [CoD2x_1.4.4.6_windows.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.4.6/CoD2x_1.4.4.6_windows.zip)
+2. Download latest version of CoD2x - [CoD2x_1.4.6.6_windows.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.6.6/CoD2x_1.4.6.6_windows.zip)
 3. Extract these files from the archive to the Call of Duty 2 folder, replacing any existing file:
     - 📄 mss32.dll
     - 📄 mss32_original.dll
@@ -167,7 +233,7 @@ It focuses on fixing bugs and adding new features to the game.
 
 
 # How to install (server on Linux)
-1. Download latest version of CoD2x - [CoD2x_1.4.4.6_linux.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.4.6/CoD2x_1.4.4.6_linux.zip)
+1. Download latest version of CoD2x - [CoD2x_1.4.6.6_linux.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.6.6/CoD2x_1.4.6.6_linux.zip)
 2. Extract this file from the archive to the Call of Duty 2 folder:
     - 📄 libCoD2x.so
 3. Final structure should look like this:
@@ -236,10 +302,17 @@ In registry, when the game runs with administrator rights, we are moving old val
     - `sudo apt update`
     - `sudo dpkg --add-architecture i386`
     - `sudo apt update`
-    - `sudo apt install -y make gcc gdb gdbserver:i386 build-essential`
+    - `sudo apt install -y make ninja-build gcc gdb gdbserver:i386 build-essential`
     - `sudo apt install -y libc6:i386 libstdc++5:i386 libgcc1:i386` (runtime libraries to run original CoD2) 
+    - `sudo apt install -y libssl-dev:i386` (development libraries for OpenSSL)
     - `sudo apt install -y gcc-multilib libc6-dev:i386` (development libraries to compile new code)
     - `sudo apt-get install gcc-multilib g++-multilib` (some dependencies for compiling)
+    - Install cmake >=3.25.2 (on Ubuntu 18.04 cmake version is 3.10, we need that for new options):
+    - `sudo apt install -y software-properties-common lsb-release ca-certificates gnupg wget`
+    - `wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | sudo apt-key add -`
+    - `sudo apt-add-repository "deb https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main"`
+    - `sudo apt update`
+    - `sudo apt install -y cmake`
     - `exit`
     - `wsl --set-default Ubuntu-18.04`
     - |
@@ -315,13 +388,6 @@ It also runs patching process that modifies the game memory to fix some bugs and
 - [CoD4x_Server](https://github.com/callofduty4x/CoD4x_Server)
 - [zk_libcod](https://github.com/ibuddieat/zk_libcod)
 - [Enemy-Territory](https://github.com/id-Software/Enemy-Territory)
-
-
-
-## Support
-You can support this project by donating via PayPal:
-[![Donate with PayPal](images/paypal.png)](https://www.paypal.com/donate/?hosted_button_id=R59Y6UN9LJVXQ)
-
 
 
 # Logo

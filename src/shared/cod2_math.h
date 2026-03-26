@@ -43,6 +43,9 @@
 #define DEG2RAD(x) ((x) * (M_PI / 180.0f))
 #define RAD2DEG(x) ((x) * (180.0f / M_PI))
 
+#define DEGINRAD  57.29577951308232 // degrees in one radian
+#define RADINDEG  0.0174532925199433 // radian in one degree
+
 #ifndef M_PI
 #define M_PI        3.14159265358979323846f // matches value in gcc v2 math.h
 #endif

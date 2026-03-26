@@ -20,7 +20,7 @@ wsl bash -c "if [ ! -d ~/CoD2x/main ]; then echo 'Directory ~/CoD2x/main does no
 
 :: Sync .IWD files, so the content is the same, (copy only if they differ or do not exist)
 echo Synchronizing files from %WSLPATH%/bin/windows/main/ to ~/CoD2x/main/...
-wsl bash -c "rsync -av --delete --include='*.iwd' --exclude='*' \"%WSLPATH%/bin/windows/main/\" ~/CoD2x/main/"
+wsl bash -c "rsync -av --delete --include='*.iwd' --include='*.gsc' --exclude='*' \"%WSLPATH%/bin/windows/main/\" ~/CoD2x/main/"
 
 :: Update launch_args_linux.cfg
 wsl bash -c "cp -v \"%WSLPATH%/bin/windows/main/launch_args_linux.cfg\" ~/CoD2x/main/"

@@ -1,73 +1,69 @@
 {
     "version": "2.0.0",
-    "tasks": [    
+    "tasks": [
         {
-            "label": "Clean Win",
+            "label": "Clean All",
+            "icon": { "id": "clear-all" },
             "type": "shell",
-            "command": "mingw32-make.exe",
-            "args": ["clean_win"],
-            "group": {
-                "kind": "build",
-            },
-            "problemMatcher": [],
-            "options": {
-                "cwd": "${workspaceFolder}",
-                "env": {
-                    "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}"
-                }
-            }
-        },
-        {
-            "label": "Clean Linux",
-            "type": "shell",
-            "command": "wsl",
-            "args": ["make", "clean_lin"],
-            "group": {
-                "kind": "build"
-            },
-        },
-        {
-            "label": "Build Win",
-            "type": "shell",
-            "command": "mingw32-make.exe",
-            "args": ["build_mss32_win", "-j${env:NUMBER_OF_PROCESSORS}"],
-            "group": {
-                "kind": "build"
-            },
-            "problemMatcher": ["$gcc"],
-            "options": {
-                "env": {
-                    "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}"
-                }
-            }
+            "command": "${workspaceFolder}/tools/mingw/bin/mingw32-make",
+            "args": [ "clean" ]
         },
 
         {
-            "label": "Build Linux",
+            "label": "Build Win",
+            "icon": { "id": "gather" },
             "type": "shell",
-            "command": "wsl",
-            "args": ["make", "build_cod2x_linux", "-j${env:NUMBER_OF_PROCESSORS}"],
-            "problemMatcher": ["$gcc"],
-            "group": {
-                "kind": "build"
-            },
+            "command": "${workspaceFolder}/tools/mingw/bin/mingw32-make",
+            "args": [ "build_win"],
+            "group": { "kind": "build", "isDefault": true },
+            "options": { "env": { "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}" } },
+            "problemMatcher": ["$gcc"]
         },
         {
-            "label": "WSL Linux",
+            "label": "Build Linux",
+            "icon": { "id": "gather" },
             "type": "shell",
-            "command": "${workspaceFolder}/tools/wsl/WSL_run.bat",
-            "args": [
-              "${workspaceFolder}",
-              "+exec launch_args_linux.cfg"
-            ],
-            "problemMatcher": [],
-            "dependsOn": [
-                "Build CoD2x Linux"
-            ],
+            "command": "wsl",
+            "args": [ "make", "build_linux"],
+            "group": { "kind": "build", "isDefault": false },
+            "options": { "env": { "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}" } },
+            "problemMatcher": [ { 
+                "base": "$gcc", "pattern": { 
+                    "regexp": "^/mnt/[a-z]/CoD2x/(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+                }
+            }]
+        },
+
+        {
+            "label": "Rebuild Win RELEASE",
+            "icon": { "id": "gather" },
+            "type": "shell",
+            "command": "${workspaceFolder}/tools/mingw/bin/mingw32-make",
+            "args": [ "rebuild_win", "DEBUG=0"],
+            "group": { "kind": "build", "isDefault": false },
+            "options": { "env": { "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}" } },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Rebuild Linux RELEASE",
+            "icon": { "id": "gather" },
+            "type": "shell",
+            "command": "wsl",
+            "args": [ "make", "rebuild_linux", "DEBUG=0"],
+            "group": { "kind": "build", "isDefault": false },
+            "options": { "env": { "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}" } },
+            "problemMatcher": [ { 
+                "base": "$gcc", "pattern": { 
+                    "regexp": "^/mnt/[a-z]/CoD2x/(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+                    "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5
+                }
+            }]
         },
 
         {
             "label": "Zip",
+            "icon": { "id": "archive" },
             "type": "shell",
             "command": "mingw32-make.exe",
             "args": ["zip_all"],
@@ -81,29 +77,69 @@
                 }
             }
         },
+  
         {
-            "label": "Rebuild Win RELEASE",
+            "label": "WSL Linux",
+            "type": "shell",
+            "command": "${workspaceFolder}/tools/wsl/WSL_run.bat",
+            "args": [
+              "${workspaceFolder}",
+              "+exec launch_args_linux.cfg"
+            ],
+            "problemMatcher": [],
+            "dependsOn": [
+                "Build Linux"
+            ],
+            "hide": true,
+
+        },
+
+        {
+            "label": "New C++ Template",
             "type": "shell",
             "command": "mingw32-make.exe",
-            "args": ["rebuild_mss32_win", "-j${env:NUMBER_OF_PROCESSORS}", "DEBUG=0"],
-            "group": {
-                "kind": "build"
-            },
-            "problemMatcher": ["$gcc"],
+            "args": [
+                "template",
+                "CLASSNAME=${input:className}",
+                "DIR=${input:dir}"
+            ],
+            "problemMatcher": [],
             "options": {
                 "env": {
                     "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}"
                 }
             }
         },
+
         {
-            "label": "Rebuild Linux RELEASE",
+            "label": "Zip latest CoD2x IWD",
             "type": "shell",
-            "command": "wsl",
-            "args": ["make", "rebuild_cod2x_linux", "-j${env:NUMBER_OF_PROCESSORS}", "DEBUG=0"],
-            "group": {
-                "kind": "build"
-            },
+            "command": "mingw32-make.exe",
+            "args": ["zip_iwd"],
+            "problemMatcher": [],
+            "options": {
+                "env": {
+                    "PATH": "${workspaceFolder}/tools/mingw/bin;${workspaceFolder}/tools/7zip;${env:PATH}"
+                }
+            }
         }
-    ]
+    ],
+    "inputs": [
+        {
+            "id": "dir",
+            "type": "pickString",
+            "description": "Select target folder",
+            "options": [
+                "src/mss32",
+                "src/linux",
+                "src/shared"
+            ],
+            "default": "shared"
+        },
+        {
+            "id": "className",
+            "type": "promptString",
+            "description": "Enter file base name (without extension)"
+        }
+    ],
 }

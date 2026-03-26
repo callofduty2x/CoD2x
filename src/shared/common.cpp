@@ -2,17 +2,196 @@
 
 #include "shared.h"
 #include "cod2_common.h"
+#include "cod2_cmd.h"
 
 #define MAX_CONSOLE_LINES 32
 #define com_consoleLines ((char**)ADDR(0x00c26110, 0x081a21e0))
 #define com_numConsoleLines (*(int*)ADDR(0x00c27280, 0x081a21d4))
 
+char* common_commandLineOriginal = NULL;
 char common_commandLine[1024] = {0};
+
+#define MAX_STRING_TOKENS   512
+
+
+
+
+/*
+============
+Cmd_TokenizeString
+Parses the given string into command line tokens.
+The text is copied to a seperate buffer and 0 characters
+are inserted in the apropriate place, The argv array
+will point into this temporary buffer.
+============
+*/
+int Cmd_TokenizeStringInternal( const char *text_in, int max_tokens, char **argv, char *textOut )
+{
+	const char *str;
+
+	// clear previous args
+	int argc = 0;
+
+	// CoD2x: save original pointer to detect start-of-string for http:// check
+	const char *text_start = text_in;
+	// CoD2x: End
+
+	while ( 1 )
+	{
+		if ( argc == MAX_STRING_TOKENS )
+		{
+			return 0;			// this is usually something malicious
+		}
+
+		if ( !--max_tokens )
+			break;
+
+		while ( 1 )
+		{
+			// skip whitespace
+			while ( *text_in && *text_in <= ' ' )
+			{
+				text_in++;
+			}
+			if ( !*text_in )
+			{
+				return argc;			// all tokens parsed
+			}
+
+			// skip // comments
+			if ( text_in[0] == '/' && text_in[1] == '/' )
+			{
+				// CoD2x: lets us put 'http://' in commandlines
+				if ( text_in == text_start || ( text_in > text_start && text_in[-1] != ':' ) )
+				{
+					return argc;			// all tokens parsed
+				}
+				// CoD2x: End
+			}
+
+			// skip /* */ comments
+			if ( text_in[0] == '/' && text_in[1] =='*' )
+			{
+				while ( *text_in && ( text_in[0] != '*' || text_in[1] != '/' ) )
+				{
+					text_in++;
+				}
+				if ( !*text_in )
+				{
+					return argc;		// all tokens parsed
+				}
+				text_in += 2;
+			}
+			else
+			{
+				break;			// we are ready to parse a token
+			}
+		}
+
+		// handle quoted strings
+		// NOTE TTimo this doesn't handle \" escaping
+		if ( *text_in == '"' )
+		{
+			argv[argc++] = textOut;
+
+			for ( str = text_in + 1; *str && *str != '"'; ++str )
+			{
+				if ( *str == '\\' && str[1] == '"' )
+					++str;
+
+				*textOut++ = *str;
+			}
+
+			*textOut++ = 0;
+
+			if ( !*str )
+				return argc;
+
+			text_in = str + 1;
+
+			if ( !*text_in )
+				return argc;
+
+			if ( *text_in <= ' ' )
+				++text_in;
+		}
+		else
+		{
+			// regular token
+			argv[argc] = textOut;
+			argc++;
+
+			// skip until whitespace, quote, or command
+			while ( *text_in > ' ' )
+			{
+				if ( text_in[0] == '"' )
+				{
+					break;
+				}
+
+				if ( text_in[0] == '/' && text_in[1] == '/' )
+				{
+					// CoD2x: lets us put 'http://' in commandlines
+					if ( text_in == text_start || ( text_in > text_start && text_in[-1] != ':' ) )
+					{
+						break;
+					}
+					// CoD2x: End
+				}
+
+				// skip /* */ comments
+				if ( text_in[0] == '/' && text_in[1] =='*' )
+				{
+					break;
+				}
+
+				*textOut++ = *text_in++;
+			}
+
+			*textOut++ = 0;
+
+			if ( !*text_in )
+				return argc;
+
+			if ( *text_in <= ' ' )
+				++text_in;
+		}
+	}
+
+	if ( !*text_in )
+		return argc;
+
+	argv[argc] = textOut;
+
+	while ( *text_in )
+	{
+		*textOut++ = *text_in++;
+	}
+
+	*textOut = 0;
+
+	return argc + 1;
+}
+
+// 004210d0    int32_t Cmd_TokenizeStringInternal(char* text_in @ ecx, int32_t max_tokens, char** argv, char* text_out @ eax)
+int Cmd_TokenizeStringInternal_Win32(int32_t max_tokens, char** argv) {
+	char* text_in;
+	char* text_out;
+	ASM( movr, text_in, "ecx" );
+	ASM( movr, text_out, "eax" );
+
+	return Cmd_TokenizeStringInternal(text_in, max_tokens, argv, text_out);
+}
+
+
+
 
 void Com_ParseCommandLine( char *commandLine )
 {
     bool inq = 0;
     com_numConsoleLines = 0;
+
+    common_commandLineOriginal = commandLine;
 
     // CoD2x: Copy command line to local buffer
     if (strlen(commandLine) >= sizeof(common_commandLine)) {
@@ -40,14 +219,19 @@ void Com_ParseCommandLine( char *commandLine )
         }
         // CoD2x: End
 
-		if ( *commandLine == '"' )
+        // CoD2x: Break on + as in original
+        if (inq && *commandLine == ' ' && *(commandLine + 1) == '+') {
+            inq = false;
+        }
+        // CoD2x: End
+
+		else if ( *commandLine == '"' )
 		{
 			inq = !inq;
 		}
 
-        // CoD2x: Loop thru the quote, ignore separators
-        else if ( inq )
-        {
+        // CoD2x: Loop thru the quote, ignore separators, break on + as in original
+        else if (inq) {
             commandLine++;
             continue;
         }
@@ -61,6 +245,8 @@ void Com_ParseCommandLine( char *commandLine )
 			{
 				return;
 			}
+
+            inq = false;
 
             // CoD2x: dont add empty lines
             if (*(commandLine + 1) != '\0' && *(commandLine + 1) != '+' && *(commandLine + 1) != '\n' && *(commandLine + 1) != ',') { // CoD2x: end
@@ -89,28 +275,43 @@ void Com_ParseCommandLine_Win32() {
 
 
 
-void common_printInfo() {
-    Com_Printf("-----------------------------------\n");
-    Com_Printf("Command line: ");
+
+void cmd_commandLine() {
+    Com_Printf("Command line: \n");
+    Com_Printf("%s\n", common_commandLineOriginal);
     for (int i = 0; i < com_numConsoleLines; i++) {
         if (i > 0) {
-            Com_Printf(", ");
+            Com_Printf("\n");
         }
-        Com_Printf("'%s'", com_consoleLines[i]);
+        Com_Printf("  '%s'", com_consoleLines[i]);
     }
     if (com_numConsoleLines == 0) {
         Com_Printf("''");
     }
     Com_Printf("\n");
-    
+}
+
+
+
+void common_printInfo() {
     Com_Printf("-----------------------------------\n");
     Com_Printf("CoD2x " APP_VERSION " loaded\n");
     Com_Printf("-----------------------------------\n");
 }
 
 
-void common_init() {
 
+
+/** Called once when hot-reloading is activated. */
+void common_unload() {
+    Cmd_RemoveCommand("cmdLine");
+}
+
+
+
+/** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
+void common_init() {
+    Cmd_AddCommand("cmdLine", cmd_commandLine);
 }
 
 
@@ -138,6 +339,18 @@ void common_patch()
     // Hook Com_ParseCommandLine
     patch_call(ADDR(0x004344a8, 0x080620fd), (unsigned int)ADDR(Com_ParseCommandLine_Win32, Com_ParseCommandLine));
 
+
+    // Hook Cmd_TokenizeStringInternal
+    #if COD2X_WIN32
+		int addresses[] = { 0x0042127c, 0x004017de, 0x00401827, 0x0040197a, 0x004019d5, 0x00401a70, 0x00401a8d, 0x004057f2, 0x0040e914, 0x0042121b, 0x0042123b, 0x0042125c, 0x004214f2, 0x004327f3, 0x004328a5, 0x0043c56a, 0x0043c5d8, 0x0043c825, 0x0043c89a, 0x00455d25, 0x00456570, 0x0045ab65, 0x0045b2ad, 0x0045b692 };	
+		for (int addr : addresses) {
+			patch_call(addr, (unsigned int)Cmd_TokenizeStringInternal_Win32);
+		}
+	#endif
+    #if COD2X_LINUX
+   		patch_call(0x08060623, (unsigned int)Cmd_TokenizeStringInternal);
+   		patch_call(0x080605f3, (unsigned int)Cmd_TokenizeStringInternal);
+    #endif
 
     // Fix the port negative number when formatting IP address
     patch_string_ptr(ADDR(0x00447733 + 1, 0x0806b238 + 4), "%i.%i.%i.%i:%hu");          // originally "%i.%i.%i.%i:%i"

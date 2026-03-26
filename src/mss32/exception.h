@@ -3,7 +3,7 @@
 
 #include <windows.h>
 
-bool exception_createMiniDump(EXCEPTION_POINTERS* pExceptionInfo);
+bool exception_createMiniDump(EXCEPTION_POINTERS* pExceptionInfo, char* pathOut = nullptr, size_t pathOutSize = 0);
 void exception_init();
 
 #endif

@@ -7,7 +7,7 @@
                 "${workspaceFolder}/src/shared",
                 "${workspaceFolder}/src/mss32"
             ],
-            "defines": ["_WIN32=1", "DEBUG=1", "DEVELOPER=\"${env:COMPUTERNAME}_${env:USERNAME}\""],
+            "defines": ["_WIN32=1", "DEBUG=1", "DEVELOPER=\"${env:COMPUTERNAME}_${env:USERNAME}\"", "MG_ENABLE_POSIX_FS=0"],
             "compilerPath": "${workspaceFolder}/tools/mingw/bin/gcc.exe",
             "cStandard": "c99",
             "cppStandard": "c++17",

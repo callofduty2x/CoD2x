@@ -409,14 +409,24 @@ struct clientControllers_t
 	};
 };
 
+typedef enum {
+	TEAM_NONE,
+	TEAM_AXIS,
+	TEAM_ALLIES,
+	TEAM_SPECTATOR,
+
+	TEAM_NUM_TEAMS
+} team_t;
+
+
 typedef struct clientInfo_s
 {
 	int infoValid;
 	int nextValid;
 	int clientNum;
 	char name[32];
-	int team;
-	int oldteam;
+	team_t team;
+	team_t oldteam;
 	int score;
 	int location;
 	int health;

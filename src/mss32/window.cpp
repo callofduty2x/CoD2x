@@ -6,6 +6,7 @@
 
 #include "shared.h"
 #include "rinput.h"
+#include "demo.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_client.h"
 
@@ -16,7 +17,7 @@
 #define r_fullscreen                (*((dvar_t**)0x00d77128))
 #define r_autopriority              (*((dvar_t**)0x00d77130))
 #define in_mouse                    (*((dvar_t**)0x00d52a4c))
-#define cl_bypassMouseInput         (*((dvar_t**)0x006067d0))
+#define cl_bypassMouseInput         (*((dvar_t**)0x006067d0))   // 1 = control ingame mouse movement even if menu is opened
 
 #define r_mode                      (*((dvar_t**)(gfx_module_addr + 0x001ce688)))
 #define r_displayRefresh            (*((dvar_t**)(gfx_module_addr + 0x001ce804)))
@@ -48,11 +49,13 @@
 #define clientState                 (*((clientState_e*)0x00609fe0))
 
 dvar_t* m_debug;
+dvar_t* m_enable = NULL;    // 1 = allow moving ingame and menu mouse cursor; 0 = bypass mouse movement, but still process the system cursor and mouse events
 
 int minWidth = 0;
 int minHeight = 0;
 
 bool in_menu_last = true;
+int window_clientStateLast = -1;
 
 // Global state for gamma handling.
 static HDC gamma_currentDC = NULL;
@@ -103,10 +106,17 @@ void gamma_restore()
 bool gamma_update()
 {
     HWND hWnd = win_hwnd;
-    float gamma = r_gamma->value.decimal;
+    
+    // Get dvar by name to avoid error when renderer is not loaded (server)
+    dvar_t* gammaCvar = Dvar_GetDvarByName("r_gamma");
+    if (gammaCvar == nullptr) {
+        return true;
+    }
+    float gamma = gammaCvar->value.decimal;
+
 
     // Check window mode. If fullscreen, restore gamma and do nothing.
-    if (r_fullscreen->value.boolean)
+    if (r_fullscreen->value.boolean || win_hwnd == NULL)
     {
         gamma_restore();
         return true;
@@ -210,6 +220,7 @@ void Mouse_ActivateIngameCursor()
 
 
 void Mouse_SetMenuCursorPos(int x, int y) {
+
     menu_cursorX = x;
     menu_cursorY = y;
 
@@ -232,8 +243,8 @@ void Mouse_ProcessMovement() {
     RECT clientRect;
     GetClientRect(win_hwnd, &clientRect); // Get the inner area of the window
 
-
-    bool in_menu = ((input_mode & 8) != 0 && !cl_bypassMouseInput->value.boolean) || clientState < CLIENT_STATE_ACTIVE;
+    // in_menu = if we control menu cursor
+    bool in_menu = ((input_mode & 8) != 0 && !cl_bypassMouseInput->value.boolean && m_enable->value.boolean) || clientState < CLIENT_STATE_PRIMED;
     bool menu_changed = in_menu != in_menu_last;
     in_menu_last = in_menu;
 
@@ -347,6 +358,11 @@ void Mouse_ProcessMovement() {
         if (m_debug->value.boolean && (x_offset != 0 || y_offset != 0))
             Com_Printf("Mouse move offset: (%d %d) (source: %s)\n", x_offset, y_offset, rinput_is_enabled() ? "rinput" : "system");
 
+        // Mouse movement is bypassed
+        if (!m_enable->value.boolean) {
+            return;
+        }
+
         if (in_menu) {
 
             int newMenuX = menu_cursorX + x_offset;
@@ -374,6 +390,9 @@ void Mouse_ProcessMovement() {
 // 00464b30
 void Mouse_Loop()
 {
+    if (!win_hwnd)
+        return;
+
     rinput_mouse_loop();
 
     if (mouse_isEnabled)
@@ -381,8 +400,12 @@ void Mouse_Loop()
         Mouse_ProcessMovement();
     }
 
+    // Get dvar by name to avoid error when renderer is not loaded (server)
+    dvar_t* gammaCvar = Dvar_GetDvarByName("r_gamma");
+    if (gammaCvar == nullptr)
+        return;
 
-    float gamma = r_gamma->value.decimal;
+    float gamma = gammaCvar->value.decimal;
     if (gamma != gamma_previous) {
         gamma_previous = gamma;
 
@@ -407,6 +430,16 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             callOriginal = false;        
             break;
+        }
+
+
+        case WM_CLOSE: {
+            // Prevent the window from closing
+            if (demo_getDemoForUpload()) {
+                demo_scheduleCloseAfterUpload();
+                return 0;
+            }
+            break; // allow default handling
         }
 
 
@@ -653,11 +686,103 @@ int R_CreateWindow()
 
 
 
+
+/** Called every frame at the start of the frame. */
+void window_frame() {
+
+    // Player disconnected from the server
+    if (clientState != window_clientStateLast && clientState == CLIENT_STATE_CONNECTED) {
+        Dvar_SetBool(m_enable, true); // enable mouse movement
+    }
+
+    // First frame
+    if (window_clientStateLast == -1) {
+        window_clientStateLast = clientState; // set it now to avoid running this code again (Com_Error jumps to exception handler)
+      
+        // Check if sound is initialized properly
+        if (dedicated->value.integer == 0 && *(int*)0xc94ed4 == 0) {
+            Com_Error(ERR_DROP, "Sound system failed to initialize.\n\nThe game might crash at any time.\nPlease check your sound drivers.");
+        }
+    }
+
+    window_clientStateLast = clientState;
+}
+
+
+/**
+ * Hook for the call to R_UsedCachedStaticModelSurface at gfx_d3d_mp_x86_s.dll+0x0001f53f.
+ *
+ * The function performs a doubly-linked LRU move-to-front for a Static Model Cache.
+ * 
+ * arg1 (eax): pointer/offset somewhere within a cache array entry
+ * data_108eab00: base address of the cache array (array of 0x188-byte entries)
+ *
+ * The function normalizes arg1 to the start of its cache entry:
+ *   index = (arg1 - data_108eab00) / 0x188       (using magic multiply 0x5397829d)
+ *   normalized_ptr = index * 0x188 + data_108eab00
+ *
+ * Cache entry structure (0x188 = 392 bytes total):
+ *   +0x0  prev       (SMCNode* - LRU list previous)
+ *   +0x4  next       (SMCNode* - LRU list next)
+ *   +0x8  frameData  (int - frame counter from frontEndDataOut)
+ *   +0xC  ...        (380 more bytes of cached surface data)
+ *
+ * Crash at 0x0002bd23 (since 1.4.3.2):
+ *   mov ecx, [eax+4]   ; ecx = node->next
+ *   mov [ecx], edx     ; ACCESS_VIOLATION because ecx (next) == NULL
+ *
+ * Root cause: R_CacheStaticModelSurface can return a cache entry whose next/prev
+ * pointers are still zero (never linked into the LRU list), so unlink crashes.
+ *
+ * Fix: normalize arg1, check next/prev for NULL, skip if unlinked.
+ */
+
+struct SMCNode {
+    SMCNode* prev;      // +0x0 LRU list previous pointer
+    SMCNode* next;      // +0x4 LRU list next pointer
+    int      frameData; // +0x8 Frame counter
+    char cachedData[0x17c];
+};
+
+// VA 0x108eab00 - 0x10000000 (preferred base) = RVA 0x008eab00
+#define SMC_CACHE_BASE      (gfx_module_addr + 0x008eab00u)
+#define SMC_ENTRY_SIZE      0x188  // 392 bytes per cache entry
+
+static void* hook_R_UsedCachedStaticModelSurface()
+{
+    uintptr_t arg1;  // Pointer passed in eax (may point anywhere within a cache entry)
+    ASM(movr, arg1, "eax");
+
+    // Normalize arg1 to the start of its 0x188-byte cache entry.
+    // Original uses: index = (arg1 - base) / 0x188 via magic multiply 0x5397829d.
+    // We use simple integer division (slower but correct, only runs on NULL check path).
+    uintptr_t offset = arg1 - SMC_CACHE_BASE;
+    uintptr_t index = offset / SMC_ENTRY_SIZE;
+    SMCNode* node = (SMCNode*)(SMC_CACHE_BASE + index * SMC_ENTRY_SIZE);
+
+    // If the cache entry isn't linked into the LRU list yet, skip to avoid crash.
+    if (node->next == NULL || node->prev == NULL)
+        return node;
+
+    // Call the original function for the normal path (pass original arg1).
+    void* ret;
+    ASM_CALL(RETURN(ret), (gfx_module_addr + 0x0002bcf0u), 0, EAX(arg1));
+    return ret;
+}
+
+#undef SMC_CACHE_BASE
+#undef SMC_ENTRY_SIZE
+
+
 // Called when the game loaded the renderer DLL
-void window_hook_rendered() {
+void window_rendered() {
 
     // Patch the function that creates the window
     patch_call(gfx_module_addr + 0x00012d69, (unsigned int)R_CreateWindow);
+
+    // Fix crash in R_UsedCachedStaticModelSurface when node->next/prev is NULL
+    // (ACCESS_VIOLATION at gfx+0x0002bd23, call site at gfx+0x0001f53f, since 1.4.3.2)
+    patch_call(gfx_module_addr + 0x0001f53f, (unsigned int)hook_R_UsedCachedStaticModelSurface);
 
     // Change flags of r_fullscreen cvar - removed original DVAR_ROM flag - now user can change the value
     patch_int32(gfx_module_addr + 0x000ba43 + 1, (DVAR_ARCHIVE | DVAR_LATCH | DVAR_CHANGEABLE_RESET | DVAR_RENDERER));
@@ -673,7 +798,8 @@ void window_init() {
     vid_ypos = Dvar_RegisterInt("vid_ypos", 22, -100000, 100000, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
     r_fullscreen = Dvar_RegisterBool("r_fullscreen", true, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_LATCH | DVAR_CHANGEABLE_RESET));
     r_autopriority = Dvar_RegisterBool("r_autopriority", false, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
-
+    
+    m_enable = Dvar_RegisterBool("m_enable", true, (enum dvarFlags_e)(DVAR_CHANGEABLE_RESET));
     m_debug = Dvar_RegisterBool("m_debug", false, (enum dvarFlags_e)(DVAR_CHANGEABLE_RESET));
 }
 

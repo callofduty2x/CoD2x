@@ -24,6 +24,8 @@
 #include "../shared/cod2_cmd.h"
 #include "../shared/cod2_client.h"
 
+#define HWID_TESTING 0 // (SET TO 0 AFTER TEST) enable generating random HWID for testing purposes
+
 dvar_t *cl_hwid;
 dvar_t *cl_hwid2;
 
@@ -46,6 +48,10 @@ char hwid_uuid[MAX_WMI_BUFFER_SIZE] = {};
 char hwid_disk_model[MAX_WMI_BUFFER_SIZE] = {};
 char hwid_disk_serial[MAX_WMI_BUFFER_SIZE] = {};
 char hwid_gpuName[MAX_WMI_BUFFER_SIZE] = {};
+
+// WMI enumeration safety: avoid infinite blocking waits
+static const ULONG WMI_NEXT_TIMEOUT_MS = 3000;      // per-iteration timeout for IEnumWbemClassObject::Next
+static const int   WMI_NEXT_MAX_TRIES   = 3;        // total ~15s worst-case before giving up
 
 extern bool registry_version_changed; // Flag to indicate if the version has changed
 extern bool registry_version_downgrade; // Flag to indicate if the version has been downgraded
@@ -103,7 +109,25 @@ static HRESULT hwid_WMI_readFirstString(IWbemServices* pServices, const wchar_t*
         return hr;
     if (!pEnumerator)
         return E_FAIL;
-    hr = pEnumerator->Next(WBEM_INFINITE, 1, &pObj, &uReturned);
+    // Ensure enumerator proxy uses the same auth/impersonation as the service proxy, avoiding per-call negotiation that can hang.
+    hr = CoSetProxyBlanket(pEnumerator, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
+    if (FAILED(hr)) {
+        pEnumerator->Release();
+        return hr;
+    }
+
+    // Use bounded waits instead of WBEM_INFINITE to prevent hangs if a provider is unresponsive
+    for (int tries = 0; tries < WMI_NEXT_MAX_TRIES; ++tries) {
+        hr = pEnumerator->Next(WMI_NEXT_TIMEOUT_MS, 1, &pObj, &uReturned);
+        if (hr == WBEM_S_TIMEDOUT) {
+            if (tries + 1 >= WMI_NEXT_MAX_TRIES) {
+                hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT); // convert to failing HRESULT
+                break;
+            }
+            continue; // keep waiting until max tries
+        }
+        break;
+    }
     if (FAILED(hr)) {
         pEnumerator->Release();
         return hr;
@@ -155,9 +179,28 @@ HRESULT hwid_WMI_readSystemDiskSerialAndModel(IWbemServices* pSvc, char* outSeri
     SysFreeString(bstrQuery);
     bstrQuery = nullptr;
 
-    hr = pEnumerator->Next(WBEM_INFINITE, 1, &pDisk, &returnedCount);
+    // Ensure enumerator proxy uses the same auth/impersonation as the service proxy, avoiding per-call negotiation that can hang.
+    hr = CoSetProxyBlanket(pEnumerator, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
+    if (FAILED(hr))
+        goto cleanup;
+
+    // Bounded wait for Next
+    for (int tries = 0; tries < WMI_NEXT_MAX_TRIES; ++tries) {
+        hr = pEnumerator->Next(WMI_NEXT_TIMEOUT_MS, 1, &pDisk, &returnedCount);
+        if (hr == WBEM_S_TIMEDOUT) {
+            if (tries + 1 >= WMI_NEXT_MAX_TRIES) {
+                hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT);
+                break;
+            }
+            continue;
+        }
+        break;
+    }
     if (FAILED(hr)) {
-        snprintf(errorBuffer, errorBufferSize, "Next on logical disk enumerator failed (0x%08X)", (unsigned int)hr);
+        if (hr == HRESULT_FROM_WIN32(WAIT_TIMEOUT))
+            snprintf(errorBuffer, errorBufferSize, "Timed out while enumerating Win32_LogicalDisk");
+        else
+            snprintf(errorBuffer, errorBufferSize, "Next on logical disk enumerator failed (0x%08X)", (unsigned int)hr);
         goto cleanup;
     }
     if (returnedCount == 0) {
@@ -185,9 +228,27 @@ HRESULT hwid_WMI_readSystemDiskSerialAndModel(IWbemServices* pSvc, char* outSeri
     SysFreeString(bstrQuery);
     bstrQuery = nullptr;
 
-    hr = pEnumerator->Next(WBEM_INFINITE, 1, &pPartition, &returnedCount);
+    // Ensure enumerator proxy uses the same auth/impersonation as the service proxy, avoiding per-call negotiation that can hang.
+    hr = CoSetProxyBlanket(pEnumerator, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
+    if (FAILED(hr))
+        goto cleanup;
+
+    for (int tries = 0; tries < WMI_NEXT_MAX_TRIES; ++tries) {
+        hr = pEnumerator->Next(WMI_NEXT_TIMEOUT_MS, 1, &pPartition, &returnedCount);
+        if (hr == WBEM_S_TIMEDOUT) { 
+            if (tries + 1 >= WMI_NEXT_MAX_TRIES) { 
+                hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT); 
+                break; 
+            } 
+            continue; 
+        }
+        break;
+    }
     if (FAILED(hr)) {
-        snprintf(errorBuffer, errorBufferSize, "Next on partition enumerator failed (0x%08X)", (unsigned int)hr);
+        if (hr == HRESULT_FROM_WIN32(WAIT_TIMEOUT))
+            snprintf(errorBuffer, errorBufferSize, "Timed out while enumerating Win32_LogicalDiskToPartition associators");
+        else
+            snprintf(errorBuffer, errorBufferSize, "Next on partition enumerator failed (0x%08X)", (unsigned int)hr);
         goto cleanup;
     }
     if (returnedCount == 0) {
@@ -216,9 +277,27 @@ HRESULT hwid_WMI_readSystemDiskSerialAndModel(IWbemServices* pSvc, char* outSeri
     SysFreeString(bstrQuery);
     bstrQuery = nullptr;
 
-    hr = pEnumerator->Next(WBEM_INFINITE, 1, &pDrive, &returnedCount);
+    // Ensure enumerator proxy uses the same auth/impersonation as the service proxy, avoiding per-call negotiation that can hang.
+    hr = CoSetProxyBlanket(pEnumerator, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
+    if (FAILED(hr))
+        goto cleanup;
+
+    for (int tries = 0; tries < WMI_NEXT_MAX_TRIES; ++tries) {
+        hr = pEnumerator->Next(WMI_NEXT_TIMEOUT_MS, 1, &pDrive, &returnedCount);
+        if (hr == WBEM_S_TIMEDOUT) { 
+            if (tries + 1 >= WMI_NEXT_MAX_TRIES) { 
+                hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT); 
+                break; 
+            } 
+            continue; 
+        }
+        break;
+    }
     if (FAILED(hr)) {
-        snprintf(errorBuffer, errorBufferSize, "Next on drive enumerator failed (0x%08X)", (unsigned int)hr);
+        if (hr == HRESULT_FROM_WIN32(WAIT_TIMEOUT))
+            snprintf(errorBuffer, errorBufferSize, "Timed out while enumerating Win32_DiskDriveToDiskPartition associators");
+        else
+            snprintf(errorBuffer, errorBufferSize, "Next on drive enumerator failed (0x%08X)", (unsigned int)hr);
         goto cleanup;
     }
     if (returnedCount == 0) {
@@ -256,8 +335,11 @@ HRESULT hwid_WMI_readSystemDiskSerialAndModel(IWbemServices* pSvc, char* outSeri
     // Fallback to volume serial number (usefull for Wine where serial number is not available)
     if (outSerial[0] == '\0') {
         DWORD serial;
-        GetVolumeInformationA("C:\\", NULL, 0, &serial, NULL, NULL, NULL, 0);
-        snprintf(outSerial, MAX_WMI_BUFFER_SIZE, "%lu", serial);
+        if (GetVolumeInformationA("C:\\", NULL, 0, &serial, NULL, NULL, NULL, 0)) {
+            snprintf(outSerial, MAX_WMI_BUFFER_SIZE, "%lu", serial);
+        } else {
+            snprintf(outSerial, MAX_WMI_BUFFER_SIZE, "UnknownSerial");
+        }
     }
 
     hr = S_OK;
@@ -354,7 +436,30 @@ HRESULT hwid_WMI_readVideoController(IWbemServices* pSvc, char* outControllerNam
         return E_FAIL;
 
     bool found = false;
-    while (pEnumerator->Next(WBEM_INFINITE, 1, &pObj, &returnedCount) == S_OK && returnedCount) {
+    // Ensure enumerator proxy uses the same auth/impersonation as the service proxy, avoiding per-call negotiation that can hang.
+    hr = CoSetProxyBlanket(pEnumerator, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
+    if (FAILED(hr)) {
+        pEnumerator->Release();
+        return hr;
+    }
+
+    while (true) {
+
+        // Use bounded waits instead of WBEM_INFINITE to prevent hangs if a provider is unresponsive
+        for (int tries = 0; tries < WMI_NEXT_MAX_TRIES; ++tries) {
+            hr = pEnumerator->Next(WMI_NEXT_TIMEOUT_MS, 1, &pObj, &returnedCount);
+            if (hr == WBEM_S_TIMEDOUT) {
+                if (tries + 1 >= WMI_NEXT_MAX_TRIES) {
+                    hr = HRESULT_FROM_WIN32(WAIT_TIMEOUT); // convert to failing HRESULT
+                    break;
+                }
+                continue; // keep waiting until max tries
+            }
+            break;
+        }
+        if (hr != S_OK || !returnedCount) {
+            break;
+        }
         VARIANT vtName, vtAdapterRAM, vtPNP;
         VariantInit(&vtName);
         VariantInit(&vtAdapterRAM);
@@ -402,6 +507,14 @@ HRESULT hwid_WMI_readVideoController(IWbemServices* pSvc, char* outControllerNam
     }
     pEnumerator->Release();
 
+    if (hr != S_OK) {
+        if (hr == HRESULT_FROM_WIN32(WAIT_TIMEOUT))
+            snprintf(errorBuffer, errorBufferSize, "Timed out while enumerating Win32_VideoController");
+        else
+            snprintf(errorBuffer, errorBufferSize, "Error while enumerating Win32_VideoController (0x%08X)", (unsigned int)hr);
+        return hr;
+    }
+
     // If no suitable controller was found, use the fallback name
     if (!found && fallbackName[0] != '\0') {
         strncpy(outControllerName, fallbackName, MAX_WMI_BUFFER_SIZE - 1);
@@ -441,23 +554,45 @@ HRESULT hwid_WMI_loadProperties(char* errorBuffer, size_t errorBufferSize)
         {L"Win32_ComputerSystemProduct", L"UUID", hwid_uuid, sizeof(hwid_uuid)}
     };
 
-    hr = CoInitializeEx(0, COINIT_APARTMENTTHREADED);
+    // Initialize COM for multithreaded apartment to avoid STA message-pump deadlocks
+    hr = CoInitializeEx(0, COINIT_MULTITHREADED);
     if (FAILED(hr))
         return hr;
+
+    // Establish process-wide COM security (safe to call multiple times; ignore RPC_E_TOO_LATE)
+    {
+        HRESULT secHr = CoInitializeSecurity(
+            NULL,                        // default security descriptor
+            -1,                          // COM negotiates services
+            NULL,                        // authentication services
+            NULL,                        // reserved
+            RPC_C_AUTHN_LEVEL_DEFAULT,
+            RPC_C_IMP_LEVEL_IMPERSONATE,
+            NULL,
+            EOAC_NONE,
+            NULL);
+        if (FAILED(secHr) && secHr != RPC_E_TOO_LATE) {
+            // If security init fails for other reasons, bail out
+            CoUninitialize();
+            return secHr;
+        }
+    }
 
     hr = CoCreateInstance(CLSID_WbemLocator, NULL, CLSCTX_INPROC_SERVER,
                           IID_IWbemLocator, (void **)&pLocator);
     if (FAILED(hr))
         goto cleanup;
 
-    hr = pLocator->ConnectServer(SysAllocString(L"ROOT\\CIMV2"), NULL, NULL, 0, 0, 0, NULL, &pServices);
+    {
+        BSTR ns = SysAllocString(L"ROOT\\CIMV2");
+        hr = pLocator->ConnectServer(ns, NULL, NULL, 0, 0, 0, NULL, &pServices);
+        SysFreeString(ns);
+    }
     if (FAILED(hr))
         goto cleanup;
 
-    hr = CoSetProxyBlanket(pServices,
-                           RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL,
-                           RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
-                           NULL, EOAC_NONE);
+    // Ensure enumerator proxy uses the same auth/impersonation as the service proxy, avoiding per-call negotiation that can hang.
+    hr = CoSetProxyBlanket(pServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE, NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, NULL, EOAC_NONE);
     if (FAILED(hr))
         goto cleanup;
 
@@ -468,7 +603,11 @@ HRESULT hwid_WMI_loadProperties(char* errorBuffer, size_t errorBufferSize)
         HRESULT propHr = hwid_WMI_readFirstString(pServices, properties[i].wmiClass, properties[i].property, properties[i].buffer, properties[i].bufferSize);
         if (FAILED(propHr)) {
             hr = propHr;
-            sprintf_s(errorBuffer, errorBufferSize, "Failed to read WMI property '%ls.%ls'", properties[i].wmiClass, properties[i].property);
+            if (propHr == HRESULT_FROM_WIN32(WAIT_TIMEOUT)) {
+                snprintf(errorBuffer, errorBufferSize, "Timeout while reading WMI property '%ls.%ls'. Please check your system's WMI service.", properties[i].wmiClass, properties[i].property);
+            } else {
+                snprintf(errorBuffer, errorBufferSize, "Failed to read WMI property '%ls.%ls' (Error: 0x%08X).", properties[i].wmiClass, properties[i].property, (unsigned int)propHr);
+            }
             goto cleanup;
         }
         if (properties[i].buffer[0] == '\0') {
@@ -900,9 +1039,11 @@ void hwid_init()
             return;
         }
     }
-    
-    cl_hwid = Dvar_RegisterInt("cl_hwid", hwid_generate_short(), INT32_MIN, INT32_MAX, (dvarFlags_e)(DVAR_USERINFO | DVAR_NOWRITE));
-    cl_hwid2 = Dvar_RegisterString("cl_hwid2", hwid_generate_long(), (dvarFlags_e)(DVAR_USERINFO | DVAR_NOWRITE));
+
+    dvarFlags_e nowrite = HWID_TESTING ? DVAR_NOFLAG : DVAR_NOWRITE; // allow rewriting while testing
+
+    cl_hwid = Dvar_RegisterInt("cl_hwid", hwid_generate_short(), INT32_MIN, INT32_MAX, (dvarFlags_e)(DVAR_USERINFO | nowrite));
+    cl_hwid2 = Dvar_RegisterString("cl_hwid2", hwid_generate_long(), (dvarFlags_e)(DVAR_USERINFO | nowrite));
 
     hwid_generate_regid();
 }

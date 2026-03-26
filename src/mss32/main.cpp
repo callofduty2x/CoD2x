@@ -26,11 +26,11 @@ bool main_load() {
     bool ok = FALSE;
 
     // Show warning message
-    if (APP_VERSION_IS_TEST) {
+    /*if (APP_VERSION_IS_TEST) {
         MessageBoxA(NULL, 
             "You successfully installed CoD2x " APP_VERSION ".\n\n"
-            "Note that this is a test version, we recommend you to uninstall it after trying it!", "CoD2x warning", MB_OK | MB_ICONINFORMATION);
-    }
+            "This is a test version, please uninstall it after trying it!\n(use auto-update to go back to the latest stable version)", "CoD2x TEST version", MB_OK | MB_ICONEXCLAMATION);
+    }*/
 
     system_getInfo(); // Get system info (Windows version, Wine version, etc.)
 
@@ -221,6 +221,15 @@ bool main_getExeData() {
     strncpy(EXE_COMMAND_LINE, cmdLine, MAX_PATH - 1);
 
 
+
+
+    // Ensure CWD is set to the executable directory
+    if (!SetCurrentDirectoryA(EXE_DIRECTORY_PATH)) {
+        SHOW_ERROR_WITH_LAST_ERROR("Failed to set current directory");
+        return false;
+    }
+
+    
 
     // Get this DLL path
     HMODULE dllHandle = NULL;

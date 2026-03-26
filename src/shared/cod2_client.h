@@ -9,6 +9,12 @@
 #define cg_entities         (*((centity_t (*)[1024])0x015E2A80))
 #define clientInfo          (*((clientInfo_t (*)[64])0x015CF994)) // client side info
 
+#define clientState                   (*((clientState_e*)0x00609fe0))
+#define demo_isPlaying                (*((int*)0x0064a170))
+
+#define com_playerProfile (*(dvar_t **)(0x00c23f1c))
+
+
 // https://github.com/id-Software/Enemy-Territory/blob/40342a9e3690cb5b627a433d4d5cbf30e3c57698/src/game/q_shared.h#L1621
 enum clientState_e{
 	CLIENT_STATE_DISCONNECTED,    // not talking to a server
@@ -43,7 +49,8 @@ typedef struct {
 	int				currentValid;
 	int				pad[2];
 	vec3_t			lerpOrigin;
-	int				pad2[11];
+	vec3_t			lerpAngles;
+	int				pad2[8];
 } centity_t; //size=548, dw=137
 
 
@@ -51,6 +58,7 @@ typedef struct {
 	int				pad[3];
 	playerState_t	ps;
 } snapshot_t;
+
 
 typedef struct
 {
@@ -67,6 +75,18 @@ typedef struct
 	byte areamask[8];
 } refdef_t;
 
+
+typedef struct {
+    int field_0;
+    int x;
+    int y;
+    int yaw;
+    int field_10;
+    int lastFireEndTime;
+    int field_18;
+} compassWeaponFire_t;
+static_assert((sizeof(compassWeaponFire_t) == 0x1c));
+
 typedef struct
 {
 	int clientFrame;
@@ -81,7 +101,11 @@ typedef struct
 	snapshot_t *snap;
 	snapshot_t *nextSnap;
 
-	byte padding0[154524];
+	byte padding0[154504];
+
+	int time;
+	int unk[3];
+	int in_thirdperson;
 
 	playerState_t predictedPlayerState;
 
@@ -95,14 +119,22 @@ typedef struct
 	int padding3[3];
 	int crosshairClientHealth;
 	int padding4[173];
-	vec3_t kick_angles;
-	int padding1[205363];
-	byte padding6[48];
+	vec3_t kick_angles; //0x02c098
+
+	int padding2222[333];
+
+	//02c5d8
+	compassWeaponFire_t compassWeaponFireEndTime[64]; // len 0x1c * 64 = 1792 / 4 = 448
+
+	byte padding1[818376];
 } cg_t;
 static_assert((sizeof(cg_t) == 0xf49a0));
 static_assert(offsetof(cg_t, predictedPlayerState) == 0x025bc4);
 static_assert(offsetof(cg_t, refdef) == 0x028570);
 static_assert(offsetof(cg_t, kick_angles) == 0x02c098);
+static_assert(offsetof(cg_t, compassWeaponFireEndTime) == 0x02c5d8);
+static_assert(offsetof(cg_t, padding1) == 0x02ccd8);
+
 
 
 inline void CL_AddDebugString(float const* xyz, float const* color, float scale, char const* text, int duration) {
@@ -149,6 +181,28 @@ inline char* CL_BuildMD5(const char* buffer, int len) {
 	char* ret;
 	ASM_CALL(RETURN(ret), 0x004bc1d0, 0, EAX(buffer), EDX(len));
 	return ret;
+}
+
+// Gets a config string by index.
+inline const char* CL_GetConfigString(int idx) {
+    const char* ret;
+    ASM_CALL(RETURN(ret), 0x004020d0, 0, EAX(idx));
+    return ret;
+}
+
+
+inline int CG_GetShaderConfigString(int index, char* buffer, int bufferSize) {
+    int ret;
+    ASM_CALL(RETURN(ret), 0x004c5310, 2, EAX(index), PUSH(buffer), PUSH(bufferSize));
+    return ret;
+}
+
+
+
+inline int CG_CalcMuzzlePoint(const vec3_t pos, int clientNum, int32_t sourceEntityNum) {
+    int result;
+    ASM_CALL(RETURN(result), 0x004d7930, 1, EDI(pos), EBX(clientNum), PUSH(sourceEntityNum)); // CG_CalcMuzzlePoint
+    return result;
 }
 
 #endif

@@ -14,8 +14,6 @@ HANDLE crash_watchdogThreadHandle = NULL;
 volatile DWORD freeze_lastHeartbeat = 0;   // Updated by the main thread
 volatile bool freeze_exitThread = false;
 
-#define com_errorEntered (*(int*)(0x00c28b2c))
-
 extern volatile int exception_processCrashed;
 extern volatile bool hotreload_requested;
 
@@ -72,6 +70,41 @@ void Sys_LoadingKeepAlive() {
 }
 
 
+// This function is called from GFX renderer to synchronize with the main thread 
+// Sometimes for some reason the main thread does not respond and the game freezes
+void sub_004624a0()
+{
+    #define data_d528a4_event (*(HANDLE*)0x00d528a4)
+    #define data_d528a8 (*(HANDLE*)0x00d528a8)
+    #define data_d528ec (*(HANDLE*)0x00d528ec)
+
+    DWORD result = WaitForSingleObject(data_d528a4_event, 0);
+    
+    if (result == WAIT_TIMEOUT)
+        return;
+    
+    ResetEvent(data_d528a4_event);
+    SetEvent(data_d528a8);
+    //WaitForSingleObject(data_d528ec, 0xffffffff); - original
+
+    // CoD2x:
+    // Wait for the third event, but with finite timeout
+    DWORD wait = WaitForSingleObject(data_d528ec, 5000);
+
+    if (wait == WAIT_OBJECT_0)
+        return;
+
+    if (wait == WAIT_TIMEOUT) {
+        showErrorMessage("Error", "Call of Duty 2 has frozen.\n\nThe main thread did not respond within 5 seconds\n\nCoD2x will try to restart the game.");
+
+        // call 0040d780    char* vid_restart_cmd()
+        ASM_CALL(RETURN_VOID, 0x0040d780, 0);
+    }
+    // CoD2x end
+}
+
+
+
 /** Called every frame on frame start. */
 void freeze_frame() {
 
@@ -125,5 +158,8 @@ void freeze_patch() {
     patch_call(0x004c107a, (unsigned int)Sys_LoadingKeepAlive); // in CG_Init
     patch_call(0x004bfbac, (unsigned int)Sys_LoadingKeepAlive); // in CG_RegisterGraphics
     patch_call(0x004c0032, (unsigned int)Sys_LoadingKeepAlive); // in CG_RegisterGraphics
+
+    //00410247  c78424e0010000a0244600  mov     dword [esp+0x1e0 {cod2_funcs[0x1d4].d}], waitForMainThread?
+    patch_int32(0x00410247 + 7, (unsigned int)sub_004624a0);
 }
 

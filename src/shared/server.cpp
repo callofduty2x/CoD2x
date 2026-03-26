@@ -9,6 +9,13 @@
 #include "cod2_server.h"
 #include "cod2_file.h"
 #include "cod2_entity.h"
+#include "cod2_script.h"
+#include "cod2_dvars.h"
+#include "gsc.h"
+#include "gsc_match.h"
+#include "gsc_http.h"
+#include "gsc_websocket.h"
+#include "match.h"
 #if COD2X_WIN32
 #include "../mss32/updater.h"
 #endif
@@ -16,24 +23,219 @@
 #include "../linux/updater.h"
 #endif
 
-
-#define svs_authorizeAddress 					(*((netaddr_s*)(ADDR(0x00d52770, 0x084400f0))))
-#define svs_challenges 							(*((challenge_t (*)[MAX_CHALLENGES])(ADDR(0x00d3575c, 0x084230dc))))
-#define svs_time 								(*((int*)(ADDR(0x00d35704, 0x08423084))))
-#define svs_nextHeartbeatTime 					(*((int*)(ADDR(0x00d35754, 0x084230d4))))
-#define svs_nextStatusResponseTime 				(*((int*)(ADDR(0x00d35758, 0x084230d8))))
-#define svs_clients 							(*((client_t (*)[64])(ADDR(0x00d3570c, 0x0842308c))))
 #define originalAuthorizeServerUrl 				((const char*)(ADDR(0x005a3c90, 0x08149afb)))
 
 #define MAX_MASTER_SERVERS  3
 dvar_t*		sv_master[MAX_MASTER_SERVERS];
 netaddr_s	masterServerAddr[MAX_MASTER_SERVERS] = { {}, {}, {} };
 dvar_t*		sv_cracked;
+dvar_t*		sv_rateLimiter;
+dvar_t*     sv_rateLimiterRequestCount; // exposed dvar reflecting current request count in last second
+dvar_t*     sv_rateLimiterUniqueIPCount; // exposed dvar reflecting current unique IP count in last second
+long		server_rateLimiter_lastCvarUpdateTime = 0;
 dvar_t*		showpacketstrings;
 dvar_t*		sv_playerBroadcastLimit;
 int 		nextIPTime = 0;
+dvar_t*		g_competitive;
+bool		server_ignoreMapChangeThisFrame = false;
 
 extern dvar_t* g_cod2x;
+
+
+
+
+// ioquake3 rate limit connectionless requests
+// https://github.com/ioquake/ioq3/blob/master/code/server/sv_main.c
+// This is deliberately quite large to make it more of an effort to DoS
+#define MAX_BUCKETS	16384
+#define MAX_HASHES 1024
+
+static leakyBucket_t buckets[ MAX_BUCKETS ];
+static leakyBucket_t* bucketHashes[ MAX_HASHES ];
+leakyBucket_t outboundLeakyBucket = {};
+leakyBucket_t outboundLeakyBucketRcon = {};
+leakyBucket_t outboundLeakyBucketDisconnect = {};
+
+static long SVC_HashForAddress( netaddr_s address )
+{
+	unsigned char *ip = address.ip;
+	int	i;
+	long hash = 0;
+
+	for ( i = 0; i < 4; i++ )
+	{
+		hash += (long)( ip[ i ] ) * ( i + 119 );
+	}
+
+	hash = ( hash ^ ( hash >> 10 ) ^ ( hash >> 20 ) );
+	hash &= ( MAX_HASHES - 1 );
+
+	return hash;
+}
+
+static leakyBucket_t *SVC_BucketForAddress( netaddr_s address, int burst, int period )
+{
+	leakyBucket_t *bucket = NULL;
+	int	i;
+	long hash = SVC_HashForAddress( address );
+	uint64_t now = ticks_ms();
+
+	for ( bucket = bucketHashes[ hash ]; bucket; bucket = bucket->next )
+	{
+		if ( memcmp( bucket->adr, address.ip, 4 ) == 0 )
+		{
+			return bucket;
+		}
+	}
+
+	for ( i = 0; i < MAX_BUCKETS; i++ )
+	{
+		int interval;
+
+		bucket = &buckets[ i ];
+		interval = now - bucket->lastTime;
+
+		// Reclaim expired buckets
+		if ( bucket->lastTime > 0 && ( interval > ( burst * period ) ||
+		                               interval < 0 ) )
+		{
+			if ( bucket->prev != NULL )
+			{
+				bucket->prev->next = bucket->next;
+			}
+			else
+			{
+				bucketHashes[ bucket->hash ] = bucket->next;
+			}
+
+			if ( bucket->next != NULL )
+			{
+				bucket->next->prev = bucket->prev;
+			}
+
+			memset( bucket, 0, sizeof( leakyBucket_t ) );
+		}
+
+		if ( bucket->type == 0 )
+		{
+			bucket->type = address.type;
+			memcpy( bucket->adr, address.ip, 4 );
+
+			bucket->lastTime = now;
+			bucket->burst = 0;
+			bucket->hash = hash;
+
+			// Add to the head of the relevant hash chain
+			bucket->next = bucketHashes[ hash ];
+			if ( bucketHashes[ hash ] != NULL )
+			{
+				bucketHashes[ hash ]->prev = bucket;
+			}
+
+			bucket->prev = NULL;
+			bucketHashes[ hash ] = bucket;
+
+			return bucket;
+		}
+	}
+
+	// Couldn't allocate a bucket for this address
+	return NULL;
+}
+
+
+bool SVC_RateLimit( leakyBucket_t *bucket, int burst, int period )
+{
+	if ( bucket != NULL )
+	{
+		uint64_t now = ticks_ms();
+		int interval = now - bucket->lastTime;
+		int expired = interval / period;
+		int expiredRemainder = interval % period;
+
+		if ( expired > bucket->burst || interval < 0 )
+		{
+			bucket->burst = 0;
+			bucket->lastTime = now;
+		}
+		else
+		{
+			bucket->burst -= expired;
+			bucket->lastTime = now - expiredRemainder;
+		}
+
+		if ( bucket->burst < burst )
+		{
+			bucket->burst++;
+
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool SVC_RateLimitAddress( netaddr_s from, int burst, int period )
+{
+	if (Sys_IsLANAddress(from))
+		return false;
+
+	leakyBucket_t *bucket = SVC_BucketForAddress( from, burst, period );
+
+	return SVC_RateLimit( bucket, burst, period );
+}
+
+
+// Update exposed dvars with rate limiter statistics.
+// Reuses existing buckets array. Does not create any new IP arrays.
+static void SVC_UpdateRateLimiterStats()
+{
+	if (!sv_rateLimiter->value.boolean)
+		return;
+
+	uint64_t now = ticks_ms();
+	int uniqueIPs = 0;
+	int requestCount = 0;
+
+	// Ignore updates unless at least 1 second has passed since last update
+	if (now - server_rateLimiter_lastCvarUpdateTime < 1000)
+		return;
+
+	server_rateLimiter_lastCvarUpdateTime = now;
+
+	for (int i = 0; i < MAX_BUCKETS; i++)
+	{
+		leakyBucket_t *b = &buckets[i];
+
+		if (b->lastTime <= 0)
+			continue;
+
+		// Consider buckets with activity in the last 1000 ms (1 second)
+		if ((now - b->lastTime) <= 1000)
+		{
+			uniqueIPs++;
+
+			// bucket->burst is incremented for each recent request and decays
+			// over time in SVC_RateLimit; summing bursts for active buckets
+			// gives an approximation of recent request count without creating
+			// separate arrays for IP tracking.
+			requestCount += b->burst;
+		}
+	}
+
+	// Ensure non-negative
+	if (requestCount < 0) requestCount = 0;
+	if (uniqueIPs < 0) uniqueIPs = 0;
+
+	if (requestCount != sv_rateLimiterRequestCount->value.integer)
+		Dvar_SetInt(sv_rateLimiterRequestCount, requestCount);
+
+	if (uniqueIPs != sv_rateLimiterUniqueIPCount->value.integer)
+		Dvar_SetInt(sv_rateLimiterUniqueIPCount, uniqueIPs);
+}
+
+
+
 
 
 void SV_VoicePacket(netaddr_s from, msg_t *msg) { 
@@ -222,14 +424,26 @@ void SV_DirectConnect(netaddr_s addr)
     }
 
 
-	int hwid = atoi(Info_ValueForKey(str, "cl_hwid"));
+	// Require HWID2
+	char* hwid2 = Info_ValueForKey(str, "cl_hwid2");
 
-	if (hwid == 0)
+	if (hwid2 == NULL || strlen(hwid2) != 32)
 	{
-		Com_Printf("rejected connection from client without HWID\n");
-		NET_OutOfBandPrint(NS_SERVER, addr, "error\n\x15You have invalid HWID");
+		Com_Printf("rejected connection from client without HWID2\n");
+		NET_OutOfBandPrint(NS_SERVER, addr, "error\n\x15You have invalid HWID2");
 		return;
 	}
+
+    // Compute 32bit hash from HWID2 using FVN-1a algorithm
+    uint32_t hash = 2166136261u;
+    while (*hwid2) {
+        hash ^= (unsigned char)(*hwid2++);
+        hash *= 16777619;
+    }
+	if (hash == 0) hash = 1; // avoid returning zero
+	int hwid = *(int*)&hash;
+
+
 
 	int challenge = atoi( Info_ValueForKey( str, "challenge" ) );
 
@@ -267,6 +481,7 @@ void SV_DirectConnect(netaddr_s addr)
 		memset( &svs_challenges[i], 0, sizeof( svs_challenges[i]));
 		return;
 	}
+
 
 
     // Call the original function
@@ -428,6 +643,8 @@ void SV_AuthorizeIpPacket( netaddr_s from )
 	int i;
 	const char    *response;
 	const char    *info;
+	//const char    *guid;
+	//const char    *PBguid;
 	char ret[1024];
 
 	if (NET_CompareBaseAdrSigned(&from, &svs_authorizeAddress ) != 0)
@@ -453,8 +670,20 @@ void SV_AuthorizeIpPacket( netaddr_s from )
 	// send a packet back to the original client
 	svs_challenges[i].pingTime = svs_time;
 
-	response = Cmd_Argv( 2 );
-	info = Cmd_Argv( 3 );
+	response = Cmd_Argv( 2 ); // accept or deny
+	info = Cmd_Argv( 3 ); // KEY_IS_GOOD
+	//guid = Cmd_Argv( 4 ); // 32bit number
+	//PBguid = Cmd_Argv( 5 ); // MD5 hash
+
+	// Save PBguid
+	#if 0
+	strncpy(svs_challenges[i].PBguid, PBguid, 32);
+	svs_challenges[i].PBguid[32] = '\0';
+	#endif
+
+	// CoD2x: We dont care about MD5 hash coming from authorization server, we will save the info status instead
+	strncpy(svs_challenges[i].PBguid, info, 32);
+	svs_challenges[i].PBguid[32] = '\0';
 
     // CoD2x: Cracked server
 	if (sv_cracked->value.boolean)
@@ -490,7 +719,7 @@ void SV_AuthorizeIpPacket( netaddr_s from )
 	{
 		// CoD2x: GUID from authorization server is replaced by HWID - guid is writed in SV_DirectConnect
 		#if 0
-		svs_challenges[i].guid = atoi(Cmd_Argv( 4 ));
+		svs_challenges[i].guid = atoi(guid);
 
 		if (SV_IsBannedGuid(svs_challenges[i].guid) )
 		{
@@ -604,6 +833,14 @@ void SV_GetChallenge( netaddr_s from )
 		i = oldest;
 	}
 
+	// Save CDKEY hash from client
+	const char* PBHASH = NULL;
+	if (Cmd_Argc() == 3) {
+		PBHASH = Cmd_Argv( 2 );
+		strncpy(challenge->clientPBguid, PBHASH, sizeof(challenge->clientPBguid));
+		challenge->clientPBguid[sizeof(challenge->clientPBguid) - 1] = '\0';
+	}
+
 	// if they are on a lan address, send the challengeResponse immediately
 	if ( !net_lanauthorize->value.boolean && Sys_IsLANAddress(from) )
 	{
@@ -645,13 +882,6 @@ void SV_GetChallenge( netaddr_s from )
 		}
 	}
 
-	const char* PBHASH = NULL;
-	if (Cmd_Argc() == 3) {
-		PBHASH = Cmd_Argv( 2 );
-		strncpy(challenge->clientPBguid, PBHASH, sizeof(challenge->clientPBguid));
-		challenge->clientPBguid[sizeof(challenge->clientPBguid) - 1] = '\0';
-	}
-
 	// otherwise send their ip to the authorize server
 	SV_AuthorizeRequest(from, challenge->challenge, PBHASH);
 }
@@ -672,6 +902,23 @@ void server_get_address_info(char* buffer, size_t bufferSize, netaddr_s addr) {
 		}
 	}
 }
+
+
+bool server_isRateLimitOk(leakyBucket_t* bucket, netaddr_s from, const char* action, int addrBurst, int addrPeriod, int overallBurst, int overallPeriod)
+{
+	if (sv_rateLimiter->value.boolean == false) {
+		return true;
+	}
+	if (SVC_RateLimitAddress(from, addrBurst, addrPeriod)) {
+		Com_DPrintf("%s: rate limit from %s exceeded, dropping request\n", action, NET_AdrToString(from));
+		return false;
+	}
+	if (SVC_RateLimit(bucket, overallBurst, overallPeriod)) {
+		Com_DPrintf("%s: overall rate limit exceeded, dropping request\n", action);
+		return false;
+	}
+	return true;
+};
 
 
 void SV_ConnectionlessPacket( netaddr_s from, msg_t *msg )
@@ -709,15 +956,18 @@ void SV_ConnectionlessPacket( netaddr_s from, msg_t *msg )
 	}
 	else if (Q_stricmp( c,"getstatus") == 0)
 	{
-		SVC_Status( from  );
+		if (server_isRateLimitOk(&outboundLeakyBucket, from, "SV_Status", 10, 1000, 10, 100))
+			SVC_Status( from  );
 	}
 	else if (Q_stricmp( c,"getinfo") == 0)
 	{
-		SVC_Info( from );
+		if (server_isRateLimitOk(&outboundLeakyBucket, from, "SV_Info", 10, 1000, 10, 100))
+			SVC_Info( from );
 	}
 	else if (Q_stricmp( c,"getchallenge") == 0)
 	{
-		SV_GetChallenge( from );
+		if (server_isRateLimitOk(&outboundLeakyBucket, from, "SV_GetChallenge", 10, 1000, 10, 100))
+			SV_GetChallenge( from );
 	}
 	else if (Q_stricmp( c,"connect") == 0)
 	{
@@ -729,7 +979,8 @@ void SV_ConnectionlessPacket( netaddr_s from, msg_t *msg )
 	}
 	else if (Q_stricmp( c, "rcon") == 0)
 	{
-		SVC_RemoteCommand( from );
+		if (server_isRateLimitOk(&outboundLeakyBucketRcon, from, "SVC_RemoteCommand", 10, 1000, 10, 1000))
+			SVC_RemoteCommand( from );
 	}
 	// CoD2x: Auto-Updater
     else if (Q_stricmp(c, "updateResponse") == 0)
@@ -761,6 +1012,24 @@ void SV_ConnectionlessPacket( netaddr_s from, msg_t *msg )
 }
 
 
+
+
+// Limit sending disconnect packets to corrupted received packets
+int NET_OutOfBandPrint_SV_PacketEvent(netsrc_e sender, struct netaddr_s addr, const char* msg) {
+
+	if (!server_isRateLimitOk(&outboundLeakyBucketDisconnect, addr, "SV_PacketEvent::disconnect", 2, 1000, 64, 1000)) { // 2 packets per second for IP, 64 packets per second overall
+		return 0;
+	}
+
+	return NET_OutOfBandPrint(sender, addr, msg);
+}
+
+// Send UDP packet to a server or client. Sender is NS_SERVER or NS_CLIENT
+int NET_OutOfBandPrint_SV_PacketEvent_Win32(netsrc_e sender, struct netaddr_s addr) {
+	const char* msg;
+	ASM( movr, msg, "eax" );
+	return NET_OutOfBandPrint_SV_PacketEvent(sender, addr, msg);
+}
 
 
 
@@ -850,9 +1119,94 @@ void SV_ClientBegin_Linux(int clientNum) {
 
 
 
+/**
+ * Check if the server is in a state that allows for a map change or restart.
+ * Returns true to proceed, false to cancel the operation.
+ */
+bool server_beforeMapChangeOrRestart(bool isShutdown, sv_map_change_source_e source) {
+	if (sv_running && !sv_running->value.boolean) {
+		return true; // server is not running, allow map change/restart
+	}
+	
+	// Automatically proceed if the map is already changing
+	// This prevents multiple calls for map_rotate, which can call map()
+	if (server_ignoreMapChangeThisFrame) {
+		return true;
+	}
+	server_ignoreMapChangeThisFrame = true;
 
-// Called when the server is started via /map or /devmap, or /map_restart
+	bool fromScript = level_finished > 0; // 1=map_restart(), 2=map(), 3=exitLevel()
+	bool bComplete = !level_savePersist;  // set from GSC when calling exitLevel() or map_restart()
+
+	if (!gsc_beforeMapChangeOrRestart(fromScript, bComplete, isShutdown, source)) return false;	// must be called first, because mod can block the map change/restart
+	if (!gsc_match_beforeMapChangeOrRestart(fromScript, bComplete, isShutdown, source)) return false;
+	if (!gsc_http_beforeMapChangeOrRestart(fromScript, bComplete, isShutdown, source)) return false;
+	if (!gsc_websocket_beforeMapChangeOrRestart(fromScript, bComplete, isShutdown, source)) return false;
+	if (!match_beforeMapChangeOrRestart(fromScript, bComplete, isShutdown, source)) return false;
+
+	return true;
+}
+
+bool cmd_map_called = false;
+bool cmd_map_canceled = false;
+
+// Command handler for "map" and "devmap", also called by GSC map()
+void cmd_map() {
+	cmd_map_canceled = false; // just in case
+	cmd_map_called = true;
+	bool sv_cheats = Dvar_GetDvarByName("sv_cheats")->value.boolean;
+
+	ASM_CALL(RETURN_VOID, ADDR(0x00451b60, 0x0808bd46), 0);
+
+	// Flag is still true, it means SV_SpawnServer was not called (dues to missing map, other error)
+	/*if (cmd_map_called == true) {
+		Com_DPrintf("cmd_map: SV_SpawnServer was not called (due to missing map or other error)\n");
+	}*/
+
+	// SV_SpawnServer was called, but the map change was canceled
+	if (cmd_map_canceled) {
+		// Change the sv_cheats back to original value (is called after SV_SpawnServer)
+		Dvar_SetBool(Dvar_GetDvarByName("sv_cheats"), sv_cheats);
+	}
+
+	cmd_map_canceled = false;
+	cmd_map_called = false;  // just in case
+}
+
+// Command handler for "fast_restart", also called by GSC map_restart()
+void cmd_fast_restart() {
+	if (!server_beforeMapChangeOrRestart(false, SV_MAP_CHANGE_SOURCE_FAST_RESTART)) return;
+	ASM_CALL(RETURN_VOID, ADDR(0x00451f40, 0x0808c0bc), 0);
+}
+
+// Command handler for "map_restart"
+void cmd_map_restart() {
+	if (!server_beforeMapChangeOrRestart(false, SV_MAP_CHANGE_SOURCE_MAP_RESTART)) return;
+	ASM_CALL(RETURN_VOID, ADDR(0x00451f30, 0x0808c0a8), 0);
+}
+
+// Command handler for "map_rotate", also called by GSC exitLevel()
+void cmd_map_rotate() {
+	if (!server_beforeMapChangeOrRestart(false, SV_MAP_CHANGE_SOURCE_MAP_ROTATE)) return;
+	ASM_CALL(RETURN_VOID, ADDR(0x00451fe0, 0x0808c132), 0);
+}
+
+
+
+
+
+/** Called when the server is started via /map or /devmap, or /map_restart */
 void SV_SpawnServer(char* mapname) {
+
+	if (cmd_map_called) {
+		cmd_map_called = false;
+
+		bool proceed = server_beforeMapChangeOrRestart(false, SV_MAP_CHANGE_SOURCE_MAP);
+		cmd_map_canceled = !proceed;
+
+		if (!proceed)
+			return;
+	}
 
     // Fix animation time from crouch to stand
     animation_changeFix(true);
@@ -865,10 +1219,28 @@ void SV_SpawnServer(char* mapname) {
 
 
 
+/** Called on /quit, /killserver or other server shutdown reason. Is called also for client when disconnects */
+void SV_Shutdown(const char* error) {
+	Com_DPrintf("SV_Shutdown(%s)\n", error);
+
+	if (sv_running && sv_running->value.boolean) {
+		server_beforeMapChangeOrRestart(true, SV_MAP_CHANGE_SOURCE_MAP_SHUTDOWN);
+	}
+
+	// Call the original function
+	ASM_CALL(RETURN_VOID, ADDR(0x0045a130, 0x080942f8), 1, PUSH(error));
+}
+
+
+
 void G_RunFrame(int time) {
     // Call the original function
     ASM_CALL(RETURN_VOID, ADDR(0x004fd1b0, 0x0810a13a), WL(0, 1), WL(EAX, PUSH)(time));
 
+	server_ignoreMapChangeThisFrame = false;
+
+	// Update rate limiter statistics (request count and unique IPs in last second)
+	SVC_UpdateRateLimiterStats();
 
 	if (sv_playerBroadcastLimit->value.integer > 0) {
 
@@ -921,6 +1293,10 @@ void server_init()
 
 	sv_cracked = Dvar_RegisterBool("sv_cracked", false, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
 
+	sv_rateLimiter = Dvar_RegisterBool("sv_rateLimiter", true, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
+	sv_rateLimiterRequestCount = Dvar_RegisterInt("sv_rateLimiterRequestCount", 0, 0, INT_MAX, (dvarFlags_e)(DVAR_ROM));
+	sv_rateLimiterUniqueIPCount = Dvar_RegisterInt("sv_rateLimiterUniqueIPCount", 0, 0, INT_MAX, (dvarFlags_e)(DVAR_ROM));
+
 	// If the original binary has been cracked by changing the authorize server URL, set sv_cracked to true to maintain the same behavior
 	if (strncmp(originalAuthorizeServerUrl, SERVER_ACTIVISION_AUTHORIZE_URI, 26) != 0) {
 		Dvar_SetBool(sv_cracked, true);
@@ -930,6 +1306,10 @@ void server_init()
 
 	// Maximum number of players that will be sent to all clients, if there are more players, only visible players will be sent
 	sv_playerBroadcastLimit = Dvar_RegisterInt("sv_playerBroadcastLimit", 15, 0, 64, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
+
+	// Sets limits on client side for competitive settings
+	dvarFlags_e noWriteForClientFlag = (dedicated->value.integer == 0) ? DEBUG_RELEASE(DVAR_CHEAT, DVAR_NOWRITE) : DVAR_NOFLAG;
+	g_competitive = Dvar_RegisterBool("g_competitive", false, (enum dvarFlags_e)(noWriteForClientFlag | DVAR_SYSTEMINFO | DVAR_CHANGEABLE_RESET));
 
 
     Cmd_AddCommand("unbanAll", server_unbanAll_command);
@@ -954,6 +1334,9 @@ void server_patch()
     // Hook the SV_ConnectionlessPacket function
     patch_call(ADDR(0x0045bbc2, 0x08096126), (unsigned int)SV_ConnectionlessPacket);
 
+	// Hook SV_PacketEvent in Com_EventLoop
+	patch_call(ADDR(0x0045bd06, 0x080963bd), (unsigned int)WL(NET_OutOfBandPrint_SV_PacketEvent_Win32, NET_OutOfBandPrint_SV_PacketEvent));
+
 	// Hook SV_MasterHeartbeat
 	patch_call(ADDR(0x0045c8b2, 0x08096e03), (unsigned int)SV_MasterHeartbeat); // "COD-2"
 	patch_call(ADDR(0x0045a18f, 0x08097049), (unsigned int)SV_MasterHeartbeat); // "flatline"
@@ -974,6 +1357,9 @@ void server_patch()
     patch_call(ADDR(0x00451c7f, 0x0808be22), (unsigned int)SV_SpawnServer); // map / devmap
     patch_call(ADDR(0x00451f1c, 0x0808befa), (unsigned int)SV_SpawnServer); // map_restart
 
+    patch_call(ADDR(0x00432737, 0x08061271), (unsigned int)SV_Shutdown); // Com_Quit_f
+    patch_call(ADDR(0x00432011, 0x08060eac), (unsigned int)SV_Shutdown); // Com_ShutdownInternal
+
 
     // Hook the SV_ClientBegin function
     patch_call(ADDR(0x00454d12, 0x0808f6ee), (unsigned int)ADDR(SV_ClientBegin_Win32, SV_ClientBegin_Linux));
@@ -989,6 +1375,15 @@ void server_patch()
 	// Hook the SV_UserInfoChanged function
 	patch_call(ADDR(0x00454626, 0x0808eedb), (unsigned int)WL(SV_UserinfoChanged_Win32, SV_UserinfoChanged)); // SV_DirectConnect
 	patch_call(ADDR(0x00455c32, 0x08090a36), (unsigned int)WL(SV_UserinfoChanged_Win32, SV_UserinfoChanged)); // SV_UpdateUserinfo_f
+
+
+
+	// Hook the function for changing map
+	patch_int32(ADDR(0x00452adb + 1, 0x0808cdf0 + 4), (unsigned int)cmd_map); 			// Cmd_AddCommand("map", cmd_map);
+	patch_int32(ADDR(0x00452b23 + 1, 0x0808ce48 + 4), (unsigned int)cmd_map); 			// Cmd_AddCommand("devmap", cmd_map);
+	patch_int32(ADDR(0x00452acc + 1, 0x0808cddc + 4), (unsigned int)cmd_fast_restart); 	// Cmd_AddCommand("fast_restart", cmd_map);
+	patch_int32(ADDR(0x00452abd + 1, 0x0808cdc8 + 4), (unsigned int)cmd_map_restart); 	// Cmd_AddCommand("map_restart", cmd_map);
+	patch_int32(ADDR(0x00452af7 + 1, 0x0808ce20 + 4), (unsigned int)cmd_map_rotate); 	// Cmd_AddCommand("map_rotate", cmd_map);
 
 
 

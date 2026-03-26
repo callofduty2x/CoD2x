@@ -3,6 +3,12 @@
 #include <cstdio>
 #include <cctype>
 
+#if defined(_WIN32)
+  #include <windows.h>
+#else
+  #include <time.h>
+#endif
+
 /*
  * Compares two version strings.
  * Versions are expected in the format: "1.4.4.2" or "1.4.4.2-test.1".
@@ -15,7 +21,10 @@
  * A version without a pre-release part is considered higher (more stable)
  * than one with a pre-release part if the main parts are identical.
  */
-int version_compare(const char *v1, const char *v2) {
+int version_compare(const char *v1, const char *v2, bool* firstIsPrerelease, bool* secondIsPrerelease) {
+    if (firstIsPrerelease) *firstIsPrerelease = false;
+    if (secondIsPrerelease) *secondIsPrerelease = false;
+
     if (v1 == v2) return 0;
     if (!v1) return -1;
     if (!v2) return 1;
@@ -34,12 +43,14 @@ int version_compare(const char *v1, const char *v2) {
         if (!end1) {
             char *q;
             n1 = strtoull(p1, &q, 10);
+            if (q == p1)  break;  // invalid token
             p1 = (*q == '.') ? q + 1 : q;
         }
 
         if (!end2) {
             char *q;
             n2 = strtoull(p2, &q, 10);
+            if (q == p2)  break;  // invalid token
             p2 = (*q == '.') ? q + 1 : q;
         }
 
@@ -51,6 +62,9 @@ int version_compare(const char *v1, const char *v2) {
     // "1.2.3.4" > "1.2.3.4-alpha"
     const char *pre1 = (*p1 == '-') ? p1 + 1 : NULL;
     const char *pre2 = (*p2 == '-') ? p2 + 1 : NULL;
+
+    if (firstIsPrerelease) *firstIsPrerelease = (pre1 != NULL);
+    if (secondIsPrerelease) *secondIsPrerelease = (pre2 != NULL);
 
     if (!pre1 && !pre2) return 0;
     if (!pre1) return 1;
@@ -108,6 +122,7 @@ int version_compare(const char *v1, const char *v2) {
         if (!*t2) return 1;
     }
 }
+
 
 void escape_string(char* buffer, size_t bufferSize, const void* data, size_t length) {
     // Loop through the data char by char and escape invisible characters into buffer
@@ -227,4 +242,100 @@ int base64_decode(const char* input, uint8_t* output, size_t out_size)
         if (pad < 1) output[j++] = ((vals[2] & 0x3) << 6) | vals[3];
     }
     return (int)j;
+}
+
+
+
+/**
+ * Get current UTC wall-clock time in milliseconds since Unix epoch (1970-01-01).
+ *
+ * - On Windows uses GetSystemTimeAsFileTime (fast, ~15 ms precision).
+ * - On Linux uses CLOCK_REALTIME_COARSE (fast, ~1–4 ms precision).
+ * - ⚠ Value may jump forward/backward if the system clock changes (NTP, manual adjustment).
+ *
+ * Example:
+ *   uint64_t now = time_utc_ms();
+ *   printf("Current UTC time: %llu ms\n", (unsigned long long) now);
+ */
+uint64_t time_utc_ms(void) {
+#if defined(_WIN32)
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER t;
+    t.LowPart  = ft.dwLowDateTime;
+    t.HighPart = ft.dwHighDateTime;
+    return t.QuadPart / 10000ULL - 11644473600000ULL;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME_COARSE, &ts);   // faster, lower precision
+    return (uint64_t)ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL;
+#endif
+}
+
+/**
+ * Get a monotonic tick counter in milliseconds.
+ *
+ * - On Windows uses QueryPerformanceCounter.
+ * - On Linux uses CLOCK_MONOTONIC.
+ * - Monotonic: the value never jumps due to system clock changes.
+ * - Ideal for measuring durations, intervals, and timeouts.
+ * - Resolution: usually microseconds (rounded to ms).
+ *
+ * Example:
+ *   uint64_t start = ticks_ms();
+ *   do_work();
+ *   uint64_t elapsed = ticks_ms() - start;
+ *   printf("Elapsed: %llu ms\n", (unsigned long long) elapsed);
+ */
+uint64_t ticks_ms(void) {
+#if defined(_WIN32)
+    LARGE_INTEGER freq, counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    return (uint64_t)(counter.QuadPart * 1000ULL / freq.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ULL + ts.tv_nsec / 1000000ULL;
+#endif
+}
+
+
+/**
+ * Convert a UTC timestamp (milliseconds since Unix epoch) into ISO8601 string.
+ * 
+ * Output format: "YYYY-MM-DDTHH:MM:SS.mmmZ"
+ * - Always UTC, with millisecond precision.
+ * - Example: 2025-08-24T21:34:15.123Z
+ *
+ * Params:
+ *   ms_epoch   - timestamp in ms since 1970-01-01
+ *   buf        - destination buffer
+ *   buf_size   - size of buffer (at least 25 recommended)
+ *
+ * Returns: buf pointer (for convenience).
+ */
+char* time_to_iso8601(uint64_t ms_epoch, char* buf, size_t buf_size) {
+    time_t seconds = (time_t)(ms_epoch / 1000ULL);
+    int millis     = (int)(ms_epoch % 1000ULL);
+
+    struct tm tm_utc;
+#if defined(_WIN32)
+    gmtime_s(&tm_utc, &seconds);   // Windows safe version
+#else
+    gmtime_r(&seconds, &tm_utc);   // POSIX safe version
+#endif
+
+    // Format: "YYYY-MM-DDTHH:MM:SS.mmmZ"
+    snprintf(buf, buf_size,
+             "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+             tm_utc.tm_year + 1900,
+             tm_utc.tm_mon + 1,
+             tm_utc.tm_mday,
+             tm_utc.tm_hour,
+             tm_utc.tm_min,
+             tm_utc.tm_sec,
+             millis);
+
+    return buf;
 }

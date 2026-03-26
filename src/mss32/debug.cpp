@@ -8,6 +8,7 @@
 #include "shared.h"
 #include "../shared/cod2_cmd.h"
 #include "../shared/cod2_entity.h"
+#include "../shared/cod2_client.h"
 #include "../shared/cod2_dvars.h"
 
 // Window class and title for the debug window.
@@ -17,12 +18,18 @@
 // New IDs and constants for toolbar.
 #define TOOLBAR_HEIGHT 30
 #define IDM_TOGGLE_UPDATE 1001
+#define IDM_TOGGLE_SERVER 1002
+#define IDM_TOGGLE_CLIENT 1003
 
 // Global handles for the debug window, toolbar, and its text control.
 static HWND debug_hHWND = NULL;
-static HWND debug_hToolbar = NULL;
+static HWND debug_hButtonUpdate = NULL;
+static HWND debug_hButtonServer = NULL;
+static HWND debug_hButtonClient = NULL;
 static HWND debug_hEdit = NULL;
 static bool debug_updateEnabled = true;
+static bool debug_serverEnabled = true;
+static bool debug_clientEnabled = true;
 static HANDLE debug_hThread = NULL;
 static DWORD debug_lastUpdateTime = 0;
 static int debug_x = 0;
@@ -37,9 +44,17 @@ LRESULT CALLBACK debug_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         case WM_SIZE: {
                 RECT rc;
                 GetClientRect(hwnd, &rc);
-                // Resize the toolbar.
-                if (debug_hToolbar) {
-                    MoveWindow(debug_hToolbar, 0, 0, rc.right - rc.left, TOOLBAR_HEIGHT, TRUE);
+                // Resize the toolbar buttons based on the window width.
+                int buttonCount = 3;
+                int buttonWidth = (rc.right - rc.left) / buttonCount;
+                if (debug_hButtonUpdate) {
+                    MoveWindow(debug_hButtonUpdate, 0, 0, buttonWidth, TOOLBAR_HEIGHT, TRUE);
+                }
+                if (debug_hButtonServer) {
+                    MoveWindow(debug_hButtonServer, buttonWidth, 0, buttonWidth, TOOLBAR_HEIGHT, TRUE);
+                }
+                if (debug_hButtonClient) {
+                    MoveWindow(debug_hButtonClient, buttonWidth * 2, 0, (rc.right - rc.left) - buttonWidth * 2, TOOLBAR_HEIGHT, TRUE);
                 }
                 // Resize the edit control to fill below the toolbar.
                 if (debug_hEdit) {
@@ -49,10 +64,16 @@ LRESULT CALLBACK debug_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
             break;
         case WM_COMMAND:
             if (LOWORD(wParam) == IDM_TOGGLE_UPDATE) {
-                // Toggle the update flag.
                 debug_updateEnabled = !debug_updateEnabled;
-                // Update button text to reflect new state.
                 SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_UPDATE), debug_updateEnabled ? "Disable Update" : "Enable Update");
+            }
+            else if (LOWORD(wParam) == IDM_TOGGLE_SERVER) {
+                debug_serverEnabled = !debug_serverEnabled;
+                SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_SERVER), debug_serverEnabled ? "Disable Server" : "Enable Server");
+            } 
+            else if (LOWORD(wParam) == IDM_TOGGLE_CLIENT) {
+                debug_clientEnabled = !debug_clientEnabled;
+                SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_CLIENT), debug_clientEnabled ? "Disable Client" : "Enable Client");
             }
             break;
         case WM_DESTROY:
@@ -94,16 +115,45 @@ void debug_createWindow(HINSTANCE hInstance) {
 
     if (!debug_hHWND)
         return;
-    
+    // Calculate button width to fit all three buttons in a row across the window width.
+    int buttonCount = 3;
+    int buttonWidth = debug_w / buttonCount;
+
     // Create toolbar button for toggling updates.
-    debug_hToolbar = CreateWindowEx(
+    debug_hButtonUpdate = CreateWindowExA(
         0,
         "BUTTON",
         "Disable Update", // Initial text when updateEnabled is true.
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        0, 0, 150, TOOLBAR_HEIGHT,
+        0, 0, buttonWidth, TOOLBAR_HEIGHT,
         debug_hHWND,
         (HMENU)IDM_TOGGLE_UPDATE,
+        hInstance,
+        NULL
+    );
+
+    // Create a button for toggling server.
+    debug_hButtonServer = CreateWindowExA(
+        0,
+        "BUTTON",
+        "Disable Server", // Initial text when serverEnabled is true.
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        buttonWidth, 0, buttonWidth, TOOLBAR_HEIGHT,
+        debug_hHWND,
+        (HMENU)IDM_TOGGLE_SERVER,
+        hInstance,
+        NULL
+    );
+
+    // Create a button for toggling client.
+    debug_hButtonClient = CreateWindowExA(
+        0,
+        "BUTTON",
+        "Disable Client", // Initial text when clientEnabled is true.
+        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        buttonWidth * 2, 0, buttonWidth, TOOLBAR_HEIGHT,
+        debug_hHWND,
+        (HMENU)IDM_TOGGLE_CLIENT,
         hInstance,
         NULL
     );
@@ -155,8 +205,12 @@ DWORD WINAPI debug_windowThread(LPVOID lpParam) {
 
     debug_hHWND = NULL;
     debug_hEdit = NULL;
-    debug_hToolbar = NULL;
+    debug_hButtonUpdate = NULL;
+    debug_hButtonServer = NULL;
+    debug_hButtonClient = NULL;
     debug_updateEnabled = true;
+    debug_serverEnabled = true;
+    debug_clientEnabled = true;
 
     return 0;
 }
@@ -214,7 +268,7 @@ void debug_append_line(char* buffer, size_t bufferSize, const char* line) {
 
 // Helper function to append a formatted line to a buffer safely.
 void debug_append_linef(char* buffer, size_t bufferSize, const char* fmt, ...) {
-    char temp[4096];
+    char temp[16384];
     va_list args;
     va_start(args, fmt);
     vsprintf_s(temp, sizeof(temp), fmt, args);
@@ -232,47 +286,104 @@ void debug_frame() {
     debug_lastUpdateTime = currentTime;
 
     if (debug_hHWND && debug_hEdit && debug_updateEnabled) {
-        char buffer[4096];
+        char buffer[16384];
         buffer[0] = '\0';
 
         debug_append_linef(buffer, sizeof(buffer), "Tick count: %lu ms", GetTickCount());
 
         // Print server side information.
-        if (sv_running->value.boolean) {
+        if (debug_serverEnabled) {
+            if (sv_running->value.boolean) {
 
-            // Print player entities
-            for (int i = 0; i < MAX_GENTITIES; i++) {
-                gentity_t* ent = &g_entities[i];
-                if (ent->s.eType == ET_PLAYER) {
-                    debug_append_linef(buffer, sizeof(buffer), "");
-                    debug_append_linef(buffer, sizeof(buffer), "Entity %d:", i);
-                    debug_append_linef(buffer, sizeof(buffer), "  Number: %d", ent->s.number);
-                    debug_append_linef(buffer, sizeof(buffer), "  Client Num: %d", ent->s.clientNum);
-                    debug_append_linef(buffer, sizeof(buffer), "  In use: %d", ent->r.inuse);
-                    debug_append_linef(buffer, sizeof(buffer), "  Type: %d", ent->s.eType);
-                    debug_append_linef(buffer, sizeof(buffer), "  Flags: 0x%x", ent->s.eFlags);
-                    debug_append_linef(buffer, sizeof(buffer), "  Dmg Flags: 0x%x", ent->s.dmgFlags);
-                    debug_append_linef(buffer, sizeof(buffer), "  Solid: 0x%x", ent->s.solid);
-                    debug_append_linef(buffer, sizeof(buffer), "  Health: %d", ent->health);
-                    debug_append_linef(buffer, sizeof(buffer), "  Max Health: %d", ent->maxHealth);
-                    debug_append_linef(buffer, sizeof(buffer), "  Origin: (%.2f, %.2f, %.2f)", ent->s.pos.trBase[0], ent->s.pos.trBase[1], ent->s.pos.trBase[2]);
-                    debug_append_linef(buffer, sizeof(buffer), "  Angles: (%.2f, %.2f, %.2f)", ent->s.apos.trBase[0], ent->s.apos.trBase[1], ent->s.apos.trBase[2]);
-                    debug_append_linef(buffer, sizeof(buffer), "  Team: %d", ent->team);
-                    debug_append_linef(buffer, sizeof(buffer), "  Weapon: %d", ent->s.weapon);
-                    debug_append_linef(buffer, sizeof(buffer), "  Other Entity Num: %d", ent->s.otherEntityNum);
-                    debug_append_linef(buffer, sizeof(buffer), "  Attacker Entity Num: %d", ent->s.attackerEntityNum);
-                    debug_append_linef(buffer, sizeof(buffer), "  Ground Entity Num: %d", ent->s.groundEntityNum);
-                    debug_append_linef(buffer, sizeof(buffer), "  Constant Light: %d", ent->s.constantLight);
-                    debug_append_linef(buffer, sizeof(buffer), "  Events: %d %d %d %d", ent->s.events[0], ent->s.events[1], ent->s.events[2], ent->s.events[3]);
-                    debug_append_linef(buffer, sizeof(buffer), "  EventParms: %d %d %d %d", ent->s.eventParms[0], ent->s.eventParms[1], ent->s.eventParms[2], ent->s.eventParms[3]);
-                    debug_append_linef(buffer, sizeof(buffer), "  Event Time: %d", ent->eventTime);
-                    debug_append_linef(buffer, sizeof(buffer), "  Event Sequence: %d", ent->s.eventSequence);
-                    debug_append_linef(buffer, sizeof(buffer), "  Legs Anim: %d", ent->s.legsAnim);
-                    debug_append_linef(buffer, sizeof(buffer), "  Torso Anim: %d", ent->s.torsoAnim);
+                // Print player entities
+                for (int i = 0; i < MAX_GENTITIES; i++) {
+                    gentity_t* ent = &g_entities[i];
+                    if (ent->s.eType == ET_PLAYER) {
+                        debug_append_linef(buffer, sizeof(buffer), "");
+                        debug_append_linef(buffer, sizeof(buffer), "Entity %d:", i);
+                        debug_append_linef(buffer, sizeof(buffer), "  Number: %d", ent->s.number);
+                        debug_append_linef(buffer, sizeof(buffer), "  Client Num: %d", ent->s.clientNum);
+                        debug_append_linef(buffer, sizeof(buffer), "  In use: %d", ent->r.inuse);
+                        debug_append_linef(buffer, sizeof(buffer), "  Type: %d", ent->s.eType);
+                        debug_append_linef(buffer, sizeof(buffer), "  Flags: 0x%x", ent->s.eFlags);
+                        debug_append_linef(buffer, sizeof(buffer), "  Dmg Flags: 0x%x", ent->s.dmgFlags);
+                        debug_append_linef(buffer, sizeof(buffer), "  Solid: 0x%x", ent->s.solid);
+                        debug_append_linef(buffer, sizeof(buffer), "  Health: %d", ent->health);
+                        debug_append_linef(buffer, sizeof(buffer), "  Max Health: %d", ent->maxHealth);
+                        debug_append_linef(buffer, sizeof(buffer), "  Origin: (%.2f, %.2f, %.2f)", ent->s.pos.trBase[0], ent->s.pos.trBase[1], ent->s.pos.trBase[2]);
+                        debug_append_linef(buffer, sizeof(buffer), "  Angles: (%.2f, %.2f, %.2f)", ent->s.apos.trBase[0], ent->s.apos.trBase[1], ent->s.apos.trBase[2]);
+                        debug_append_linef(buffer, sizeof(buffer), "  Team: %d", ent->team);
+                        debug_append_linef(buffer, sizeof(buffer), "  Weapon: %d", ent->s.weapon);
+                        debug_append_linef(buffer, sizeof(buffer), "  Other Entity Num: %d", ent->s.otherEntityNum);
+                        debug_append_linef(buffer, sizeof(buffer), "  Attacker Entity Num: %d", ent->s.attackerEntityNum);
+                        debug_append_linef(buffer, sizeof(buffer), "  Ground Entity Num: %d", ent->s.groundEntityNum);
+                        debug_append_linef(buffer, sizeof(buffer), "  Constant Light: %d", ent->s.constantLight);
+                        debug_append_linef(buffer, sizeof(buffer), "  Events: %d %d %d %d", ent->s.events[0], ent->s.events[1], ent->s.events[2], ent->s.events[3]);
+                        debug_append_linef(buffer, sizeof(buffer), "  EventParms: %d %d %d %d", ent->s.eventParms[0], ent->s.eventParms[1], ent->s.eventParms[2], ent->s.eventParms[3]);
+                        debug_append_linef(buffer, sizeof(buffer), "  Event Time: %d", ent->eventTime);
+                        debug_append_linef(buffer, sizeof(buffer), "  Event Sequence: %d", ent->s.eventSequence);
+                        debug_append_linef(buffer, sizeof(buffer), "  Legs Anim: %d", ent->s.legsAnim);
+                        debug_append_linef(buffer, sizeof(buffer), "  Torso Anim: %d", ent->s.torsoAnim);
+                    }
                 }
+            } else {
+                debug_append_line(buffer, sizeof(buffer), "Server is not running.");
             }
-        } else {
-            debug_append_line(buffer, sizeof(buffer), "Server is not running.");
+        }
+
+        if (debug_clientEnabled) {
+            debug_append_linef(buffer, sizeof(buffer), "--------------------------------");
+            debug_append_linef(buffer, sizeof(buffer), "Client");
+            debug_append_linef(buffer, sizeof(buffer), "--------------------------------");
+            debug_append_linef(buffer, sizeof(buffer), "Client Num: %d", cg.clientNum);
+            debug_append_linef(buffer, sizeof(buffer), "Client Frame: %d", cg.clientFrame);
+            debug_append_linef(buffer, sizeof(buffer), "Client Time: %d", cg.latestSnapshotTime);
+
+
+            // Draw players
+            for(int i = 0; i < 64; i++ )
+            {
+                centity_t* cent = &cg_entities[ i ];
+                clientInfo_t* ci = &clientInfo[ cent->currentState.clientNum ];
+
+                if (cent->currentState.eType != ET_PLAYER) {
+                    continue; // Skip invalid entities or non-player entities.
+                }
+
+                /*if (cent->currentValid == 0) {
+                    continue; // Skip invalid or non-player entities.
+                }*/
+
+                debug_append_linef(buffer, sizeof(buffer), "");
+                debug_append_linef(buffer, sizeof(buffer), "cg_entities %d:", i);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentValid: %d", cent->currentValid);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.number: %d", cent->currentState.number);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.index: %d", cent->currentState.index);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.clientNum: %d", cent->currentState.clientNum);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.time: %d", cent->currentState.time);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.time2: %d", cent->currentState.time2);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.eType: %d", cent->currentState.eType);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.eFlags: 0x%x", cent->currentState.eFlags);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.pos.trBase: (%.2f, %.2f, %.2f)", cent->currentState.pos.trBase[0], cent->currentState.pos.trBase[1], cent->currentState.pos.trBase[2]);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.apos.trBase: (%.2f, %.2f, %.2f)", cent->currentState.apos.trBase[0], cent->currentState.apos.trBase[1], cent->currentState.apos.trBase[2]);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->lerpOrigin: (%.2f, %.2f, %.2f)", cent->lerpOrigin[0], cent->lerpOrigin[1], cent->lerpOrigin[2]);
+                //debug_append_linef(buffer, sizeof(buffer), "  cent->lerpAngles: (%.2f, %.2f, %.2f)", cent->lerpAngles[0], cent->lerpAngles[1], cent->lerpAngles[2]);
+
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.events: %d %d %d %d", cent->currentState.events[0], cent->currentState.events[1], cent->currentState.events[2], cent->currentState.events[3]);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.eventParms: %d %d %d %d", cent->currentState.eventParms[0], cent->currentState.eventParms[1], cent->currentState.eventParms[2], cent->currentState.eventParms[3]);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.time: %d", cent->currentState.time);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.eventSequence: %d", cent->currentState.eventSequence);
+                debug_append_linef(buffer, sizeof(buffer), "  cent->currentState.weapon: %d", cent->currentState.weapon);
+
+                debug_append_linef(buffer, sizeof(buffer), "  ci->health: %d", ci->health);
+                debug_append_linef(buffer, sizeof(buffer), "  ci->name: %s", ci->name);
+                debug_append_linef(buffer, sizeof(buffer), "  ci->team: %d", ci->team);
+                debug_append_linef(buffer, sizeof(buffer), "  ci->model: %s", ci->model);
+                debug_append_linef(buffer, sizeof(buffer), "  ci->score: %d", ci->score);
+                debug_append_linef(buffer, sizeof(buffer), "  ci->location: %d", ci->location);
+            }
+
+
         }
 
         SetWindowTextA(debug_hEdit, buffer);

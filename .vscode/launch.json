@@ -50,7 +50,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/windows/CoD2MP_s.exe",
-            "args": ["+exec launch_args_win_server.cfg"],
+            "args": ["+set dedicated 2 +exec launch_args_win_server.cfg"],
             "cwd": "${workspaceFolder}/bin/windows",
             "externalConsole": true,
             "MIMode": "gdb",

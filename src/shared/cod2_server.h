@@ -6,8 +6,19 @@
 #include "cod2_shared.h"
 #include "cod2_dvars.h"
 #include "cod2_player.h"
+#include "cod2_net.h"
 
 #define MAX_CHALLENGES 1024
+#define MAX_CLIENTS 64
+
+#define svs_authorizeAddress 					(*((netaddr_s*)(ADDR(0x00d52770, 0x084400f0))))
+#define svs_challenges 							(*((challenge_t (*)[MAX_CHALLENGES])(ADDR(0x00d3575c, 0x084230dc))))
+#define svs_time 								(*((int*)(ADDR(0x00d35704, 0x08423084))))
+#define svs_nextHeartbeatTime 					(*((int*)(ADDR(0x00d35754, 0x084230d4))))
+#define svs_nextStatusResponseTime 				(*((int*)(ADDR(0x00d35758, 0x084230d8))))
+#define svs_clients                             (*(client_t (*)[MAX_CLIENTS])(*(void**)(ADDR(0x00d3570c, 0x0842308c))))
+
+
 
 typedef struct
 {
@@ -38,9 +49,19 @@ typedef struct
 	int	messageSize;
 } clientSnapshot_t;
 
+typedef enum
+{
+	CS_FREE,
+	CS_ZOMBIE,
+	CS_CONNECTED, // SV_DirectConnect successfully called
+	CS_PRIMED,
+	CS_ACTIVE
+} clientState_t;
+
+
 typedef struct client_s
 {
-    int state;
+    clientState_t state;
     int sendAsActive;
     char const* dropReason;
     char userinfo[0x400];
@@ -138,4 +159,22 @@ inline int SV_KickClient(void* client) {
     return result;
 }
 
+// Kick player from the server with message
+inline void SV_DropClient(client_t* client, char const* reason) {
+    WL(
+        ASM_CALL(RETURN_VOID, 0x00454750, 1, EAX(client), PUSH(reason)),
+        ASM_CALL(RETURN_VOID, 0x0808f02e, 2, PUSH(client), PUSH(reason))
+    );
+}
+
+// Returns 1 if the map exists on the server
+inline int SV_MapExists(const char* mapName)
+{
+    int ret;
+    WL(
+        ASM_CALL(RETURN(ret), 0x00457870, 0, ECX(mapName)),
+        ASM_CALL(RETURN(ret), 0x08092302, 1, PUSH(mapName))
+    );
+    return ret;
+}
 #endif

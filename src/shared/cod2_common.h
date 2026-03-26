@@ -4,6 +4,10 @@
 #include "shared.h"
 #include <stdio.h>
 
+#define com_last_error      ((char*)ADDR(0x00c26280, 0x081a2280))
+#define com_error_type      (*((errorParm_e*)ADDR(0x00c26270, 0x081a2264)))
+#define com_errorEntered    (*((int*)ADDR(0x00c28b2c, 0x081a21c0)))
+
 enum errorParm_e
 {
     // Show message box, close window, show console window
@@ -58,6 +62,17 @@ inline int Com_DPrintf(const char* format, ...) {
     vsnprintf(buffer, sizeof(buffer), format, val);
     va_end(val);
     return ((int(__cdecl*)(const char*, const char*))(ADDR(0x00431f30, 0x08060e3a)))("%s", buffer);
+}
+
+/**
+ * The returned token points to within the original buffer.
+ * Repeated calls to Com_Parse will extract subsequent tokens from the buffer.
+ */
+inline char *Com_Parse(const char **data_p)
+{
+    char *ret;
+    ASM_CALL(RETURN(ret), ADDR(0x00449850, 0x080b6db2), WL(0, 1), WL(ECX, PUSH)(data_p));
+    return ret;
 }
 
 

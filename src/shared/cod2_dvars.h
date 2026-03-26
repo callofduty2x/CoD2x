@@ -9,6 +9,7 @@
 #define sv_packet_info (*((dvar_s**)( ADDR(0x00d52858, 0x0849f798) )))
 #define net_lanauthorize (*((dvar_s**)( ADDR(0x00c8fb14, 0x081fa514) )))
 #define showpackets (*((dvar_s**)( ADDR(0x00c84ae8, 0x081fa500) )))
+#define dvars_count (*((int*)( ADDR(0x00c5c584, 0x085abe08) )))
 
 
 enum dvarFlags_e : uint16_t
@@ -135,8 +136,25 @@ inline void Dvar_SetVec3(struct dvar_s *dvar, float x, float y, float z) {
     ((void (__cdecl*)(struct dvar_s*, float, float, float))ADDR(0x00438c50, 0x080b4a18))(dvar, x, y, z);
 }
 
+inline bool Dvar_GetBool(const char* name) {
+    return ((bool (__cdecl*)(const char*))ADDR(0x00437480, 0x080b2faa))(name);
+}
+inline int Dvar_GetInt(const char* name) {
+    return ((int (__cdecl*)(const char*))ADDR(0x004374c0, 0x080b2ffc))(name);
+}
+inline float Dvar_GetFloat(const char* name) {
+    return ((float (__cdecl*)(const char*))ADDR(0x004374f0, 0x080b3054))(name);
+}
+inline const char* Dvar_GetString(const char* name) {
+    return ((const char* (__cdecl*)(const char*))ADDR(0x004375b0, 0x080b318a))(name);
+}
+
 inline dvar_t* Dvar_GetDvarByName(const char* name) {
     return ((dvar_t* (__cdecl*)(const char*))ADDR(0x004373a0, 0x080b2e54))(name);
+}
+
+inline void Dvar_StringToColor(struct dvar_s* dvar, float (*vec4)[4]) {
+    ASM_CALL(RETURN_VOID, 0x00437640, 0, EAX(dvar), EDI(vec4));
 }
 
 

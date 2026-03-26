@@ -4,6 +4,7 @@ tools/mingw/**
 
 # Ignore compiled files folder
 obj
+build
 
 # Ignore all files in CoD2 windows folder except for certain files
 bin/windows/*
@@ -30,8 +31,12 @@ bin/windows/*/
 # Ignore all files in main folder except for certain files
 bin/windows/main/*
 !bin/windows/main/launch_*.cfg
+!bin/windows/main/_callback_*.gsc
 
 # Ignore all folders in main folder except for players
 bin/windows/main/*/
 !bin/windows/main/players
 bin/windows/main/players/default/config_mp.cfg
+
+# Large Binary Ninja pseudo-C dumps - keep locally, too big for GitHub
+src/other/*.bndb_pseudo_c.txt

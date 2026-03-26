@@ -6,8 +6,8 @@
 int EventListTimerHandler (void * timer, void * param) {
 
     // CoD2x: Fix crash at 0x0054e658 when trying to access param->timeouts
-    if (param == NULL) {
-        Com_Printf("EventListTimerHandler: param is NULL\n");
+    if (param == NULL || timer == NULL || IsBadReadPtr(param, 0x20)) {
+        Com_Printf("EventListTimerHandler: preventing crash\n");
         return -1; // HT_ERROR
     }
 

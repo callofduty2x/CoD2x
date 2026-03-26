@@ -122,6 +122,7 @@ void error_init() {
 void error_patch() {
 
     // Hook call to MessageBoxA in Sys_Error that is called when fatal game error occurs
+    patch_nop(0x004657f9, 6); // first replace 6th byte, becuase next function writes only to 5 bytes
     patch_call(0x004657f9, (unsigned int)Sys_Error_MessageBoxA);
 
     // Hook call to MessageBoxA in Sys_DirectXFatalError that is called when DirectX error occurs

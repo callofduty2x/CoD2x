@@ -11,7 +11,7 @@ void game_init() {
     // Register shared cvar between client and server
     // Server cannot change this value
     // Client can change this value to apply differened fixes according to connected server version
-    g_cod2x = Dvar_RegisterInt("g_cod2x", 0, 0, APP_VERSION_PROTOCOL, (dvarFlags_e)(DEBUG_RELEASE(DVAR_CHEAT, DVAR_NOWRITE)));
+    g_cod2x = Dvar_RegisterInt("g_cod2x", 0, 0, APP_VERSION_PROTOCOL, (dvarFlags_e)(DEBUG_RELEASE(DVAR_NOFLAG, DVAR_NOWRITE) | DVAR_SYSTEMINFO));
 
     // Force server to use the new protocol version
     if (COD2X_LINUX || dedicated->value.integer > 0) {

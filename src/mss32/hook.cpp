@@ -1,5 +1,6 @@
 #include "hook.h"
 
+#include <winsock2.h> // must be called before windows.h to fix warning about winsock2.h
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
@@ -7,25 +8,36 @@
 #include "shared.h"
 #include "admin.h"
 #include "registry.h"
+#include "url_protocol.h"
 #include "affinity.h"
 #include "hotreload.h"
 #include "exception.h"
 #include "freeze.h"
 #include "window.h"
 #include "rinput.h"
-#include "fps.h"
+#include "competitive.h"
+#include "console.h"
 #include "cgame.h"
 #include "updater.h"
 #include "hwid.h"
+#include "radar.h"
+#include "drawing.h"
 #include "master_server.h"
 #include "error.h"
 #include "downloading.h"
+#include "demo.h"
+#include "vmix.h"
 #include "debug.h"
+#include "../shared/iwd.h"
 #include "../shared/common.h"
 #include "../shared/server.h"
+#include "../shared/dvar.h"
 #include "../shared/game.h"
 #include "../shared/animation.h"
 #include "../shared/cod2_dvars.h"
+#include "../shared/gsc.h"
+#include "../shared/match.h"
+#include "../shared/weapons.h"
 
 HMODULE hModule;
 unsigned int gfx_module_addr;
@@ -66,8 +78,13 @@ void hook_Com_Frame()
         // New DLL is requested to be loaded, unload the old one and load the new one
         if (hotreload_requested) {
             
+            // Unloading
             hotreload_unload();
             debug_unload();
+            common_unload();
+            weapons_unload();
+            radar_unload();
+            demo_unload();
 
             hotreload_loadDLL();
             return;
@@ -77,7 +94,7 @@ void hook_Com_Frame()
     // Only for client
     if (dedicated->value.integer == 0) {
         affinity_frame();
-        fps_frame();
+        competitive_frame();
         cgame_frame();
     }
 
@@ -86,7 +103,15 @@ void hook_Com_Frame()
     freeze_frame();
     updater_frame();
     hwid_frame();
+    window_frame();
+    gsc_frame();
+    match_frame();
     registry_frame();      // called as last so other modules can handle version changes
+    drawing_frame();
+    iwd_frame();
+    radar_frame();
+    demo_frame();
+    vmix_frame();
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x00434f70);
@@ -116,7 +141,7 @@ int hook_gfxDll() {
     // Patch gfx_d3d_mp_x86_s.dll
     ///////////////////////////////////////////////////////////////////
 
-    window_hook_rendered();
+    window_rendered();
     updater_renderer();
 
     // Fix LOD
@@ -160,9 +185,15 @@ void hook_CL_Init() {
     hwid_init(); 
     window_init();      // depends on being called before gfx dll is loaded
     rinput_init();
-    fps_init();
+    competitive_init();
+    console_init();
     cgame_init();
     master_server_init();
+    match_init_client();
+    drawing_init();
+    radar_init();
+    demo_init();
+    vmix_init();
     
     if (!DLL_HOTRELOAD) {
         ASM_CALL(RETURN_VOID, 0x00410a10);
@@ -188,11 +219,15 @@ void hook_SV_Init() {
 
     // Shared & Server 
     freeze_init();
+    weapons_init();
     common_init();
     server_init();
+    dvar_init();
     updater_init();
     game_init();
     animation_init();
+    match_init();
+    iwd_init();
 
     if (!DLL_HOTRELOAD) {
         ASM_CALL(RETURN_VOID, 0x004596d0);
@@ -215,6 +250,8 @@ void hook_Com_Init(const char* cmdline) {
     debug_init();
     admin_init();      // Must be called before file system initialization
     registry_init();   // Must be called before cdkey registry reading
+    url_protocol_init(); // Must be called before reading cmdline, so we can handle cod2x:// URL protocol
+    gsc_init();
 
     // Call the original function
     if (!DLL_HOTRELOAD) {
@@ -262,17 +299,26 @@ bool hook_patch() {
     freeze_patch();
     window_patch();
     rinput_patch();
-    fps_patch();
+    competitive_patch();
+    console_patch();
     cgame_patch();
     updater_patch();
     master_server_patch();
     downloading_patch();
+    drawing_patch();
+    radar_patch();
+    demo_patch();
+    vmix_patch();
 
+    weapons_patch();
     // Patch server side
     common_patch();
     server_patch();
     game_patch();
+    dvar_patch();
     animation_patch();
+    gsc_patch();
+    iwd_patch();
 
     
     // Patch black screen / long loading on game startup
@@ -303,10 +349,16 @@ bool hook_patch() {
     patch_string_ptr(0x004064cb + 1, "%s: %s> ");
 
 
-    // Improve error message when too many dvars are registered
-    patch_string_ptr(0x00437e0f + 1, "Error while registering cvar '%s'.\nUnable to create more than %i dvars.\n\n"
-        "There is too many cvars in your config!\nClean your config from unused dvars and try again.\n\n"
-        "Normal config should contains no more than 400 lines of dvars. Compare your config with a default one to find the differences.");
+
+    // How many cvars to show in console ("Too many to show" info message)
+    patch_byte(0x004065fb + 2, 60); // originally 24
+    // Detailed dvar match, number of chars to show
+    patch_byte(0x00406091 + 1, 40); // originally 24
+    // Cvar match, number of chars to show
+    patch_byte(0x00405c3c + 1, 40); // originally 24
+    // Dvar value X offset in console
+    patch_float(0x005c41a0, 340.0f); // originally 200.0f
+
 
 
     // Fix console not closing when fatal error occured for server
