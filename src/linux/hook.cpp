@@ -13,6 +13,7 @@
 #include "../shared/animation.h"
 #include "../shared/gsc.h"
 #include "../shared/match.h"
+#include "../mss32/discord.h"
 #include "updater.h"
 
 
@@ -24,6 +25,8 @@ void __cdecl hook_Com_Frame() {
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x080626f4);
+
+    discord_frame();
 
     gsc_frame();
     match_frame();
@@ -70,6 +73,8 @@ void __cdecl hook_Com_Init(char* cmdline) {
     gsc_init();
     updater_checkForUpdate(); // depends on dedicated and network system
     common_printInfo();
+
+    discord_init();
 }
 
 
@@ -98,6 +103,7 @@ bool hook_patch() {
     gsc_patch();
     match_patch();
     iwd_patch();
+    discord_patch();
 
     return true;
 }

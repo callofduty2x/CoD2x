@@ -2,6 +2,8 @@
 # Ignore migw files
 tools/mingw/**
 
+# Rich Presence — tools/discord-presence is vendored and tracked (EclipseMenu/discord-presence).
+
 # Ignore compiled files folder
 obj
 build

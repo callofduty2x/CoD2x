@@ -6,6 +6,7 @@
 #include <string>
 
 #include "shared.h"
+#include "discord.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_cmd.h"
 #include "../shared/cod2_shared.h"
@@ -70,6 +71,10 @@ void cmd_quit() {
         demo_scheduleCloseAfterUpload();
         return;
     }
+
+    /* Normal exit: clear RPC before engine teardown; avoids relying on DllMain (and processes
+       stuck on Discord I/O thread join). */
+    discord_unload();
 
     ASM_CALL(RETURN_VOID, 0x004326c0);
 }

@@ -40,6 +40,11 @@ VERSION_IS_TEST = 0
 VERSION = $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PROTOCOL).$(VERSION_PATCH)$(VERSION_TEST)
 VERSION_COMMA = $(VERSION_MAJOR),$(VERSION_MINOR),$(VERSION_PROTOCOL),$(VERSION_PATCH)
 
+# Rich Presence — Application ID (Discord Developer Portal). Empty = RPC disabled.
+# E.g. mingw32-make build_win DISCORD_CLIENT_ID=1234567890123456789
+# or set it here: DISCORD_CLIENT_ID = 1234567890123456789
+DISCORD_CLIENT_ID = 1345907074638417991
+
 
 # ========================================================================================================
 # Directories and Files
@@ -166,6 +171,7 @@ src/shared/version.h: makefile
 	@echo $(ECHO_QUOTE)#define APP_VERSION_PATCH $(VERSION_PATCH)$(ECHO_QUOTE) 										>> $(VERSION_H)
 	@echo $(ECHO_QUOTE)#define APP_VERSION_IS_TEST $(VERSION_IS_TEST)$(ECHO_QUOTE) 									>> $(VERSION_H)
 	@echo $(ECHO_QUOTE)#define APP_VERSION $(ECHO_QUOTE_ESCAPED)$(VERSION)$(ECHO_QUOTE_ESCAPED)$(ECHO_QUOTE) 		>> $(VERSION_H)
+	@echo $(ECHO_QUOTE)#define COD2X_DISCORD_CLIENT_ID $(ECHO_QUOTE_ESCAPED)$(DISCORD_CLIENT_ID)$(ECHO_QUOTE_ESCAPED)$(ECHO_QUOTE) 		>> $(VERSION_H)
 	
 	@echo $(VERSION) writed to $(VERSION_H)
 	@echo   Done.
