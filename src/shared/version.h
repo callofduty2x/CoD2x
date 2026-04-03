@@ -4,3 +4,4 @@
 #define APP_VERSION_PATCH 7 										
 #define APP_VERSION_IS_TEST 0 									
 #define APP_VERSION "1.4.6.7" 		
+#define COD2X_DISCORD_CLIENT_ID "1345907074638417991" 		

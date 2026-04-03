@@ -1,9 +1,72 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.21)
+
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
 
 #set(CMAKE_USE_RELATIVE_PATHS ON)
 
 project(CoD2x LANGUAGES C CXX)
 
+# -----------------------------------
+# Discord Rich Presence (EclipseMenu/discord-presence)
+# -----------------------------------
+option(COD2X_ENABLE_DISCORD "Rich Presence (vendored under tools/discord-presence or fetched at configure time)" ON)
+
+if(COD2X_ENABLE_DISCORD)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-m32>)
+    add_compile_options($<$<COMPILE_LANGUAGE:C>:-m32>)
+    add_link_options(-m32)
+  endif()
+
+  include(FetchContent)
+  FetchContent_Declare(
+    cod2x_fmt_fc
+    URL https://github.com/fmtlib/fmt/archive/refs/tags/12.1.0.tar.gz
+  )
+  FetchContent_MakeAvailable(cod2x_fmt_fc)
+
+  FetchContent_Declare(
+    cod2x_glaze_fc
+    URL https://github.com/stephenberry/glaze/archive/refs/tags/v7.0.2.tar.gz
+  )
+  FetchContent_MakeAvailable(cod2x_glaze_fc)
+
+  set(DISCORD_RPC_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
+  set(COD2X_DISCORD_PRESENCE_DIR "${CMAKE_SOURCE_DIR}/tools/discord-presence")
+  if(EXISTS "${COD2X_DISCORD_PRESENCE_DIR}/CMakeLists.txt")
+    message(STATUS "Discord RPC: using ${COD2X_DISCORD_PRESENCE_DIR}")
+    add_subdirectory("${COD2X_DISCORD_PRESENCE_DIR}" "${CMAKE_BINARY_DIR}/_ext/discord-presence")
+  else()
+    message(STATUS "Discord RPC: tools/discord-presence missing — fetching main.tar.gz")
+    FetchContent_Declare(
+      discord_presence_fc
+      URL https://github.com/EclipseMenu/discord-presence/archive/refs/heads/main.tar.gz
+    )
+    FetchContent_MakeAvailable(discord_presence_fc)
+  endif()
+
+  if(MINGW AND TARGET discord-rpc)
+    target_link_libraries(discord-rpc PRIVATE ws2_32)
+  endif()
+
+  # No I/O thread: update() runs only on the main thread (discord_rpc_frame).
+  # Avoids join() during shutdown from DllMain, which could block process exit.
+  if(TARGET discord-rpc)
+    target_compile_definitions(discord-rpc PRIVATE DISCORD_DISABLE_IO_THREAD)
+  endif()
+
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    set(_cod2x_disc_sz -ffunction-sections -fdata-sections -Os)
+    foreach(_cod2x_t IN ITEMS discord-rpc fmt)
+      if(TARGET ${_cod2x_t})
+        target_compile_options(${_cod2x_t} PRIVATE ${_cod2x_disc_sz})
+      endif()
+    endforeach()
+  endif()
+endif()
 
 # -----------------------------------
 # Function that collects all files with given extensions from a base directory (recursively)
@@ -104,20 +167,37 @@ if (WIN32)
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/openssl_mingw/include/"
   )
 
-  # Per-language compile options, with DEBUG=1 defined in Debug mode
+  # Per-language compile options — Release uses -Os (smaller DLL); Debug stays -O0
   target_compile_options(mss32 PRIVATE
     $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:
         -Wall -Wextra -Wno-unused-parameter -Wno-address-of-packed-member
-        -g -m32 -msse -O0 
+        -m32 -msse
+        $<$<CONFIG:Debug>:-g -O0 -DDEBUG=1>
+        $<$<CONFIG:Release>:-Os -g0>
         -DCJSON_CDECL=__cdecl 
         -DMG_TLS=MG_TLS_OPENSSL -DMG_ENABLE_POSIX_FS=0
         -fdiagnostics-color=always
-        $<$<CONFIG:Debug>:-DDEBUG=1>
     >
     $<$<COMPILE_LANGUAGE:ASM_NASM>:
         -f win32
     >
   )
+
+  if(COD2X_ENABLE_DISCORD AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(mss32 PRIVATE
+      $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:
+          -ffunction-sections -fdata-sections
+      >
+    )
+    target_link_options(mss32 PRIVATE -Wl,--gc-sections)
+  endif()
+
+  if(COD2X_ENABLE_DISCORD)
+    target_compile_definitions(mss32 PRIVATE COD2X_WITH_DISCORD=1)
+    target_link_libraries(mss32 PRIVATE discord-rpc)
+    set_source_files_properties("${CMAKE_SOURCE_DIR}/src/mss32/discord.cpp"
+      PROPERTIES COMPILE_FEATURES cxx_std_23)
+  endif()
 
   target_link_libraries(mss32 PRIVATE
     kernel32 wininet dbghelp ole32 oleaut32 uuid gdi32
@@ -171,6 +251,7 @@ if (UNIX AND NOT WIN32)
   add_library(linux SHARED
     ${LNX_CC}
     ${SHARED_SRC}
+    "${CMAKE_SOURCE_DIR}/src/mss32/discord.cpp"
     ${EMBED_OBJECTS}
   )
 
@@ -187,6 +268,7 @@ if (UNIX AND NOT WIN32)
   target_include_directories(linux PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/shared"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/linux"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/mss32"
   )
 
   target_compile_options(linux PRIVATE
@@ -198,6 +280,13 @@ if (UNIX AND NOT WIN32)
   )
 
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -m32 -shared -static-libgcc -static-libstdc++")
+
+  if(COD2X_ENABLE_DISCORD)
+    target_compile_definitions(linux PRIVATE COD2X_WITH_DISCORD=1)
+    target_link_libraries(linux PRIVATE discord-rpc)
+    set_source_files_properties("${CMAKE_SOURCE_DIR}/src/mss32/discord.cpp"
+      PROPERTIES COMPILE_FEATURES cxx_std_23)
+  endif()
 
   target_link_libraries(linux PRIVATE
     /usr/lib/i386-linux-gnu/libssl.a

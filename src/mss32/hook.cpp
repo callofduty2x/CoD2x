@@ -38,6 +38,7 @@
 #include "../shared/gsc.h"
 #include "../shared/match.h"
 #include "../shared/weapons.h"
+#include "discord.h"
 
 HMODULE hModule;
 unsigned int gfx_module_addr;
@@ -85,6 +86,7 @@ void hook_Com_Frame()
             weapons_unload();
             radar_unload();
             demo_unload();
+            discord_unload();
 
             hotreload_loadDLL();
             return;
@@ -96,6 +98,7 @@ void hook_Com_Frame()
         affinity_frame();
         competitive_frame();
         cgame_frame();
+        discord_frame();
     }
 
     // Shared & Server
@@ -265,6 +268,8 @@ void hook_Com_Init(const char* cmdline) {
     affinity_init();
     common_printInfo();
 
+    discord_init();
+
     logger_add("Com_Init finished.");
 }
 
@@ -309,6 +314,7 @@ bool hook_patch() {
     radar_patch();
     demo_patch();
     vmix_patch();
+    discord_patch();
 
     weapons_patch();
     // Patch server side

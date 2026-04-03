@@ -2,6 +2,9 @@
 # Ignore migw files
 tools/mingw/**
 
+# Rich Presence — clone local (não versionar o árvore upstream). Com submodule, apaga a linha seguinte.
+tools/discord-presence/
+
 # Ignore compiled files folder
 obj
 build
