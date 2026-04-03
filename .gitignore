@@ -2,8 +2,7 @@
 # Ignore migw files
 tools/mingw/**
 
-# Rich Presence — clone local (não versionar o árvore upstream). Com submodule, apaga a linha seguinte.
-tools/discord-presence/
+# Rich Presence — tools/discord-presence is vendored and tracked (EclipseMenu/discord-presence).
 
 # Ignore compiled files folder
 obj
