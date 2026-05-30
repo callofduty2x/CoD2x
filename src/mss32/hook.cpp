@@ -28,6 +28,7 @@
 #include "downloading.h"
 #include "demo.h"
 #include "vmix.h"
+#include "physics.h"
 #include "debug.h"
 #include "../shared/iwd.h"
 #include "../shared/common.h"
@@ -97,6 +98,7 @@ void hook_Com_Frame()
         affinity_frame();
         competitive_frame();
         cgame_frame();
+        physics_frame();
     }
 
     // Shared & Server
@@ -312,6 +314,7 @@ bool hook_patch() {
     radar_patch();
     demo_patch();
     vmix_patch();
+    physics_patch();
 
     weapons_patch();
     // Patch server side
