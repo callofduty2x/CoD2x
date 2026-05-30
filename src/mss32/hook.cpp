@@ -229,6 +229,7 @@ void hook_SV_Init() {
     dvar_init();
     updater_init();
     game_init();
+    physics_init();
     animation_init();
     match_init();
     iwd_init();

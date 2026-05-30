@@ -4,9 +4,26 @@
 
 #include "shared.h"
 #include "../shared/cod2_client.h"
+#include "../shared/cod2_dvars.h"
 #include "../shared/cod2_shared.h"
 
-static bool physics_jumpBounceEnabled = false;
+static dvar_t* jump_bounceEnable = NULL;
+static bool physics_serverJumpBounceEnabled = false;
+
+static bool physics_isListenServerRunning()
+{
+    return dedicated && dedicated->value.integer == 0 && sv_running && sv_running->value.boolean;
+}
+
+static bool physics_isJumpBounceEnabled()
+{
+    if (physics_isListenServerRunning())
+    {
+        return jump_bounceEnable && jump_bounceEnable->value.boolean;
+    }
+
+    return physics_serverJumpBounceEnabled;
+}
 
 static void PM_ClipVelocity_Win32(const float* velIn, const float* normal, float* velOut)
 {
@@ -20,7 +37,7 @@ static void PM_ProjectVelocity(const float* velIn, const float* normal, float* v
     float newZ;
     float lengthScale;
 
-    if (!physics_jumpBounceEnabled)
+    if (!physics_isJumpBounceEnabled())
     {
         PM_ClipVelocity_Win32(velIn, normal, velOut);
         return;
@@ -64,15 +81,30 @@ void PM_ProjectVelocity_Win32()
 
 void physics_frame()
 {
+    if (physics_isListenServerRunning())
+    {
+        physics_serverJumpBounceEnabled = jump_bounceEnable && jump_bounceEnable->value.boolean;
+        return;
+    }
+
     if (clientState < CLIENT_STATE_PRIMED)
     {
-        physics_jumpBounceEnabled = false;
+        physics_serverJumpBounceEnabled = false;
         return;
     }
 
     const char* systeminfo = CL_GetConfigString(CS_SYSTEMINFO);
     const char* jumpBounceEnable = Info_ValueForKey(systeminfo, "jump_bounceEnable");
-    physics_jumpBounceEnabled = atoi(jumpBounceEnable) != 0;
+    physics_serverJumpBounceEnabled = atoi(jumpBounceEnable) != 0;
+}
+
+void physics_init()
+{
+    jump_bounceEnable = Dvar_RegisterBool(
+        "jump_bounceEnable",
+        false,
+        (dvarFlags_e)(DVAR_SYSTEMINFO | DVAR_CHANGEABLE_RESET)
+    );
 }
 
 void physics_patch()
