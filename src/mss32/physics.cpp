@@ -3,26 +3,38 @@
 #include <math.h>
 
 #include "shared.h"
-#include "../shared/cod2_client.h"
 #include "../shared/cod2_dvars.h"
-#include "../shared/cod2_shared.h"
 
 static dvar_t* jump_bounceEnable = NULL;
-static bool physics_serverJumpBounceEnabled = false;
+static bool physics_wasListenServerRunning = false;
 
 static bool physics_isListenServerRunning()
 {
     return dedicated && dedicated->value.integer == 0 && sv_running && sv_running->value.boolean;
 }
 
-static bool physics_isJumpBounceEnabled()
+static void physics_setJumpBounceWriteProtected(bool writeProtected)
 {
-    if (physics_isListenServerRunning())
+    dvarFlags_e writeProtectFlag = DEBUG_RELEASE(DVAR_CHEAT, DVAR_NOWRITE);
+
+    if (!jump_bounceEnable)
     {
-        return jump_bounceEnable && jump_bounceEnable->value.boolean;
+        return;
     }
 
-    return physics_serverJumpBounceEnabled;
+    if (writeProtected)
+    {
+        jump_bounceEnable->flags = (dvarFlags_e)(jump_bounceEnable->flags | writeProtectFlag);
+    }
+    else
+    {
+        jump_bounceEnable->flags = (dvarFlags_e)(jump_bounceEnable->flags & ~writeProtectFlag);
+    }
+}
+
+static bool physics_isJumpBounceEnabled()
+{
+    return jump_bounceEnable && jump_bounceEnable->value.boolean;
 }
 
 static void PM_ClipVelocity_Win32(const float* velIn, const float* normal, float* velOut)
@@ -81,21 +93,15 @@ void PM_ProjectVelocity_Win32()
 
 void physics_frame()
 {
-    if (physics_isListenServerRunning())
+    bool listenServerRunning = physics_isListenServerRunning();
+
+    if (physics_wasListenServerRunning && !listenServerRunning && jump_bounceEnable)
     {
-        physics_serverJumpBounceEnabled = jump_bounceEnable && jump_bounceEnable->value.boolean;
-        return;
+        Dvar_SetBool(jump_bounceEnable, false);
     }
 
-    if (clientState < CLIENT_STATE_PRIMED)
-    {
-        physics_serverJumpBounceEnabled = false;
-        return;
-    }
-
-    const char* systeminfo = CL_GetConfigString(CS_SYSTEMINFO);
-    const char* jumpBounceEnable = Info_ValueForKey(systeminfo, "jump_bounceEnable");
-    physics_serverJumpBounceEnabled = atoi(jumpBounceEnable) != 0;
+    physics_setJumpBounceWriteProtected(!listenServerRunning);
+    physics_wasListenServerRunning = listenServerRunning;
 }
 
 void physics_init()
@@ -103,13 +109,13 @@ void physics_init()
     jump_bounceEnable = Dvar_RegisterBool(
         "jump_bounceEnable",
         false,
-        (dvarFlags_e)(DVAR_SYSTEMINFO | DVAR_CHANGEABLE_RESET)
+        (dvarFlags_e)(DEBUG_RELEASE(DVAR_CHEAT, DVAR_NOWRITE) | DVAR_SYSTEMINFO | DVAR_CHANGEABLE_RESET)
     );
 }
 
 void physics_patch()
 {
     // PM_StepSlideMove: replace the CoD2 velocity clip with the CoD4-style
-    // projection used by jump_bounceEnable servers.
+    // projection controlled by the synced jump_bounceEnable dvar.
     patch_call(0x00530ea5, (unsigned int)PM_ProjectVelocity_Win32);
 }
