@@ -134,6 +134,8 @@ inline void CG_DrawRotatedPic(float x, float y, float w, float h, horizontalAlig
 
 void drawing_frame();
 void drawing_init();
+void drawing_renderer();
+void drawing_install_text_hooks();
 void drawing_patch();
 
 
