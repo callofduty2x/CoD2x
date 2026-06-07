@@ -669,11 +669,13 @@ static bool Text_EscapeAmpDigitInLocalizeArgs(const char* src, char* dst, size_t
         if (!inArgs && src[i] == 0x14)
             inArgs = true;
 
-        // Escapes "&&<digit>" in localization arguments so SEH_LocalizeTextMessage
-        // does not treat name contents as nested conversion placeholders.
+        // Escapes exactly "&&1" in localization arguments so SEH_LocalizeTextMessage
+        // does not treat a player name as the &&1 name/proxy placeholder.
+        // Other placeholders (&&2, &&3, ...) are left untouched.
         // Reset BEFORE the first literal '&' so any active extended style (e.g. ^#)
         // does not bleed onto that first ampersand.
-        if (inArgs && src[i] == '&' && src[i + 1] == '&' && src[i + 2] >= '0' && src[i + 2] <= '9') {
+        if (inArgs && src[i] == '&' && src[i + 1] == '&' && src[i + 2] == '1' &&
+            (src[i + 3] == '\0' || src[i + 3] < '0' || src[i + 3] > '9')) {
             const char* esc = "^7&^7&^7";
             for (int k = 0; esc[k] && j < dstCap - 1; ++k)
                 dst[j++] = esc[k];
@@ -2203,8 +2205,8 @@ void drawing_patch() {
     // background tint (vanilla path only reads ^0..^9 at line start).
     patch_jump(0x004C7760, (unsigned int)CG_DrawChatMessages_Extended);
 
-    // Chat/team-chat only: sanitize &&<digit> inside localization arguments so
-    // names like "&&1foo" don't consume placeholder slots and duplicate/shift text.
+    // Chat/team-chat only: sanitize exactly &&1 inside localization arguments so
+    // names like "&&1foo" don't consume the name/proxy placeholder slot.
     patch_call(0x004D1CBF, (unsigned int)Chat_SEH_LocalizeTextMessage_ChatSafe);
     patch_call(0x004D1D1C, (unsigned int)Chat_SEH_LocalizeTextMessage_ChatSafe);
 
