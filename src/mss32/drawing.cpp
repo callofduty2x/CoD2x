@@ -1272,8 +1272,6 @@ int __cdecl R_TextWidth_Extended(const char* text, int maxChars, fontHandle_t* f
     return width;
 }
 
-static int g_extColorHookFired = 0;
-
 // Returns true if the text was processed with extended markup, false otherwise.
 static bool R_DispatchExtendedText(const char* text, int maxChars, fontHandle_t* font, float* x, float y, float xScale, float yScale, const float* color, int style)
 {
@@ -2160,7 +2158,6 @@ void drawing_renderer() {
     original_R_DrawConsoleText           = NULL;
     original_R_AddCmdDrawTextWithCursor  = NULL;
     original_R_TextWidth                 = NULL;
-    g_extColorHookFired = 0;
     g_extColorFrameCount = 0;
     g_extColorInstalled = 0;
 }
