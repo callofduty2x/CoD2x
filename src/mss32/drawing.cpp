@@ -7,7 +7,6 @@
 #include "shared.h"
 
 #include <string.h>
-
 vec4_t colWhite			    = { 1, 1, 1, 1 };
 vec4_t colBlack			    = { 0, 0, 0, 1 };
 vec4_t colRed			    = { 1, 0, 0, 1 };
@@ -15,14 +14,12 @@ vec4_t colGreen			    = { 0, 1, 0, 1 };
 vec4_t colBlue			    = { 0, 0, 1, 1 };
 vec4_t colYellow		    = { 1, 1, 0, 1 };
 
-
 dvar_t* cg_drawSpectatedPlayerName = NULL;
 dvar_t* cg_drawCompass = NULL;
 dvar_t* cg_hudCompassOffsetX = NULL;
 dvar_t* cg_hudCompassOffsetY = NULL;
 dvar_t* cg_debugBullets = NULL;
 dvar_t* con_printDoubleColors = NULL;
-
 
 typedef char* (__cdecl *R_AddCmdDrawTextWithCursor_t)(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style, int cursorPos, char cursor);
 typedef char* (__cdecl *R_DrawText_t)(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style);
@@ -39,11 +36,13 @@ static R_AddCmdDrawTextWithCursor_t original_R_AddCmdDrawTextWithCursor = NULL;
 static R_DrawText_t                  original_R_DrawText                  = NULL;
 static R_DrawText_t                  original_R_AddCmdDrawTextInSpace     = NULL;
 static R_DrawConsoleText_t           original_R_DrawConsoleText           = NULL;
+static R_TextWidth_t                 original_R_TextWidth                 = NULL;
 
 char* __cdecl R_DrawText_Extended(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style);
 char* __cdecl R_AddCmdDrawTextInSpace_Extended(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style);
 char* __cdecl R_AddCmdDrawTextWithCursor_Extended(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style, int cursorPos, char cursor);
 char* __cdecl R_DrawConsoleText_Extended(const uint16_t* buffer, int count, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style);
+int __cdecl R_TextWidth_Extended(const char* text, int maxChars, fontHandle_t* font);
 
 static void TextColor_Copy(const float* src, float* dst)
 {
@@ -197,25 +196,39 @@ static bool Text_TextHasCaret(const char* text)
     return strchr(text, '^') != NULL;
 }
 
-// Vanilla R_DrawText still parses ^0..^9. After our parser emits literal text,
-// double every '^' so gfx renders it without re-interpreting markup.
-static int Text_CopyVanillaLiteralDrawString(char* dest, int destCap, const char* src, int srcLen)
+// Extended color = palette letters only; vanilla ^0..^9 are NOT extended.
+static bool Text_IsExtendedColorCode(char code)
 {
-    if (!dest || destCap <= 0)
-        return 0;
-    if (!src || srcLen <= 0) {
-        dest[0] = '\0';
-        return 0;
+    if (code >= '0' && code <= '9')
+        return false;
+    return TextColor_IsCode(code);
+}
+
+// True only when the engine's native ^0..^9 handling is insufficient, i.e. the
+// text uses extended palette colors or style/FX codes.
+// Pure vanilla text (only ^0..^9 + plain text) is left to the original renderer,
+// which matches stock CoD2 exactly and avoids re-implementing what the engine does.
+static bool Text_NeedsExtendedHandling(const char* text)
+{
+    if (!text)
+        return false;
+
+    for (const char* p = text; *p; ++p)
+    {
+        if (p[0] != '^' || !p[1])
+            continue;
+        // A bare "^^" (literal caret) followed only by vanilla ^0..^9 / plain text is
+        // left to the stock engine, which parses it exactly like vanilla CoD2:
+        //   "^^5Sipex" -> literal '^' + ^5 color -> "^Sipex" (Sipex colored).
+        // We only take over when an actual extended palette color or style/FX code
+        // is present, since the engine cannot render those.
+        if (TextStyle_IsCode(p[1]))
+            return true;
+        if (Text_IsExtendedColorCode(p[1]))
+            return true;
     }
 
-    int j = 0;
-    for (int i = 0; i < srcLen && j < destCap - 1; ++i) {
-        if (src[i] == '^' && j < destCap - 2)
-            dest[j++] = '^';
-        dest[j++] = src[i];
-    }
-    dest[j] = '\0';
-    return j;
+    return false;
 }
 
 static bool drawing_is_our_drawtext(R_DrawText_t fn)
@@ -238,12 +251,18 @@ static bool drawing_is_our_draw_with_cursor(R_AddCmdDrawTextWithCursor_t fn)
     return fn == (R_AddCmdDrawTextWithCursor_t)&R_AddCmdDrawTextWithCursor_Extended;
 }
 
+static bool drawing_is_our_textwidth(R_TextWidth_t fn)
+{
+    return fn == (R_TextWidth_t)&R_TextWidth_Extended;
+}
+
 static bool drawing_originals_valid()
 {
     return original_R_DrawText && !drawing_is_our_drawtext(original_R_DrawText)
         && original_R_AddCmdDrawTextInSpace && !drawing_is_our_draw_in_space(original_R_AddCmdDrawTextInSpace)
         && original_R_DrawConsoleText && !drawing_is_our_draw_console(original_R_DrawConsoleText)
-        && original_R_AddCmdDrawTextWithCursor && !drawing_is_our_draw_with_cursor(original_R_AddCmdDrawTextWithCursor);
+        && original_R_AddCmdDrawTextWithCursor && !drawing_is_our_draw_with_cursor(original_R_AddCmdDrawTextWithCursor)
+        && original_R_TextWidth && !drawing_is_our_textwidth(original_R_TextWidth);
 }
 
 static void drawing_ensure_text_hooks();
@@ -360,6 +379,14 @@ static bool TextSegmentState_Equal(const TextSegmentState* a, const TextSegmentS
            a->color[3] == b->color[3];
 }
 
+static bool TextSegmentState_StyleFxEqual(const TextSegmentState* a, const TextSegmentState* b)
+{
+    return a->style == b->style &&
+           a->rainbow == b->rainbow &&
+           a->blink == b->blink &&
+           a->pulse == b->pulse;
+}
+
 // Console-buffer control channels. Vanilla kill feed uses 10-12 (RGB) and 13-19
 // (icon color, size, material — see CL_DeathMessagePrint / R_GetConsoleIcon).
 // Never use 13-19 for CoD2x style/FX or R_GetConsoleString emits garbage (^C = hi 19).
@@ -394,6 +421,8 @@ static bool ConsoleBuffer_UsesExtendedEncoding(const uint16_t* buffer, int count
 static void drawing_set_vanilla_text_hooks(bool vanilla)
 {
     if (vanilla) {
+        if (original_R_TextWidth)
+            patch_int32(0x0068a314, (int32_t)original_R_TextWidth);
         if (original_R_DrawText)
             patch_int32(0x0068a31c, (int32_t)original_R_DrawText);
         if (original_R_AddCmdDrawTextWithCursor)
@@ -401,6 +430,7 @@ static void drawing_set_vanilla_text_hooks(bool vanilla)
         if (original_R_DrawConsoleText)
             patch_int32(0x0068a328, (int32_t)original_R_DrawConsoleText);
     } else if (g_extColorInstalled) {
+        patch_int32(0x0068a314, (int32_t)&R_TextWidth_Extended);
         patch_int32(0x0068a31c, (int32_t)&R_DrawText_Extended);
         patch_int32(0x0068a32c, (int32_t)&R_AddCmdDrawTextWithCursor_Extended);
         patch_int32(0x0068a328, (int32_t)&R_DrawConsoleText_Extended);
@@ -499,7 +529,6 @@ static uint8_t TextColor_ToByte(float value)
     return (uint8_t)(value * 255.0f + 0.5f);
 }
 
-
 /**
  * Drawing of the text "following" and player name in top center of the screen when spectating.
  */
@@ -574,11 +603,9 @@ void __cdecl CG_DrawPlayerCompassBack(void* shader, vec4_t* color) {
     ASM_CALL(RETURN_VOID, 0x004c5510, 2, ESI(data), PUSH(shader), PUSH(color));
 }
 
-
 void CG_DrawCrosshairNames() {
     ASM_CALL(RETURN_VOID, 0x004c97c0);
 }
-
 
 void CG_BulletHitEvent() {
     int32_t clientNum;
@@ -607,8 +634,6 @@ void CG_BulletHitEvent() {
     ASM_CALL(RETURN_VOID, 0x004d7a50, 0, EAX(clientNum), ECX(sourceEntityNum), ESI(end));
 }
 
-
-
 #define cl_consoleFrameCounter         (*((int32_t*)0x00601784))
 #define cl_consoleTotalBuffers         (*((int32_t*)0x00601798))
 #define cl_consoleBufferSize           (*((uint32_t*)0x00601794))
@@ -618,40 +643,65 @@ void CG_BulletHitEvent() {
 
 #define cg_chatHeightDvar              (*((dvar_t**)0x014C3684))
 #define cg_chatSayFadeTimeDvar         (*((dvar_t**)0x0166BB40))
+#define cg_hudChatPositionDvar         (*((dvar_t**)0x014C362C))
 #define cg_chatMessagesBase            ((char*)0x014EA9FC)
 #define cg_chatRingWriteIndex          (*((int32_t*)0x014EB294))
 #define cg_chatRingReadIndex           (*((int32_t*)0x014EB298))
 #define cg_chatRingTimestamps          ((int32_t*)0x014EB274)
+#define cg_chatBackgroundShader        (*((void**)0x014EB2A8))
 #define cg_levelTime                   (*((int32_t*)0x01513C30))
+#define cg_chatScreenScale             (*((float*)0x00C94C0C))
+#define ui_smallFontDvar               (*((dvar_t**)0x019790E0))
+#define ui_bigFontDvar                 (*((dvar_t**)0x0196FFFC))
+#define ui_extraBigFontDvar            (*((dvar_t**)0x0196FFF4))
 
-// CoD2 chat lines are formatted as "Name: message". Ensure ^7 exists before the colon
-// so extended name colors (^j, ^5, …) do not bleed into the message body.
-static bool Text_EnsureColorResetBeforeColon(char* text, size_t cap)
+static bool Text_EscapeAmpDigitInLocalizeArgs(const char* src, char* dst, size_t dstCap)
 {
-    if (!text || cap < 4)
+    if (!src || !dst || dstCap == 0)
         return false;
 
-    char* colon = strstr(text, ": ");
-    if (!colon) {
-        colon = strchr(text, ':');
-        if (!colon || colon == text || colon[1] == '\0')
-            return false;
-    } else if (colon == text) {
-        return false;
+    bool changed = false;
+    bool hasArgDelim = strchr(src, 0x14) != NULL;
+    bool inArgs = !hasArgDelim; // Fallback: plain string (no delimiters) -> sanitize whole text.
+    size_t j = 0;
+
+    for (size_t i = 0; src[i] && j < dstCap - 1; ++i) {
+        if (!inArgs && src[i] == 0x14)
+            inArgs = true;
+
+        // Escapes "&&<digit>" in localization arguments so SEH_LocalizeTextMessage
+        // does not treat name contents as nested conversion placeholders.
+        // Reset BEFORE the first literal '&' so any active extended style (e.g. ^#)
+        // does not bleed onto that first ampersand.
+        if (inArgs && src[i] == '&' && src[i + 1] == '&' && src[i + 2] >= '0' && src[i + 2] <= '9') {
+            const char* esc = "^7&^7&^7";
+            for (int k = 0; esc[k] && j < dstCap - 1; ++k)
+                dst[j++] = esc[k];
+            ++i; // consume the second '&'
+            changed = true;
+            continue;
+        }
+
+        dst[j++] = src[i];
     }
 
-    if (colon >= text + 2 && colon[-2] == '^' && colon[-1] == '7')
-        return false;
+    dst[j] = '\0';
+    return changed;
+}
 
-    size_t tailLen = strlen(colon);
-    size_t used = (size_t)(colon - text);
-    if (used + 2 + tailLen + 1 > cap)
-        return false;
+static void* __cdecl Chat_SEH_LocalizeTextMessage_ChatSafe(char* a1, int a2, int a3)
+{
+    auto original = (void* (__cdecl*)(char*, int, int))0x004AB700;
+    if (!a1 || !*a1)
+        return original(a1, a2, a3);
 
-    memmove(colon + 2, colon, tailLen + 1);
-    colon[0] = '^';
-    colon[1] = '7';
-    return true;
+    char sanitized[1024];
+    bool changed = Text_EscapeAmpDigitInLocalizeArgs(a1, sanitized, sizeof(sanitized));
+
+    if (changed)
+        return original(sanitized, a2, a3);
+
+    return original(a1, a2, a3);
 }
 
 static bool Text_HasResetBefore(const char* text, const char* pos)
@@ -667,6 +717,191 @@ static bool Text_HasResetBefore(const char* text, const char* pos)
         return true;
 
     return false;
+}
+
+// Normalize escaped-double markup in the first name-like token:
+//   "^^kkName: ..." -> "^kName: ..."
+//   "^^kkName"      -> "^kName"
+// Keeps other patterns unchanged (e.g. "^5^5Name").
+static bool Text_NormalizeEscapedDoubleMarkupInNameToken(char* text, size_t cap)
+{
+    if (!text || cap < 4)
+        return false;
+
+    const char* nameEnd = text;
+    while (*nameEnd && *nameEnd != ' ' && *nameEnd != ':')
+        ++nameEnd;
+    if (nameEnd == text)
+        return false;
+
+    char rebuilt[272];
+    if (cap > sizeof(rebuilt))
+        cap = sizeof(rebuilt);
+
+    char* out = rebuilt;
+    char* outEnd = rebuilt + cap - 1;
+    const char* in = text;
+    bool changed = false;
+    bool prevWasMarkup = false;
+    char prevMarkupCode = 0;
+
+    while (in < nameEnd && *in && out < outEnd) {
+        char code = 0;
+        bool haveMarkup = false;
+
+        if ((in + 3) < nameEnd &&
+            in[0] == '^' && in[1] == '^' &&
+            Text_IsMarkupCode(in[2]) &&
+            in[3] == in[2]) {
+            code = in[2];
+            in += 4;
+            changed = true;
+            haveMarkup = true;
+        } else if ((in + 1) < nameEnd &&
+                   in[0] == '^' &&
+                   Text_IsMarkupCode(in[1])) {
+            code = in[1];
+            in += 2;
+            haveMarkup = true;
+        }
+
+        if (haveMarkup) {
+            // Collapse duplicated non-vanilla markup pairs (^k^k -> ^k).
+            if ((code < '0' || code > '9') && prevWasMarkup && prevMarkupCode == code) {
+                changed = true;
+                continue;
+            }
+            if (out < outEnd) *out++ = '^';
+            if (out < outEnd) *out++ = code;
+            prevWasMarkup = true;
+            prevMarkupCode = code;
+            continue;
+        }
+
+        *out++ = *in++;
+        prevWasMarkup = false;
+        prevMarkupCode = 0;
+    }
+
+    while (*in && out < outEnd)
+        *out++ = *in++;
+    *out = '\0';
+
+    if (!changed)
+        return false;
+
+    strncpy(text, rebuilt, cap - 1);
+    text[cap - 1] = '\0';
+    return true;
+}
+
+// Normalize escaped/doubled markup across the whole line:
+//   "^^kkName"   -> "^kName"
+//   "^k^kName"   -> "^kName"   (non-digit codes only)
+// Used for system lines where the colored name is not the first token
+// (e.g. "renamed to ^^kkName").
+static bool Text_NormalizeEscapedDoubleMarkupGlobal(char* text, size_t cap)
+{
+    if (!text || cap < 4)
+        return false;
+
+    char rebuilt[1024];
+    if (cap > sizeof(rebuilt))
+        cap = sizeof(rebuilt);
+
+    const char* in = text;
+    char* out = rebuilt;
+    char* outEnd = rebuilt + cap - 1;
+    bool changed = false;
+    bool prevWasMarkup = false;
+    char prevMarkupCode = 0;
+
+    while (*in && out < outEnd) {
+        char code = 0;
+        bool haveMarkup = false;
+
+        if (in[0] == '^' && in[1] == '^' && in[2] && in[3] &&
+            Text_IsMarkupCode(in[2]) && in[3] == in[2]) {
+            code = in[2];
+            in += 4;
+            changed = true;
+            haveMarkup = true;
+        } else if (in[0] == '^' && in[1] && Text_IsMarkupCode(in[1])) {
+            code = in[1];
+            in += 2;
+            haveMarkup = true;
+        }
+
+        if (haveMarkup) {
+            if ((code < '0' || code > '9') && prevWasMarkup && prevMarkupCode == code) {
+                changed = true;
+                continue;
+            }
+            if (out + 1 >= outEnd)
+                break;
+            *out++ = '^';
+            *out++ = code;
+            prevWasMarkup = true;
+            prevMarkupCode = code;
+            continue;
+        }
+
+        *out++ = *in++;
+        prevWasMarkup = false;
+        prevMarkupCode = 0;
+    }
+
+    while (*in && out < outEnd)
+        *out++ = *in++;
+    *out = '\0';
+
+    if (!changed)
+        return false;
+
+    strncpy(text, rebuilt, cap - 1);
+    text[cap - 1] = '\0';
+    return true;
+}
+
+// Chat ring-buffer still has vanilla-only consumers that only understand ^0..^9.
+// For extended ^a..^z colors, emit a deterministic vanilla fallback digit so
+// those paths still receive a stable color state, then apply the true extended
+// code for our renderer.
+static char Text_NearestVanillaDigitForCode(char code)
+{
+    // Do not use ^8/^9 (team-dynamic colors) for chat fallback.
+    // Chat background should be stable and deterministic across teams/maps.
+    // Mapping targets vanilla 0..7 only, tuned for visible parity.
+    switch (code)
+    {
+        case 'a': return '3'; // Gold -> Yellow
+        case 'b': return '5'; // Teal -> Cyan
+        case 'c': return '6'; // Violet -> Pink
+        case 'd': return '5'; // Sky -> Cyan
+        case 'e': return '6'; // Plum -> Pink
+        case 'f': return '5'; // Ice -> Cyan-ish (avoid white fallback)
+        case 'g': return '2'; // Mint -> Green
+        case 'h': return '2'; // Pine -> Green
+        case 'i': return '1'; // Maroon -> Red
+        case 'j': return '1'; // Crimson -> Red
+        case 'k': return '1'; // Chocolate -> Red/Brown approximation
+        case 'l': return '3'; // Tan -> Yellow
+        case 'm': return '3'; // Chartreuse -> Yellow
+        case 'n': return '3'; // Peach -> Yellow
+        case 'o': return '3'; // Ivory -> Yellow-ish (visible over white)
+        case 'p': return '4'; // Midnight -> Blue
+        case 'q': return '0'; // Espresso -> Black
+        case 'r': return '1'; // Copper -> Red
+        case 's': return '2'; // Olive -> Green
+        case 't': return '2'; // Fern -> Green
+        case 'u': return '5'; // Aqua -> Cyan
+        case 'v': return '1'; // Scarlet -> Red
+        case 'w': return '7'; // Silver -> White
+        case 'y': return '2'; // Emerald -> Green
+        case 'z': return '1'; // Coral -> Red
+        default:
+            return '7';
+    }
 }
 
 // Vanilla-style behavior: when the line starts with markup-colored name and then
@@ -768,15 +1003,39 @@ typedef int (__fastcall *Con_FlushLine_t)(int a1, int a2);
 
 // Helper: returns RGB for a base color number (0-9). Used to emit RGB control codes
 // for standard color codes too, so the chat-HUD wrapper can read them uniformly.
+static bool TextColor_TryReadTeamColorDvar(const char* dvarName, float out[4])
+{
+    if (!dvarName || !out)
+        return false;
+
+    dvar_t* dvar = Dvar_GetDvarByName(dvarName);
+    if (!dvar)
+        return false;
+
+    float parsed[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    Dvar_StringToColor(dvar, &parsed);
+    TextColor_Copy(parsed, out);
+    out[3] = 1.0f;
+    return true;
+}
+
 static void TextColor_FromColorNum(int colorNum, float out[4])
 {
+    // Vanilla renderer resolves ^8/^9 dynamically to live team colors
+    // (RB_LookupColor -> dword_11E1AC4 / dword_11E1AC0). Mirror that here
+    // whenever we need RGB-decoded output in custom paths.
+    if (colorNum == 8 && TextColor_TryReadTeamColorDvar("g_TeamColor_Allies", out))
+        return;
+    if (colorNum == 9 && TextColor_TryReadTeamColorDvar("g_TeamColor_Axis", out))
+        return;
+
     char digit = '0' + (colorNum & 0x0f);
     if (colorNum < 0 || colorNum > 9 || !TextColor_Lookup(digit, colWhite, out)) {
         out[0] = 1.0f; out[1] = 1.0f; out[2] = 1.0f; out[3] = 1.0f;
     }
 }
 
-// Fully replicates the disassembled function, with extended-color support unified
+// Closely mirrors the disassembled function, with extended-color support unified
 // through RGB control codes (channels 10/11/12) so that the chat-HUD wrapper can
 // pick up arbitrary colors.
 void CL_AddConsoleText(int32_t color)
@@ -785,10 +1044,153 @@ void CL_AddConsoleText(int32_t color)
     if (!str)
         return;
 
+    char lineScratch[1024];
     const char* parseStr = str;
+    if (Text_ContainsActiveMarkup(str)) {
+        strncpy(lineScratch, str, sizeof(lineScratch) - 1);
+        lineScratch[sizeof(lineScratch) - 1] = '\0';
+        Text_NormalizeEscapedDoubleMarkupGlobal(lineScratch, sizeof(lineScratch));
+        Text_NormalizeEscapedDoubleMarkupInNameToken(lineScratch, sizeof(lineScratch));
+        Text_EnsureVanillaNameResetAtFirstSeparator(lineScratch, sizeof(lineScratch));
+        parseStr = lineScratch;
+    }
 
+    int32_t colorNum = color;
+    char *p = (char*)parseStr;
+    float currentRgb[4] = { 1, 1, 1, 1 };
+    float lastEmittedRgb[4] = { -1, -1, -1, -1 };
+    bool useRgbEncoding = false;
+    TextSegmentState currentState;
+    TextSegmentState lastEmittedState;
+    TextSegmentState_Init(&currentState, currentRgb, TEXT_STYLE_NORMAL);
+    TextSegmentState_Init(&lastEmittedState, currentRgb, TEXT_STYLE_NORMAL);
+    lastEmittedState.color[0] = -1.0f;
+
+    if (colorNum < 0)
+        colorNum = 7;
+
+    int32_t frameIndex = cl_consoleFrameCounter % cl_consoleTotalBuffers;
+
+    // Initialize current color from the base colorNum.
+    TextColor_FromColorNum(colorNum, currentRgb);
+    TextColor_Copy(currentRgb, currentState.color);
+
+    const bool richText = true;
+
+    auto emitRgbIfChanged = [&]() {
+        if (!useRgbEncoding)
+            return;
+        if (currentRgb[0] != lastEmittedRgb[0] ||
+            currentRgb[1] != lastEmittedRgb[1] ||
+            currentRgb[2] != lastEmittedRgb[2]) {
+            CL_WriteConsoleRgbColor(currentRgb);
+            lastEmittedRgb[0] = currentRgb[0];
+            lastEmittedRgb[1] = currentRgb[1];
+            lastEmittedRgb[2] = currentRgb[2];
+        }
+    };
+
+    auto emitStyleIfChanged = [&]() {
+        if (!TextSegmentState_StyleFxEqual(&currentState, &lastEmittedState)) {
+            CL_WriteConsoleStyle(currentState.style);
+            CL_WriteConsoleFxFlags(&currentState);
+            lastEmittedState = currentState;
+        }
+    };
+
+    // Load first char
+    unsigned char ch1 = (unsigned char)*p;
+    unsigned char ch2 = ch1;
+
+    if (ch2) {
+        while (cl_consoleBufferPos < cl_consoleBufferSize) {
+
+            // ================================
+            // Legacy "single-color" mode: still honor ^-markup so vanilla ^0-^9
+            // and extended colors behave consistently in chat/console.
+            // ================================
+            if (!con_printDoubleColors->value.boolean) {
+                if (ch1 == '^') {
+                    char litBuf[8];
+                    int litLen = 0;
+                    const char* markupStart = p;
+                    if (Text_ConsumeCaretMarkup((const char**)&p, color, true, &colorNum, currentRgb, &currentState,
+                            litBuf, &litLen, (int)sizeof(litBuf))) {
+                        if (markupStart[0] == '^' && markupStart[1] && Text_IsMarkupCode(markupStart[1])) {
+                            char code = markupStart[1];
+                            if (TextStyle_IsCode(code) || Text_IsExtendedColorCode(code))
+                                useRgbEncoding = true;
+                        }
+                        for (int li = 0; li < litLen; ++li) {
+                            emitRgbIfChanged();
+                            emitStyleIfChanged();
+                            CL_WriteConsoleChar((uint32_t)frameIndex, (uint8_t)litBuf[li], (uint8_t)colorNum);
+                        }
+                    } else {
+                        ++p;
+                        emitRgbIfChanged();
+                        emitStyleIfChanged();
+                        CL_WriteConsoleChar((uint32_t)frameIndex, ch2, (uint8_t)colorNum);
+                    }
+
+                    ch1 = (unsigned char)*p;
+                    ch2 = ch1;
+                    if (!ch2) break;
+                    continue;
+                } else {
+                    ++p;
+                    if (ch2 != '\n' && ch2 != '\r') {
+                        emitRgbIfChanged();
+                        emitStyleIfChanged();
+                        CL_WriteConsoleChar((uint32_t)frameIndex, ch2, (uint8_t)colorNum);
+                    }
+                }
+            }
+
+            // ================================
+            // PROCESS color/style codes (^X)
+            // ================================
+            else {
+                if (ch1 == '^') {
+                    char litBuf[8];
+                    int litLen = 0;
+                    const char* markupStart = p;
+                    if (Text_ConsumeCaretMarkup((const char**)&p, color, richText, &colorNum, currentRgb, &currentState,
+                            litBuf, &litLen, (int)sizeof(litBuf))) {
+                        if (markupStart[0] == '^' && markupStart[1] && Text_IsMarkupCode(markupStart[1])) {
+                            char code = markupStart[1];
+                            if (TextStyle_IsCode(code) || Text_IsExtendedColorCode(code))
+                                useRgbEncoding = true;
+                        }
+                        for (int li = 0; li < litLen; ++li) {
+                            emitRgbIfChanged();
+                            emitStyleIfChanged();
+                            CL_WriteConsoleChar((uint32_t)frameIndex, (uint8_t)litBuf[li], (uint8_t)colorNum);
+                        }
+                    } else {
+                        ++p;
+                        emitRgbIfChanged();
+                        emitStyleIfChanged();
+                        CL_WriteConsoleChar((uint32_t)frameIndex, ch2, (uint8_t)colorNum);
+                    }
+                } else {
+                    p++;
+
+                    if (ch2 != '\n' && ch2 != '\r') {
+                        emitRgbIfChanged();
+                        emitStyleIfChanged();
+                        CL_WriteConsoleChar((uint32_t)frameIndex, ch2, (uint8_t)colorNum);
+                    }
+                }
+            }
+
+            ch1 = (unsigned char)*p;
+            ch2 = ch1;
+            if (!ch2)
+                break;
+        }
+    }
 }
-
 
 static void R_DrawPlainTextSegment(const char* text, int textLen, fontHandle_t* font, float* x, float y, float xScale, float yScale, const TextSegmentState* state)
 {
@@ -797,28 +1199,77 @@ static void R_DrawPlainTextSegment(const char* text, int textLen, fontHandle_t* 
 
     float drawColor[4];
     TextSegmentState_FinalizeColor(state, drawColor);
+    int engineStyle = TextSegmentState_GetEngineStyle(state);
+    R_TextWidth_t textWidth = original_R_TextWidth ? original_R_TextWidth : GFX_REFAPI_R_TEXTWIDTH;
 
-    char segment[1024];
-    char drawBuf[1024];
-    int copied = 0;
-
-    while (copied < textLen)
+    // The engine's R_DrawText still parses ^X color codes. This text is already
+    // markup-stripped, so every '^' must render as a literal caret. The engine
+    // only renders a caret verbatim when it sits at the end of the string or is
+    // followed by another caret ("ab^^" -> "ab^^"); a caret directly before a
+    // normal char ("^a") would be misread as a color code. So we cut the text
+    // into pieces that each END in their caret run: "<non-caret chars><carets>".
+    char piece[1024];
+    int i = 0;
+    while (i < textLen)
     {
-        int copyLen = textLen - copied;
-        if (copyLen >= (int)sizeof(segment))
-            copyLen = (int)sizeof(segment) - 1;
+        int start = i;
+        while (i < textLen && text[i] != '^')
+            ++i;
+        while (i < textLen && text[i] == '^')
+            ++i;
 
-        memcpy(segment, text + copied, copyLen);
-        int drawLen = Text_CopyVanillaLiteralDrawString(drawBuf, (int)sizeof(drawBuf), segment, copyLen);
+        int n = i - start;
+        if (n >= (int)sizeof(piece)) {
+            n = (int)sizeof(piece) - 1;
+            i = start + n; // keep the remainder for the next iteration
+        }
+        memcpy(piece, text + start, n);
+        piece[n] = '\0';
 
-        original_R_DrawText(drawBuf, drawLen, font, *x, y, xScale, yScale, drawColor, TextSegmentState_GetEngineStyle(state));
-
-        R_TextWidth_t textWidth = GFX_REFAPI_R_TEXTWIDTH;
+        original_R_DrawText(piece, n, font, *x, y, xScale, yScale, drawColor, engineStyle);
         if (textWidth)
-            *x += (float)textWidth(drawBuf, drawLen, font) * xScale;
-
-        copied += copyLen;
+            *x += (float)textWidth(piece, n, font) * xScale;
     }
+}
+
+int __cdecl R_TextWidth_Extended(const char* text, int maxChars, fontHandle_t* font)
+{
+    drawing_ensure_text_hooks();
+
+    if (!original_R_TextWidth || !text)
+        return 0;
+
+    if (!Text_NeedsExtendedHandling(text))
+        return original_R_TextWidth(text, maxChars, font);
+
+    int maxVisibleChars = (maxChars < 0) ? 0x7fffffff : maxChars;
+    int visible = 0;
+    int width = 0;
+
+    for (const char* p = text; *p && visible < maxVisibleChars; ) {
+        if (*p == '^') {
+            char litBuf[8];
+            int litLen = 0;
+            int dummyColor = 7;
+            TextSegmentState dummyState;
+            TextSegmentState_Init(&dummyState, colWhite, TEXT_STYLE_NORMAL);
+            if (Text_ConsumeCaretMarkup(&p, -1, true, &dummyColor, dummyState.color, &dummyState,
+                    litBuf, &litLen, (int)sizeof(litBuf), false)) {
+                for (int i = 0; i < litLen && visible < maxVisibleChars; ++i) {
+                    char ch[2] = { litBuf[i], '\0' };
+                    width += original_R_TextWidth(ch, 1, font);
+                    ++visible;
+                }
+                continue;
+            }
+        }
+
+        char ch[2] = { *p++, '\0' };
+        width += original_R_TextWidth(ch, 1, font);
+        ++visible;
+    }
+
+    return width;
 }
 
 static int g_extColorHookFired = 0;
@@ -828,9 +1279,6 @@ static bool R_DispatchExtendedText(const char* text, int maxChars, fontHandle_t*
 {
     if (!text || !x || !Text_TextHasCaret(text))
         return false;
-
-    if (g_extColorHookFired < 3) {
-        ++g_extColorHookFired;    }
 
     TextSegmentState segmentState;
     TextSegmentState_Init(&segmentState, color, style);
@@ -873,7 +1321,7 @@ static bool R_DispatchExtendedText(const char* text, int maxChars, fontHandle_t*
 }
 
 // Reimplements sub_404690 (the EXE's "add wrapped text to console buffer" function)
-// with extended-color-code awareness. Behavior preserved:
+// with extended-color-code awareness. Intended behavior:
 //   - writes characters to word_5E1784[] using the same indexing as the original;
 //   - passes the `a2` type parameter through to Con_FlushLine unchanged (type 4+
 //     means "no chat-HUD/notify ring-buffer copy" — that's how the engine
@@ -884,6 +1332,7 @@ static bool R_DispatchExtendedText(const char* text, int maxChars, fontHandle_t*
 //   - supports both standard ^0..^9 and extended (e.g. ^j, ^*) color codes,
 //     emitting RGB control bytes (channels 10/11/12) for true-color display.
 // Calling convention matches the original: text in EAX, the rest on the stack.
+
 int __cdecl Con_AddText_Extended(int a2, int a3, int a4, int a5)
 {
     char* text; ASM__movr(text, "eax");
@@ -896,6 +1345,8 @@ int __cdecl Con_AddText_Extended(int a2, int a3, int a4, int a5)
     if (text && (a2 == 1 || a2 == 2 || a2 == 3) && Text_ContainsActiveMarkup(text)) {
         strncpy(lineScratch, text, sizeof(lineScratch) - 1);
         lineScratch[sizeof(lineScratch) - 1] = '\0';
+        Text_NormalizeEscapedDoubleMarkupGlobal(lineScratch, sizeof(lineScratch));
+        Text_NormalizeEscapedDoubleMarkupInNameToken(lineScratch, sizeof(lineScratch));
         Text_EnsureVanillaNameResetAtFirstSeparator(lineScratch, sizeof(lineScratch));
         parseText = lineScratch;
     }
@@ -909,6 +1360,7 @@ int __cdecl Con_AddText_Extended(int a2, int a3, int a4, int a5)
 
     float currentRgb[4] = { 1, 1, 1, 1 };
     float lastEmittedRgb[4] = { -1, -1, -1, -1 };
+    bool useRgbEncoding = false;
     TextSegmentState currentState;
     TextSegmentState lastEmittedState;
     TextSegmentState_Init(&currentState, currentRgb, TEXT_STYLE_NORMAL);
@@ -920,6 +1372,8 @@ int __cdecl Con_AddText_Extended(int a2, int a3, int a4, int a5)
     const bool richText = true;
 
     auto emitRgbIfChanged = [&]() {
+        if (!useRgbEncoding)
+            return;
         if (currentRgb[0] != lastEmittedRgb[0] ||
             currentRgb[1] != lastEmittedRgb[1] ||
             currentRgb[2] != lastEmittedRgb[2]) {
@@ -931,7 +1385,7 @@ int __cdecl Con_AddText_Extended(int a2, int a3, int a4, int a5)
     };
 
     auto emitStyleIfChanged = [&]() {
-        if (!TextSegmentState_Equal(&currentState, &lastEmittedState)) {
+        if (!TextSegmentState_StyleFxEqual(&currentState, &lastEmittedState)) {
             CL_WriteConsoleStyle(currentState.style);
             CL_WriteConsoleFxFlags(&currentState);
             lastEmittedState = currentState;
@@ -944,8 +1398,14 @@ int __cdecl Con_AddText_Extended(int a2, int a3, int a4, int a5)
         if (ch == '^') {
             char litBuf[8];
             int litLen = 0;
+            const char* markupStart = p;
             if (Text_ConsumeCaretMarkup((const char**)&p, a5, richText, &colorNum, currentRgb, &currentState,
                     litBuf, &litLen, (int)sizeof(litBuf))) {
+                if (markupStart[0] == '^' && markupStart[1] && Text_IsMarkupCode(markupStart[1])) {
+                    char code = markupStart[1];
+                    if (TextStyle_IsCode(code) || Text_IsExtendedColorCode(code))
+                        useRgbEncoding = true;
+                }
                 for (int li = 0; li < litLen; ++li) {
                     if (cl_consoleBufferPos >= cl_consoleBufferSize)
                         EXE_Con_FlushLine(a2, a3);
@@ -1001,7 +1461,10 @@ int __fastcall CG_AddChatMessage(int a1)
     char lineScratch[272];
     strncpy(lineScratch, src, sizeof(lineScratch) - 1);
     lineScratch[sizeof(lineScratch) - 1] = '\0';
-    Text_EnsureColorResetBeforeColon(lineScratch, sizeof(lineScratch));
+
+    Text_NormalizeEscapedDoubleMarkupGlobal(lineScratch, sizeof(lineScratch));
+    Text_NormalizeEscapedDoubleMarkupInNameToken(lineScratch, sizeof(lineScratch));
+
     src = lineScratch;
 
     int maxLines = cg_chatHeightDvar ? cg_chatHeightDvar->value.integer : 0;
@@ -1013,8 +1476,10 @@ int __fastcall CG_AddChatMessage(int a1)
     }
 
     int wrapColor = '7';
+    char wrapExtended = 0;
     int lineLen = 0;
     int lastSpaceDst = 0;
+    bool inNameToken = true;
     int dst = (int)(cg_chatMessagesBase + 271 * (cg_chatRingWriteIndex % maxLines));
     *(char*)dst = '\0';
 
@@ -1034,27 +1499,40 @@ int __fastcall CG_AddChatMessage(int a1)
             *lineStart++ = '^';
             *lineStart = (char)wrapColor;
             dst = (int)(lineStart + 1);
+            if (wrapExtended) {
+                *(char*)dst++ = '^';
+                *(char*)dst++ = wrapExtended;
+            }
             lastSpaceDst = 0;
+            inNameToken = false;
         }
 
         if (*src == '^' && src[1])
         {
-            if (src[1] == '^') {
-                *(char*)dst++ = *src++;
-                *(char*)dst++ = *src++;
-                lineLen += 2;
-                continue;
-            }
-
             if (Text_IsMarkupCode(src[1])) {
                 char code = src[1];
+                if (inNameToken && Text_IsExtendedColorCode(code)) {
+                    char fallback = Text_NearestVanillaDigitForCode(code);
+                    *(char*)dst++ = '^';
+                    *(char*)dst++ = fallback;
+                    wrapColor = fallback;
+                }
                 *(char*)dst++ = *src++;
                 *(char*)dst++ = *src++;
-                lineLen += 2;
-                if (code >= '0' && code <= '9')
+                // Vanilla behavior: color markup changes state but does not consume
+                // visible line width for wrapping.
+                if (code >= '0' && code <= '9') {
                     wrapColor = code;
-                else if (TextColor_IsCode(code))
+                    wrapExtended = 0;
+                } else if (Text_IsExtendedColorCode(code)) {
+                    // Keep an exact extended color state for wrapped continuation lines.
+                    wrapExtended = code;
+                    if (!inNameToken)
+                        wrapColor = Text_NearestVanillaDigitForCode(code);
+                } else if (code == '~') {
                     wrapColor = '7';
+                    wrapExtended = 0;
+                }
                 continue;
             }
         }
@@ -1067,6 +1545,8 @@ int __fastcall CG_AddChatMessage(int a1)
 
         if (*src == ' ')
             lastSpaceDst = dst;
+        if (*src == ':')
+            inNameToken = false;
 
         *(char*)dst++ = *src++;
         ++lineLen;
@@ -1084,178 +1564,178 @@ int __fastcall CG_AddChatMessage(int a1)
     return result;
 }
 
-// Draw one kill-feed / console-buffer text run: extended palette on the name,
-// trailing spaces plain (no blink/rainbow bleed into separators).
-static void R_DrawConsoleSegmentExtended(const char* text, int maxChars, fontHandle_t* font, float* x, float y, float xScale, float yScale, const TextSegmentState* state)
+static void Text_ResolveLeadingChatColor(const char* text, float out[4])
 {
-    if (!text || !*text || !x || !original_R_DrawText || !state)
+    TextColor_Copy(colWhite, out);
+    if (!text || !*text)
         return;
 
-    int len = maxChars < 0 ? (int)strlen(text) : maxChars;
-    if (len <= 0)
+    // Keep stock behavior for vanilla-only lines: background tint is decided by
+    // the FIRST "^digit" at string start.
+    if (text[0] == '^' && text[1] >= '0' && text[1] <= '9') {
+        int colorNum = text[1] - '0';
+        TextColor_FromColorNum(colorNum, out);
+    }
+
+    // Extended path: if any leading extended color exists, let it override the
+    // vanilla fallback so background matches the final extended name color.
+    TextSegmentState state;
+    TextSegmentState_Init(&state, out, TEXT_STYLE_NORMAL);
+    bool sawExtendedColor = false;
+
+    const char* p = text;
+    while (p[0] == '^' && p[1] && Text_IsMarkupCode(p[1])) {
+        const char code = p[1];
+        if (TextColor_IsCode(code)) {
+            int colorNum = 7;
+            TextColor_ApplyEscape(code, -1, &colorNum, state.color, true);
+            if (Text_IsExtendedColorCode(code))
+                sawExtendedColor = true;
+        } else {
+            TextStyle_ApplyCode(code, &state);
+        }
+        p += 2;
+    }
+
+    if (sawExtendedColor)
+        TextColor_Copy(state.color, out);
+}
+
+static void Text_BuildVisibleChatText(const char* text, char* out, size_t outCap)
+{
+    if (!out || outCap == 0)
+        return;
+    out[0] = '\0';
+    if (!text || !*text)
         return;
 
-    int visibleLen = len;
-    while (visibleLen > 0 && text[visibleLen - 1] == ' ')
-        visibleLen--;
+    const char* p = text;
+    size_t j = 0;
+    int dummyColor = 7;
+    TextSegmentState dummyState;
+    TextSegmentState_Init(&dummyState, colWhite, TEXT_STYLE_NORMAL);
 
-    int trailSpaces = len - visibleLen;
-    float drawX = *x;
+    while (*p && j < outCap - 1) {
+        if (*p == '^') {
+            char litBuf[8];
+            int litLen = 0;
+            if (Text_ConsumeCaretMarkup(&p, -1, true, &dummyColor, dummyState.color, &dummyState,
+                litBuf, &litLen, (int)sizeof(litBuf), false)) {
+                for (int li = 0; li < litLen && j < outCap - 1; ++li)
+                    out[j++] = litBuf[li];
+                continue;
+            }
+        }
 
-    if (visibleLen > 0) {
-        // Kill-feed segments are rebuilt from the console buffer (markup already applied).
-        R_DrawPlainTextSegment(text, visibleLen, font, &drawX, y, xScale, yScale, state);
+        out[j++] = *p++;
     }
 
-    if (trailSpaces > 0) {
-        char spaces[64];
-        if (trailSpaces >= (int)sizeof(spaces))
-            trailSpaces = (int)sizeof(spaces) - 1;
-        memset(spaces, ' ', trailSpaces);
-        spaces[trailSpaces] = '\0';
-        float trailColor[4];
-        TextColor_Copy(state->color, trailColor);
-        original_R_DrawText(spaces, trailSpaces, font, drawX, y, xScale, yScale, trailColor, TEXT_STYLE_NORMAL);
-        R_TextWidth_t textWidth = GFX_REFAPI_R_TEXTWIDTH;
-        if (textWidth)
-            drawX += (float)textWidth(spaces, trailSpaces, font) * xScale;
-    }
-
-    *x = drawX;
+    out[j] = '\0';
 }
 
-static int ConsoleBuffer_IconBlockLength(const uint16_t* buffer, int count, int start)
+static fontHandle_t* Text_GetVanillaChatFont()
 {
-    int i = start;
-    while (i < count) {
-        uint8_t hi = (uint8_t)((buffer[i] >> 8) & 0xff);
-        if (hi >= 13 && hi <= 19)
-            ++i;
-        else
-            break;
+    // Mirror the stock CG_DrawChatMessages font pick logic (sub_4C7760 path):
+    // effectiveScale = flt_C94C0C * 0.20833333f, then threshold-based handle select.
+    float effectiveScale = cg_chatScreenScale * 0.20833333f;
+
+    fontHandle_t* chosen = fontSmall;
+    dvar_t* small = ui_smallFontDvar;
+    dvar_t* big = ui_bigFontDvar;
+    dvar_t* extraBig = ui_extraBigFontDvar;
+
+    if (small && effectiveScale > small->value.decimal) {
+        if (big && effectiveScale < big->value.decimal) {
+            chosen = fontBig;
+            if (extraBig && effectiveScale < extraBig->value.decimal)
+                chosen = fontNormal;
+        } else {
+            chosen = fontExtraBigSmall;
+        }
     }
-    return i - start;
+
+    if (!chosen)
+        chosen = fontSmall ? fontSmall : fontNormal;
+    return chosen;
 }
 
-static float ConsoleBuffer_EstimateIconWidth(const uint16_t* buffer, int iconLen, float xScale)
+// Custom chat draw path: keep vanilla timing/placement, but compute background color
+// from full leading markup (^a-^z / style prefixes) instead of digit-only ^0-^9.
+int __cdecl CG_DrawChatMessages_Extended()
 {
-    float width = 16.0f * xScale;
-    for (int j = 0; j < iconLen; ++j) {
-        uint8_t hi = (uint8_t)((buffer[j] >> 8) & 0xff);
-        uint8_t lo = (uint8_t)(buffer[j] & 0xff);
-        if (hi == 17)
-            width = (float)lo * 0.03125f * 32.0f * xScale;
-    }
-    return width;
-}
+    const int maxLines = cg_chatHeightDvar ? cg_chatHeightDvar->value.integer : 0;
+    if (maxLines <= 0)
+        return 0;
 
-static char* R_DrawConsoleText_KillFeed(const uint16_t* buffer, int count, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style)
-{
-    if (!buffer || count <= 0 || !original_R_DrawConsoleText || !original_R_DrawText)
-        return NULL;
-
-    float drawX = x;
-    float baseColor[4];
-    TextColor_Copy(color, baseColor);
-    baseColor[3] = color ? color[3] : 1.0f;
-    TextSegmentState segmentState;
-    TextSegmentState_Init(&segmentState, baseColor, style);
-    bool segColorSet = false;
-
-    char segment[1024];
-    int segLen = 0;
-
-    auto flushText = [&]() {
-        if (segLen <= 0)
-            return;
-        segment[segLen] = '\0';
-        R_DrawConsoleSegmentExtended(segment, -1, font, &drawX, y, xScale, yScale, &segmentState);
-        segLen = 0;
-    };
-
-    for (int i = 0; i < count; ) {
-        uint8_t hi = (uint8_t)((buffer[i] >> 8) & 0xff);
-        uint8_t lo = (uint8_t)(buffer[i] & 0xff);
-
-        if (hi >= 10 && hi <= 12) {
-            flushText();
-            segmentState.color[hi - 10] = (float)lo / 255.0f;
-            segColorSet = true;
-            ++i;
-            continue;
-        }
-
-        if (hi == CON_CTRL_STYLE) {
-            flushText();
-            if (lo == TEXT_STYLE_BLINK) {
-                segmentState.blink = true;
-            } else if (lo == TEXT_STYLE_PULSE) {
-                segmentState.pulse = true;
-            } else {
-                segmentState.style = (int)lo;
-            }
-            ++i;
-            continue;
-        }
-
-        if (hi == CON_CTRL_FX) {
-            flushText();
-            segmentState.rainbow = (lo & FX_RAINBOW) != 0;
-            segmentState.blink   = (lo & FX_BLINK) != 0;
-            segmentState.pulse   = (lo & FX_PULSE) != 0;
-            ++i;
-            continue;
-        }
-
-        if (hi >= 13 && hi <= 19) {
-            flushText();
-            int iconLen = ConsoleBuffer_IconBlockLength(buffer, count, i);
-            if (iconLen > 0) {
-                drawing_set_vanilla_text_hooks(true);
-                original_R_DrawConsoleText(buffer + i, iconLen, font, drawX, y, xScale, yScale, color, style);
-                drawing_set_vanilla_text_hooks(false);
-                drawX += ConsoleBuffer_EstimateIconWidth(buffer + i, iconLen, xScale);
-                i += iconLen;
-            } else {
-                ++i;
-            }
-            continue;
-        }
-
-        if (hi == 55 || hi == (uint8_t)'7') {
-            if (lo != 0) {
-                if (segLen + 1 >= (int)sizeof(segment))
-                    flushText();
-                if (segLen + 1 < (int)sizeof(segment))
-                    segment[segLen++] = (char)lo;
-            }
-            ++i;
-            continue;
-        }
-
-        if (!segColorSet) {
-            float wanted[4];
-            TextColor_FromColorNum((int)hi, wanted);
-            wanted[3] = baseColor[3];
-            if (wanted[0] != segmentState.color[0] || wanted[1] != segmentState.color[1] ||
-                wanted[2] != segmentState.color[2] || wanted[3] != segmentState.color[3]) {
-                flushText();
-                TextColor_Copy(wanted, segmentState.color);
-            }
-        }
-
-        if (lo != 0) {
-            if (segLen + 1 >= (int)sizeof(segment))
-                flushText();
-            if (segLen + 1 < (int)sizeof(segment))
-                segment[segLen++] = (char)lo;
-        }
-
-        ++i;
+    const int chatTime = (cg_chatSayFadeTimeDvar ? cg_chatSayFadeTimeDvar->value.integer : 0);
+    if (chatTime <= 0) {
+        cg_chatRingReadIndex = 0;
+        cg_chatRingWriteIndex = 0;
+        return 0;
     }
 
-    flushText();
-    return NULL;
+    if (!cg_hudChatPositionDvar || !cg_hudChatPositionDvar->value.vec2)
+        return 0;
+
+    float* hudPos = cg_hudChatPositionDvar->value.vec2;
+    const int chatX = (int)hudPos[0];
+    const int chatY = (int)hudPos[1];
+
+    int readIdx = cg_chatRingReadIndex;
+    const int writeIdx = cg_chatRingWriteIndex;
+    if (readIdx == writeIdx)
+        return 0;
+
+    if (cg_levelTime - cg_chatRingTimestamps[readIdx % maxLines] > chatTime) {
+        cg_chatRingReadIndex = readIdx + 1;
+        readIdx = cg_chatRingReadIndex;
+    }
+
+    fontHandle_t* chatFont = Text_GetVanillaChatFont();
+    if (!chatFont)
+        return 0;
+
+    void* chatBgShader = cg_chatBackgroundShader;
+    if (!chatBgShader)
+        chatBgShader = shaderWhite;
+
+    for (int line = writeIdx - 1; line >= readIdx; --line) {
+        const int slot = line % maxLines;
+        float life = (float)chatTime - (float)(cg_levelTime - cg_chatRingTimestamps[slot]);
+        if (life <= 0.0f)
+            continue;
+
+        float alpha = (life > 200.0f) ? 0.6f : (life / 200.0f) * 0.6f;
+        if (alpha <= 0.0f)
+            continue;
+
+        const char* lineText = cg_chatMessagesBase + 271 * slot;
+        if (!lineText || !*lineText)
+            continue;
+
+        vec4_t bgColor;
+        Text_ResolveLeadingChatColor(lineText, bgColor);
+        bgColor[0] *= 0.25f;
+        bgColor[1] *= 0.25f;
+        bgColor[2] *= 0.25f;
+        bgColor[3] = alpha;
+
+        const float y = (float)(chatY - 10 * (writeIdx - line));
+        // Vanilla formula is still: UI_TextWidth(...) + 24.
+        // For extended markup, measure the exact visible stream (same caret semantics as draw path).
+        char visibleText[271];
+        Text_BuildVisibleChatText(lineText, visibleText, sizeof(visibleText));
+        const int textWidth = UI_TextWidth(visibleText, 0, chatFont, 0.20833333f);
+        UI_DrawHandlePic(0.0f, y, (float)(textWidth + 24), 10.0f,
+            HORIZONTAL_ALIGN_LEFT, VERTICAL_ALIGN_TOP, bgColor, chatBgShader);
+
+        float textAlpha = (life > 200.0f) ? 1.0f : (life / 200.0f);
+        vec4_t textColor = { 1.0f, 1.0f, 1.0f, textAlpha };
+        UI_DrawText(lineText, 0x7FFFFFFF, chatFont, (float)chatX, y + 9.0f,
+            HORIZONTAL_ALIGN_LEFT, VERTICAL_ALIGN_TOP, 0.20833333f, textColor, TEXT_STYLE_SHADOWED);
+    }
+
+    return 0;
 }
 
 char* __cdecl R_AddCmdDrawTextWithCursor_Extended(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style, int cursorPos, char cursor)
@@ -1269,15 +1749,11 @@ char* __cdecl R_AddCmdDrawTextWithCursor_Extended(const char* text, int maxChars
         return NULL;
     }
 
-    if (!text || !Text_TextHasCaret(text))
+    // Keep edit-field behavior stock unless real extended markup is present.
+    if (!text || !Text_NeedsExtendedHandling(text))
         return original_R_AddCmdDrawTextWithCursor(text, maxChars, font, x, y, xScale, yScale, color, style, cursorPos, cursor);
 
-    if (g_extColorHookFired < 3) {
-        ++g_extColorHookFired;
-        logger_add("ExtColor cursor-mode hook fired (#%d) for text: \"%.64s\"", g_extColorHookFired, text);
-    }
-
-    R_TextWidth_t textWidth = GFX_REFAPI_R_TEXTWIDTH;
+    R_TextWidth_t textWidth = original_R_TextWidth ? original_R_TextWidth : GFX_REFAPI_R_TEXTWIDTH;
 
     // Pass 1: build visible chars using edit-field rules (^X = color, ^ = literal, ^^ = two literals).
     struct VC { char ch; TextSegmentState state; };
@@ -1369,7 +1845,9 @@ char* __cdecl R_DrawText_Extended(const char* text, int maxChars, fontHandle_t* 
         return NULL;
     }
 
-    if (!text || !Text_TextHasCaret(text))
+    // Only intercept text that actually needs extended handling. Pure vanilla
+    // (^0..^9 / plain) is rendered by the engine itself, exactly like stock CoD2.
+    if (!text || !Text_NeedsExtendedHandling(text))
         return original_R_DrawText(text, maxChars, font, x, y, xScale, yScale, color, style);
 
     float drawX = x;
@@ -1390,7 +1868,8 @@ char* __cdecl R_AddCmdDrawTextInSpace_Extended(const char* text, int maxChars, f
         return NULL;
     }
 
-    if (!text || !Text_TextHasCaret(text))
+    // Only intercept text that actually needs extended handling (see R_DrawText_Extended).
+    if (!text || !Text_NeedsExtendedHandling(text))
         return original_R_AddCmdDrawTextInSpace(text, maxChars, font, x, y, xScale, yScale, color, style);
 
     float drawX = x;
@@ -1413,8 +1892,42 @@ char* __cdecl R_DrawConsoleText_Extended(const uint16_t* buffer, int count, font
     if (!drawing_originals_valid())
         return original_R_DrawConsoleText(buffer, count, font, x, y, xScale, yScale, color, style);
 
-    if (ConsoleBuffer_IsKillFeed(buffer, count))
-        return R_DrawConsoleText_KillFeed(buffer, count, font, x, y, xScale, yScale, color, style);
+    // Kill-feed lines that use only vanilla encoding (color indices 0-9 plus
+    // weapon-icon blocks, no extended RGB/style/FX) are left to the stock engine.
+    // It resolves ^8/^9 to the LIVE team colors via RB_LookupColor and advances
+    // past weapon icons with the exact glyph widths — both of which our custom
+    // renderer can only approximate (it showed ^8 as a static yellow and let the
+    // Keep kill-feed vanilla-rendered for exact icon spacing and team-color
+    // behavior. If our extended style/FX control bytes (20/21) are present,
+    // strip them first because stock renderer doesn't understand them.
+    if (ConsoleBuffer_IsKillFeed(buffer, count)) {
+        bool hasStyleFx = false;
+        for (int i = 0; i < count; ++i) {
+            uint8_t hi = (uint8_t)((buffer[i] >> 8) & 0xff);
+            if (hi == CON_CTRL_STYLE || hi == CON_CTRL_FX) {
+                hasStyleFx = true;
+                break;
+            }
+        }
+
+        drawing_set_vanilla_text_hooks(true);
+        char* ret = NULL;
+        if (!hasStyleFx) {
+            ret = original_R_DrawConsoleText(buffer, count, font, x, y, xScale, yScale, color, style);
+        } else {
+            uint16_t sanitized[1024];
+            int outCount = 0;
+            for (int i = 0; i < count && outCount < (int)(sizeof(sanitized) / sizeof(sanitized[0])); ++i) {
+                uint8_t hi = (uint8_t)((buffer[i] >> 8) & 0xff);
+                if (hi == CON_CTRL_STYLE || hi == CON_CTRL_FX)
+                    continue;
+                sanitized[outCount++] = buffer[i];
+            }
+            ret = original_R_DrawConsoleText(sanitized, outCount, font, x, y, xScale, yScale, color, style);
+        }
+        drawing_set_vanilla_text_hooks(false);
+        return ret;
+    }
 
     if (!ConsoleBuffer_UsesExtendedEncoding(buffer, count))
         return original_R_DrawConsoleText(buffer, count, font, x, y, xScale, yScale, color, style);
@@ -1523,13 +2036,11 @@ char* __cdecl R_DrawConsoleText_Extended(const uint16_t* buffer, int count, font
     return NULL;
 }
 
-
 // Help web page removed, fixed crash when getting translations
 void Sys_DirectXFatalError() {
     MessageBoxA(NULL, "DirectX(R) encountered an unrecoverable error.", "DirectX Error", MB_OK | MB_ICONERROR);
     ExitProcess(-1);
 }
-
 
 /** This function is called after all 2D drawing is done */
 void drawing_end(int num) {
@@ -1541,8 +2052,6 @@ void drawing_end(int num) {
     uint32_t addr = *(uint32_t*)0x0068a2b8;
     ASM_CALL(RETURN_VOID, addr, 1, PUSH(num));
 }
-
-
 
 /** Called every frame on frame start. */
 void drawing_frame() {
@@ -1576,6 +2085,7 @@ void drawing_install_text_hooks() {
     R_AddCmdDrawTextWithCursor_t curDrawWithCursor  = GFX_REFAPI_R_ADDCMDDRAWTEXTWITHCURSOR;
 
     if (drawing_originals_valid()
+        && GFX_REFAPI_R_TEXTWIDTH == (R_TextWidth_t)&R_TextWidth_Extended
         && curDrawText == (R_DrawText_t)&R_DrawText_Extended
         && curDrawInSpace == (R_DrawText_t)&R_AddCmdDrawTextInSpace_Extended
         && curDrawConsole == (R_DrawConsoleText_t)&R_DrawConsoleText_Extended
@@ -1585,10 +2095,12 @@ void drawing_install_text_hooks() {
     }
 
     if (g_extColorInstalled
-        && (curDrawText != (R_DrawText_t)&R_DrawText_Extended
+        && (GFX_REFAPI_R_TEXTWIDTH != (R_TextWidth_t)&R_TextWidth_Extended
+            || curDrawText != (R_DrawText_t)&R_DrawText_Extended
             || curDrawInSpace != (R_DrawText_t)&R_AddCmdDrawTextInSpace_Extended
             || curDrawConsole != (R_DrawConsoleText_t)&R_DrawConsoleText_Extended
             || curDrawWithCursor != (R_AddCmdDrawTextWithCursor_t)&R_AddCmdDrawTextWithCursor_Extended)) {
+        original_R_TextWidth = NULL;
         original_R_DrawText = NULL;
         original_R_AddCmdDrawTextInSpace = NULL;
         original_R_DrawConsoleText = NULL;
@@ -1599,6 +2111,9 @@ void drawing_install_text_hooks() {
     if (!curDrawText || !curDrawInSpace || !curDrawConsole || !curDrawWithCursor)
         return;
 
+    R_TextWidth_t curTextWidth = GFX_REFAPI_R_TEXTWIDTH;
+    if (curTextWidth && !drawing_is_our_textwidth(curTextWidth))
+        original_R_TextWidth = curTextWidth;
     if (curDrawText && !drawing_is_our_drawtext(curDrawText))
         original_R_DrawText = curDrawText;
     if (curDrawInSpace && !drawing_is_our_draw_in_space(curDrawInSpace))
@@ -1610,6 +2125,12 @@ void drawing_install_text_hooks() {
 
     if (!drawing_originals_valid())
         return;
+
+        g_extColorFrameCount,
+        (void*)original_R_DrawText, (void*)original_R_AddCmdDrawTextInSpace,
+        (void*)original_R_DrawConsoleText, (void*)original_R_AddCmdDrawTextWithCursor);
+
+    patch_int32(0x0068a314, (int32_t)&R_TextWidth_Extended);
     patch_int32(0x0068a31c, (int32_t)&R_DrawText_Extended);
     patch_int32(0x0068a320, (int32_t)&R_AddCmdDrawTextInSpace_Extended);
     patch_int32(0x0068a328, (int32_t)&R_DrawConsoleText_Extended);
@@ -1621,8 +2142,10 @@ void drawing_install_text_hooks() {
 static void drawing_ensure_text_hooks()
 {
     R_DrawText_t curDrawText = GFX_REFAPI_R_DRAWTEXT;
+    R_TextWidth_t curTextWidth = GFX_REFAPI_R_TEXTWIDTH;
     if (!drawing_originals_valid()
-        || curDrawText != (R_DrawText_t)&R_DrawText_Extended) {
+        || curDrawText != (R_DrawText_t)&R_DrawText_Extended
+        || curTextWidth != (R_TextWidth_t)&R_TextWidth_Extended) {
         drawing_install_text_hooks();
     }
 }
@@ -1631,10 +2154,12 @@ static void drawing_ensure_text_hooks()
  *  at this point — it is filled by a memcpy that happens AFTER the loader returns.
  *  We therefore defer the table patches to the first frame. */
 void drawing_renderer() {
+
     original_R_DrawText                  = NULL;
     original_R_AddCmdDrawTextInSpace     = NULL;
     original_R_DrawConsoleText           = NULL;
     original_R_AddCmdDrawTextWithCursor  = NULL;
+    original_R_TextWidth                 = NULL;
     g_extColorHookFired = 0;
     g_extColorFrameCount = 0;
     g_extColorInstalled = 0;
@@ -1651,7 +2176,6 @@ void drawing_patch() {
     patch_call(0x004cbd36, (unsigned int)CG_DrawCrosshairNames);
     patch_call(0x004cbd6b, (unsigned int)CG_DrawCrosshairNames);
 
-    patch_call(0x004d7bce, (unsigned int)CG_BulletHitEvent);
     patch_call(0x004d7bce, (unsigned int)CG_BulletHitEvent);
 
     // Make tracers visible also for 1st person view
@@ -1675,8 +2199,17 @@ void drawing_patch() {
     // implementation so chat-HUD/notify text honors ^j, ^*, ^c, etc. too.
     patch_jump(0x00404690, (unsigned int)Con_AddText_Extended);
 
-    // CoD2x: sub_4D0E10 stores incoming chat lines; ensure ^7 reset before ": "
+    // CoD2x: sub_4D0E10 stores incoming chat lines in the HUD ring buffer.
     patch_jump(0x004D0E10, (unsigned int)CG_AddChatMessage);
+
+    // CoD2x: custom chat draw path so extended name colors can drive exact
+    // background tint (vanilla path only reads ^0..^9 at line start).
+    patch_jump(0x004C7760, (unsigned int)CG_DrawChatMessages_Extended);
+
+    // Chat/team-chat only: sanitize &&<digit> inside localization arguments so
+    // names like "&&1foo" don't consume placeholder slots and duplicate/shift text.
+    patch_call(0x004D1CBF, (unsigned int)Chat_SEH_LocalizeTextMessage_ChatSafe);
+    patch_call(0x004D1D1C, (unsigned int)Chat_SEH_LocalizeTextMessage_ChatSafe);
 
     // Patch end view func
     patch_call(0x00414a8c, (unsigned int)drawing_end);
