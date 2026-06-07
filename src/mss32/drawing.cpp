@@ -2126,10 +2126,6 @@ void drawing_install_text_hooks() {
     if (!drawing_originals_valid())
         return;
 
-        g_extColorFrameCount,
-        (void*)original_R_DrawText, (void*)original_R_AddCmdDrawTextInSpace,
-        (void*)original_R_DrawConsoleText, (void*)original_R_AddCmdDrawTextWithCursor);
-
     patch_int32(0x0068a314, (int32_t)&R_TextWidth_Extended);
     patch_int32(0x0068a31c, (int32_t)&R_DrawText_Extended);
     patch_int32(0x0068a320, (int32_t)&R_AddCmdDrawTextInSpace_Extended);
