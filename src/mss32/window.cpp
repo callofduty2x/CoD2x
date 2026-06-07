@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <cstdint>
+#include <cctype>
 
 #include "shared.h"
 #include "rinput.h"
@@ -64,6 +65,50 @@ static WORD gamma_originalRamp[3][256] = { 0 };
 static bool gamma_modified = false;
 static bool gamma_warningShowed = false;
 static float gamma_previous = 1.0f; // Previous gamma value to detect changes
+
+// dword_606E80 is the stock console field, with the editable text at +24 (byte_606E98).
+#define console_input_text           ((const char*)0x00606e98)
+
+// Only suppress toggle key while editing the name command in console input.
+// This allows typing ^0 in `/name ...` on layouts where the physical toggle key
+// maps to '0', while keeping normal console-toggle behavior elsewhere.
+static bool Window_IsNameCommandInputActive()
+{
+    if ((input_mode & 1) == 0)
+        return false;
+
+    const char* p = console_input_text;
+    if (!p)
+        return false;
+
+    while (*p && std::isspace((unsigned char)*p))
+        ++p;
+
+    if (*p == '/' || *p == '\\')
+        ++p;
+
+    if (std::tolower((unsigned char)p[0]) != 'n'
+        || std::tolower((unsigned char)p[1]) != 'a'
+        || std::tolower((unsigned char)p[2]) != 'm'
+        || std::tolower((unsigned char)p[3]) != 'e')
+        return false;
+
+    const char term = p[4];
+    return term == '\0' || std::isspace((unsigned char)term);
+}
+
+static bool Window_ShouldSuppressConsoleToggleKey(UINT uMsg, WPARAM wParam)
+{
+    if (!Window_IsNameCommandInputActive())
+        return false;
+
+    // Most layouts report the hardcoded console key as VK_OEM_3, but some setups
+    // can surface it as VK_0 in our message path.
+    if (wParam != VK_OEM_3 && wParam != '0')
+        return false;
+
+    return uMsg == WM_KEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP;
+}
 
 
 
@@ -418,6 +463,9 @@ void Mouse_Loop()
 
 // 00468db0
 LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (Window_ShouldSuppressConsoleToggleKey(uMsg, wParam))
+        return DefWindowProcA(hwnd, uMsg, wParam, lParam);
+
     bool callOriginal = true;
 
     switch (uMsg)
