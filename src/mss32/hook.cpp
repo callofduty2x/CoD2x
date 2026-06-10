@@ -92,6 +92,8 @@ void hook_Com_Frame()
         }
     #endif
 
+    drawing_install_text_hooks();
+
     // Only for client
     if (dedicated->value.integer == 0) {
         affinity_frame();
@@ -116,6 +118,8 @@ void hook_Com_Frame()
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x00434f70);
+
+    drawing_install_text_hooks();
 
     logger_add("Com_Frame finished.");
 }
@@ -144,6 +148,7 @@ int hook_gfxDll() {
 
     window_rendered();
     updater_renderer();
+    drawing_renderer();
 
     // Fix LOD
     //r_lodScale = Dvar_RegisterFloat("r_lodScale", 1f, 1f, 4f, DVAR_CHEAT | DVAR_RENDERER);
@@ -200,6 +205,8 @@ void hook_CL_Init() {
     if (!DLL_HOTRELOAD) {
         ASM_CALL(RETURN_VOID, 0x00410a10);
     }
+
+    drawing_install_text_hooks();
 
     logger_add("CL_Init finished.");
 }
