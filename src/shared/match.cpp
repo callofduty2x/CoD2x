@@ -15,6 +15,8 @@
 dvar_t *match_login; // Cvar to store match login hash
 Match match;
 extern bool gsc_allowOneTimeLevelChange;
+extern dvar_t* sv_hideServerIp;
+bool match_hideServerIpWasSet = false; // whether sv_hideServerIp was automatically enabled by the match
 
 
 // TODO secure vypsani uuid, aby neslo zneuzit
@@ -661,7 +663,17 @@ void match_onStartGameType() {
     if (match.loading) {
         match.loading = false;
         match.activated = true;
-        
+
+        // Hide the server IP address on the scoreboard if requested by the match data ("hideServerIp": true),
+        // so streams do not leak the server address
+        if (match.data.otherData.contains("hideServerIp")) {
+            const std::string& hide = match.data.otherData.at("hideServerIp");
+            if ((hide == "true" || hide == "1") && !sv_hideServerIp->value.boolean) {
+                Dvar_SetBool(sv_hideServerIp, true);
+                match_hideServerIpWasSet = true;
+            }
+        }
+
         Com_Printf("======================================================\n");
         Com_Printf("Match started successfully.\n");
         Com_Printf("- URL: %s\n", match.url);
@@ -721,7 +733,13 @@ bool match_beforeMapChangeOrRestart(bool fromScript, bool bComplete, bool shutdo
         match.downloading = false;
         match.progressData.globalData.clear();
         match.progressData.playerData.clear();
-        
+
+        // Restore the server IP visibility on the scoreboard if it was hidden by the match
+        if (match_hideServerIpWasSet) {
+            Dvar_SetBool(sv_hideServerIp, false);
+            match_hideServerIpWasSet = false;
+        }
+
     }
 
     return true;
