@@ -143,8 +143,7 @@ class HttpClient {
         // For streaming downloads, still use HTTP connection but intercept body data
         struct mg_connection* c = mg_http_connect(&mgr, ctx->url.c_str(), ev_handler, ctx);
         if (!c) {
-            if (ctx->onError)
-                ctx->onError("Failed to connect");
+            report_error(nullptr, ctx, "Failed to connect");
             delete ctx;
         }
     }
@@ -165,6 +164,13 @@ class HttpClient {
         if (!is_valid_url(url)) {
             if (onError)
                 onError("Invalid URL");
+            return;
+        }
+
+        // Validate required callback
+        if (!onReadChunk) {
+            if (onError)
+                onError("onReadChunk callback is required");
             return;
         }
 
@@ -196,8 +202,7 @@ class HttpClient {
 
         struct mg_connection* c = mg_http_connect(&mgr, ctx->url.c_str(), ev_handler, ctx);
         if (!c) {
-            if (ctx->onError)
-                ctx->onError("Failed to connect");
+            report_error(nullptr, ctx, "Failed to connect");
             delete ctx;
         }
     }
@@ -285,8 +290,7 @@ class HttpClient {
 
         struct mg_connection* c = mg_http_connect(&mgr, ctx->url.c_str(), ev_handler, ctx);
         if (!c) {
-            if (ctx->onError)
-                ctx->onError("Failed to connect");
+            report_error(nullptr, ctx, "Failed to connect");
             delete ctx;
         }
     }
@@ -339,6 +343,7 @@ class HttpClient {
 
   private:
 
+
     struct RequestContext {
         std::string url;
         std::string method;
@@ -386,8 +391,21 @@ class HttpClient {
         uint64_t upload_speed_start_ms = 0;
         uint64_t upload_limiter_start_ms = 0;
         size_t upload_limiter_sent = 0;
+        uint64_t upload_last_progress_ms = 0; // Track last time we made progress for starvation detection
     };
     mg_mgr mgr;
+
+
+    // Centralized error reporter to avoid duplicated error handling logic.
+    static void report_error(struct mg_connection* c, RequestContext* ctx, const std::string& msg) {
+        if (ctx) {
+            ctx->error_occurred = true;
+            if (ctx->onError)
+                ctx->onError(msg);
+        }
+        if (c) c->is_closing = 1;
+    }
+
 
     static void ev_handler(struct mg_connection* c, int ev, void* ev_data) {
         RequestContext* ctx = (RequestContext*)c->fn_data;
@@ -403,10 +421,13 @@ class HttpClient {
             // Check for timeout
             uint64_t now = mg_millis();
             if (!c->is_closing && !ctx->error_occurred) {
-                if (ctx->timeout_ms > 0 && !ctx->connected && now > ctx->timeout_connect_endtime) {
+                // First: if a connect-specific timeout was configured, enforce it
+                if (ctx->timeout_connect_ms > 0 && !ctx->connected && now > ctx->timeout_connect_endtime) {
                     ctx->error_occurred = true;
                     mg_error(c, "Connection timeout");
-                } else if (ctx->timeout_connect_ms && now > ctx->timeout_endtime) {
+                }
+                // Then: enforce the overall request timeout if configured
+                else if (ctx->timeout_ms > 0 && now > ctx->timeout_endtime) {
                     ctx->error_occurred = true;
                     mg_error(c, "Timeout");
                 }
@@ -420,13 +441,14 @@ class HttpClient {
 
 
             // Update upload bandwidth statistics
-            if (ctx->isUpload && !ctx->upload_done && !ctx->error_occurred) {
+            if (ctx->isUpload && !ctx->upload_done && !ctx->error_occurred && !c->is_closing) {
 
                 // Initialize bandwidth control timers/counters
                 if (ctx->upload_speed_start_ms == 0) {
                     ctx->upload_speed_start_ms = now;
                     ctx->upload_limiter_start_ms = now;
                     ctx->upload_limiter_sent = 0;
+                    ctx->upload_last_progress_ms = now;
                 }
 
                 uint64_t timeDiffMs = now - ctx->upload_speed_start_ms;
@@ -455,8 +477,11 @@ class HttpClient {
                     return;
 
                 } else {
-                    // No send backlog, can increase chunk size
+                    // No send backlog, can increase chunk size (capped at 1MB)
                     ctx->upload_chunk_max = ctx->upload_chunk_max + (ctx->upload_chunk_max * 0.1);
+                    if (ctx->upload_chunk_max > 1048576) {
+                        ctx->upload_chunk_max = 1048576; // Maximum 1MB chunk size
+                    }
                 }
 
                 // Compute chunk size based on bandwidth limit
@@ -489,7 +514,16 @@ class HttpClient {
                         payload = remaining_budget;
                     }
 
-                    // If no budget is available and data remains, wait for the next window
+                    // Ensure minimum progress to prevent starvation (allow at least 512 bytes every 2 seconds)
+                    uint64_t stall_duration_ms = now - ctx->upload_last_progress_ms;
+                    if (payload == 0 && remaining > 0 && stall_duration_ms >= 2000) {
+                        payload = (remaining > 512) ? 512 : remaining;
+                        // Reset limiter window to allow forced progress
+                        ctx->upload_limiter_start_ms = now;
+                        ctx->upload_limiter_sent = 0;
+                    }
+                    
+                    // If still no budget available and data remains, wait for the next window
                     if (payload == 0 && remaining > 0) {
                         return;
                     }
@@ -516,11 +550,11 @@ class HttpClient {
                     size_t chunk_data_len = ctx->onReadChunk(ctx->data.data(), bytesToSend, ctx->upload_sent);
 
                     if (chunk_data_len == 0) {
-                        if (ctx->onError) mg_call(c, MG_EV_ERROR, (void*)"Read callback returned 0 bytes");
-                        return; // Do not send a zero-sized chunk here; treat as error and stop
+                        report_error(c, ctx, "Read callback returned 0 bytes");
+                        return;
                     } else if (chunk_data_len > bytesToSend) {
-                        if (ctx->onError) mg_call(c, MG_EV_ERROR, (void*)"Read callback returned more bytes than requested");
-                        return; // Invalid callback behavior; stop to avoid protocol corruption
+                        report_error(c, ctx, "Read callback returned more bytes than requested");
+                        return;
                     }
 
                     // Send chunk: size in hex + CRLF + data + CRLF
@@ -534,14 +568,21 @@ class HttpClient {
                     }
 
                     ctx->upload_sent += chunk_data_len;
+                    ctx->upload_last_progress_ms = now; // Track progress for starvation detection
+                    
+                    // Call progress callback
+                    if (ctx->onUpload) {
+                        ctx->onUpload(ctx->upload_sent, ctx->upload_total, ctx->upload_speed);
+                    }
                 } else {
+                    // Send final chunk and mark upload as complete
                     mg_send(c, "0\r\n\r\n", 5);
                     ctx->upload_done = true;
-                }
-
-                // Call progress callback
-                if (ctx->onUpload) {
-                    ctx->onUpload(ctx->upload_sent, ctx->upload_total, ctx->upload_speed);
+                    
+                    // Final progress callback at 100%
+                    if (ctx->onUpload) {
+                        ctx->onUpload(ctx->upload_total, ctx->upload_total, ctx->upload_speed);
+                    }
                 }
 
             }
@@ -617,10 +658,7 @@ class HttpClient {
 
                 // Check for HTTP errors
                 if (ctx->http_status != 200) {
-                    if (ctx->onError) {
-                        ctx->onError("HTTP error " + std::to_string(ctx->http_status));
-                    }
-                    c->is_closing = 1;
+                    report_error(c, ctx, std::string("HTTP error ") + std::to_string(ctx->http_status));
                     return;
                 }
 
@@ -668,9 +706,10 @@ class HttpClient {
         // Data written to socket - track actual bytes sent for rate limiting
         else if (ev == MG_EV_WRITE) {
             // MG_EV_WRITE reports how many bytes were actually flushed to the socket
-            long bytes_written = *(long*)ev_data;
-
-            ctx->upload_speed_accumulated += (size_t)bytes_written;
+            if (ctx->isUpload && !ctx->error_occurred) {
+                long bytes_written = *(long*)ev_data;
+                ctx->upload_speed_accumulated += (size_t)bytes_written;
+            }
         }
 
         // HTTP response received
@@ -710,18 +749,25 @@ class HttpClient {
         }
 
         else if (ev == MG_EV_ERROR) {
-            ctx->error_occurred = true;
-            if (ctx && ctx->onError)
-                ctx->onError((char*)ev_data);
-            c->is_closing = 1;
+            // Forward error through centralized reporter
+            report_error(c, ctx, ev_data ? std::string((char*)ev_data) : std::string(""));
         }
 
         else if (ev == MG_EV_CLOSE) {
 
             if (!ctx->error_occurred && !ctx->finished) {
-                // Unexpected error
-                if (ctx && ctx->onError)
-                    ctx->onError("Connection closed unexpectedly");
+                // Connection closed unexpectedly
+                // For uploads, this might happen if server closed after receiving data but before sending response
+                if (ctx->isUpload && ctx->upload_done) {
+                    // Upload completed but no response - treat as success
+                    Response res;
+                    res.status = 200;
+                    if (ctx->onDone)
+                        ctx->onDone(res);
+                } else {
+                    // Truly unexpected closure
+                    report_error(c, ctx, "Connection closed unexpectedly");
+                }
             }
 
             delete ctx;

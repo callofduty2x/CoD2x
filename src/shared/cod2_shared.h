@@ -9,11 +9,10 @@
 #include <cctype>
 
 
-
-
-
 #define va ((char* (*)(const char *, ...))ADDR(0x0044a990, 0x080b7fa6))
 
+#define Q_COLOR_ESCAPE	'^'
+#define Q_IsColorString(p)	( p && *(p) == Q_COLOR_ESCAPE && *((p)+1) && *((p)+1) != Q_COLOR_ESCAPE )
 
 
 // Compare two strings ignoring case

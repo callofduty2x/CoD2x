@@ -12,8 +12,11 @@ char SYS_WIN_DISPLAY_VERSION[32] = {0};
 char SYS_WINE_VERSION[64] = {0};
 char SYS_WINE_BUILD[64] = {0};
 char SYS_VERSION_INFO[256] = {0};
-char SYS_VM_NAME[64] = {0}; // Name of the virtualization platform, if detected
-char SYS_COMPATIBILITY_FLAGS[64] = {0}; // Stores compatibility flags if any
+char SYS_VM_NAME[64] = {0};
+char SYS_COMPATIBILITY_FLAGS[64] = {0};
+char SYS_LANGUAGE_CODE[8] = {0};
+char SYS_VIRTUALIZATION[128] = {0};
+bool SYS_IS_ELEVATED = false;
 
 extern bool admin_isElevated();
 
@@ -171,7 +174,7 @@ bool system_isVirtualMachineBios() {
     return false;
 }
 
-void system_getCountryCode(char *buffer, int bufferSize) {
+void system_getLanguageCode(char *buffer, int bufferSize) {
     if (!GetLocaleInfoA(LOCALE_USER_DEFAULT, LOCALE_SISO3166CTRYNAME, buffer, bufferSize)) {
         snprintf(buffer, bufferSize, "??");
     }
@@ -188,7 +191,7 @@ void system_getInfo() {
     // Get virtualization info
     bool isVM = system_isVirtualMachineBios();
 
-    char virtualization[512];
+    char virtualization[128];
     if (isWine) {
         snprintf(virtualization, sizeof(virtualization), "wine-%s-%s", SYS_WINE_VERSION, SYS_WINE_BUILD);
     } else if (isVM) {
@@ -197,9 +200,9 @@ void system_getInfo() {
         snprintf(virtualization, sizeof(virtualization), "0");
     }
 
-    // Get country code
-    char countryCode[8] = {0};
-    system_getCountryCode(countryCode, sizeof(countryCode)); 
+    // Get language code
+    char languageCode[8] = {0};
+    system_getLanguageCode(languageCode, sizeof(languageCode)); 
 
     // Get compatibility flags
     system_getCompatibilityFlags();
@@ -207,10 +210,14 @@ void system_getInfo() {
     // If running with admin rights, append "admin" to the virtualization string
     bool isElevated = admin_isElevated();
 
+    // Store computed values as globals
+    strncpy(SYS_LANGUAGE_CODE, languageCode, sizeof(SYS_LANGUAGE_CODE) - 1);
+    strncpy(SYS_VIRTUALIZATION, virtualization, sizeof(SYS_VIRTUALIZATION) - 1);
+    SYS_IS_ELEVATED = isElevated;
 
     // Compose final version info string
-    // Format: "<build>-<edition>-<displayVersion>-<country>-<virtualization>-<compatibilityFlags>-<admin>"
-    snprintf(SYS_VERSION_INFO, sizeof(SYS_VERSION_INFO), "%s\n%s\n%s\n%s\n%s\n%s\n%s", SYS_WIN_BUILD, SYS_WIN_EDITION, SYS_WIN_DISPLAY_VERSION, countryCode, virtualization, SYS_COMPATIBILITY_FLAGS, isElevated ? "admin" : "user");
+    // Format: "<build>-<edition>-<displayVersion>-<language>-<virtualization>-<compatibilityFlags>-<admin>"
+    snprintf(SYS_VERSION_INFO, sizeof(SYS_VERSION_INFO), "%s\n%s\n%s\n%s\n%s\n%s\n%s", SYS_WIN_BUILD, SYS_WIN_EDITION, SYS_WIN_DISPLAY_VERSION, SYS_LANGUAGE_CODE, virtualization, SYS_COMPATIBILITY_FLAGS, isElevated ? "admin" : "user");
 
     //MessageBoxA(NULL, SYS_VERSION_INFO, "System Info", MB_OK | MB_ICONINFORMATION);
 }

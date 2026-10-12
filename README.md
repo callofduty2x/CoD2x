@@ -12,11 +12,18 @@ It focuses on fixing bugs and adding new features to the game.
 - This software may be terminated or withdrawn at any time
 
 # Version history
-- 2025-11-04 - **[1.4.6.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.1)** - **current**
+- 2026-04-07 - **[1.4.6.8](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.8)** - **current**
 
 <details>
   <summary>Older versions</summary>
 
+- 2026-03-27: **[1.4.6.7](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.7)**
+- 2026-03-25: **[1.4.6.6](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.6)**
+- 2026-03-24: **[1.4.6.5](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.5)**
+- 2026-02-22: **[1.4.6.4](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.4)**
+- 2025-11-18: **[1.4.6.3](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.3)**
+- 2025-11-06: **[1.4.6.2](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.2)**
+- 2025-11-04: **[1.4.6.1](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.1)**
 - 2025-07-25: **[1.4.4.6](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.6)**
 - 2025-07-12: **[1.4.4.5](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.5)**
 - 2025-07-04: **[1.4.4.4](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.4.4)**
@@ -82,6 +89,9 @@ It focuses on fixing bugs and adding new features to the game.
 - Increased number of visible cvars in console
 - Increased dvar limit from 1280 to 4096
 - DDoS protection via rate limiter for incoming UDP packets
+- Shogun consistent pellet spread
+  - ![alt text](images/pellet_spread.png)
+  - changeable via new cvar `g_shotgun_spread_fix`
 
 #### Improvements
 - Added windowed and borderless window mode:
@@ -132,6 +142,8 @@ It focuses on fixing bugs and adding new features to the game.
     - `sv_master3` is customizable
 - New cvar `sv_cracked` to make the server accept players with invalid CDKEY
 - New cvar `showPacketStrings` to show network communication data
+- New cvar `sv_hideServerIp` to hide the server IP address at the bottom of the scoreboard (hostname stays visible), preventing the server address from leaking on streams
+  - automatically enabled when the match data contains `"hideServerIp": true`, restored when the match ends
 - New commands `/increase` and `/decrease` to increase or decrease the value of a cvar
 - Reversed function for third person, added new cvar `cg_thirdPersonMode 1` that rotates directly around player without collision with the world
 - Added possibility to set CPU affinity
@@ -187,6 +199,7 @@ It focuses on fixing bugs and adding new features to the game.
 
 - `getViewOrigin` - Retrieves the player's current view origin as a 3D vector.
 - `getStance` - Retrieves the player's current stance (e.g., stand, crouch, prone).
+- `isUsingTurret` - Checks if the player is currently using a turret.
 
 - `matchPlayerGetData` - Retrieves match-related data for a player using a specified key.
 - `matchPlayerSetData` - Sets match-related data for a player using key-value pairs.
@@ -195,7 +208,7 @@ It focuses on fixing bugs and adding new features to the game.
 
 # How to install (client on Windows)
 1. You need original Call of Duty 2 with version [1.3](https://www.moddb.com/games/call-of-duty-2/downloads/call-of-duty-2-pc-patch-v-13) installed.
-2. Download latest version of CoD2x - [CoD2x_1.4.6.1_windows.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.6.1/CoD2x_1.4.6.1_windows.zip)
+2. Download latest version of CoD2x - [CoD2x_1.4.6.8_windows.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.6.8/CoD2x_1.4.6.8_windows.zip)
 3. Extract these files from the archive to the Call of Duty 2 folder, replacing any existing file:
     - 📄 mss32.dll
     - 📄 mss32_original.dll
@@ -224,7 +237,7 @@ It focuses on fixing bugs and adding new features to the game.
 
 
 # How to install (server on Linux)
-1. Download latest version of CoD2x - [CoD2x_1.4.6.1_linux.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.6.1/CoD2x_1.4.6.1_linux.zip)
+1. Download latest version of CoD2x - [CoD2x_1.4.6.8_linux.zip](https://github.com/eyza-cod2/CoD2x/releases/download/v1.4.6.8/CoD2x_1.4.6.8_linux.zip)
 2. Extract this file from the archive to the Call of Duty 2 folder:
     - 📄 libCoD2x.so
 3. Final structure should look like this:
@@ -239,9 +252,23 @@ It focuses on fixing bugs and adding new features to the game.
 5. Update chmod for the libCoD2x.so file to be executable:
     - `chmod +x libCoD2x.so`
 6. Run the game with LD_PRELOAD, for example:
-    - `LD_PRELOAD=libCoD2x.so ./cod2_lnxded +exec server.cfg`
+    - `LD_PRELOAD=./libCoD2x.so ./cod2_lnxded +set dedicated 2 +exec server.cfg`
     - 🛈 Its not common that server providers support adding this, only server administrators can do that.
 7. Auto-update is enabled by default. Make sure to enable UDP port 20720. If you want to disable auto-update, set `sv_update "0"` or disable UDP port 20720. On server start, the server will check for the latest version of CoD2x and download it if available. File libCoD2x.so will be replaced with the latest version. Process restart is needed to apply the update. 
+
+# How to run server
+## On Windows
+1. Create a shortcut of CoD2MP_s.exe
+2. Right click on the shortcut, select "Properties"
+3. In the "Target" field, add following parameters at the end of the path:
+    - `+set dedicated 2 +exec server.cfg`
+4. Click "OK"
+5. Run the shortcut to start the server
+## On Linux
+1. Open terminal
+2. Navigate to the Call of Duty 2 folder
+3. Run the server with following command:
+    - `LD_PRELOAD=./libCoD2x.so ./cod2_lnxded +set dedicated 2 +exec server.cfg`
 
 
 # Administrator rights

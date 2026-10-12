@@ -54,6 +54,8 @@ callback_match_onStartGameType() {
         println("   team1_specialTeamKey: " + team1_specialTeamKey);
         team2_specialTeamKey = matchGetData("team2_specialTeamKey");
         println("   team2_specialTeamKey: " + team2_specialTeamKey);
+        demoUploadURL = matchGetData("demoUploadURL");
+        println("   demoUploadURL: " + demoUploadURL);
 
         //matchCancel("Some error occurred");
 

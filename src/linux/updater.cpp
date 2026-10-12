@@ -14,6 +14,7 @@
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_net.h"
 #include "../shared/cod2_cmd.h"
+#include "../shared/updater_https.h"
 
 
 struct netaddr_s updater_address;
@@ -67,6 +68,17 @@ void updater_downloadFile(const char* updateFile, const char* newVersionString) 
 
 
 
+// Sends the HTTPS update check (runs on a background thread). A dedicated server has no HWID/install id.
+// If it fails, the UDP request is sent as a fallback.
+static void updater_sendHttpsRequest() {
+    UpdaterHttpsRequest request;
+    request.type = "server";
+
+    if (updater_https_checkForUpdate(request)) {
+        Com_Printf("Checking for updates...\n");
+    }
+}
+
 bool updater_sendRequest() {
     Com_DPrintf("Resolving AutoUpdate Server %s...\n", SERVER_UPDATE_URI);
     if (!NET_StringToAdr(SERVER_UPDATE_URI, &updater_address))
@@ -91,6 +103,8 @@ bool updater_sendRequest() {
     return status;
 }
 
+static void updater_processResponse(int updateAvailable, const char* updateFile, const char* newVersionString);
+
 void updater_updatePacketResponse(struct netaddr_s addr)
 {
     if (updater_address.type == NA_BAD) {
@@ -106,19 +120,34 @@ void updater_updatePacketResponse(struct netaddr_s addr)
         return;
     }
 
+    updater_processResponse(atol(Cmd_Argv(1)), Cmd_Argv(2), Cmd_Argv(3));
+}
 
+// True if the string contains only characters that are safe inside the download shell command
+static bool updater_isSafeShellArg(const char* s) {
+    if (!s || !*s)
+        return false;
+    for (; *s; s++) {
+        char c = *s;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || strchr(":/._-", c)))
+            return false;
+    }
+    return true;
+}
+
+// Process the update check response (from UDP or HTTPS)
+static void updater_processResponse(int updateAvailable, const char* updateFile, const char* newVersionString)
+{
     Com_Printf("-----------------------------------\n");
 
-    const char* updateAvailableNumber = Cmd_Argv(1);
-    int updateAvailable = atol(updateAvailableNumber);
-
     if (updateAvailable) {
-        const char* updateFile = Cmd_Argv(2);
-        const char* newVersionString = Cmd_Argv(3);
-        
         Com_Printf("CoD2x: Update available: %s -> %s\n", APP_VERSION, newVersionString);
 
-        updater_downloadFile(updateFile, newVersionString);
+        // URL and version are placed into a shell command, so allow only safe characters
+        if (updater_isSafeShellArg(updateFile) && updater_isSafeShellArg(newVersionString))
+            updater_downloadFile(updateFile, newVersionString);
+        else
+            Com_Printf("CoD2x: Invalid update URL or version, update skipped.\n");
 
     } else {
         Com_Printf("CoD2x: No updates available.\n");
@@ -129,11 +158,35 @@ void updater_updatePacketResponse(struct netaddr_s addr)
     return;
 }
 
+// Called on the main thread when the HTTPS update check has finished
+static void updater_processHttpsResult(const UpdaterHttpsResult& result)
+{
+    if (result.ok) {
+        updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
+        return;
+    }
+
+    Com_Printf("CoD2x: Failed to check for updates: %s\n", result.error.c_str());
+
+    // Fallback to the legacy UDP request (the master server logs UDP requests from new versions as HTTPS failures)
+    Com_Printf("Trying UDP...\n");
+    updater_sendRequest();
+}
+
 
 void updater_checkForUpdate() {
     // Send the request to the Auto-Update server
     if (sv_update->value.boolean && sv_running->value.boolean) {
-        updater_sendRequest();
+        updater_sendHttpsRequest();
+    }
+}
+
+
+/** Called every frame. Processes the result of the HTTPS update check (the request runs on a background thread). */
+void updater_frame() {
+    UpdaterHttpsResult result;
+    if (updater_https_pollResult(&result)) {
+        updater_processHttpsResult(result);
     }
 }
 

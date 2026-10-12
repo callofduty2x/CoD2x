@@ -15,7 +15,9 @@
 #include "freeze.h"
 #include "window.h"
 #include "rinput.h"
+#include "mouse.h"
 #include "competitive.h"
+#include "console.h"
 #include "cgame.h"
 #include "updater.h"
 #include "hwid.h"
@@ -27,6 +29,7 @@
 #include "demo.h"
 #include "vmix.h"
 #include "debug.h"
+#include "module_detection.h"
 #include "../shared/iwd.h"
 #include "../shared/common.h"
 #include "../shared/server.h"
@@ -36,6 +39,7 @@
 #include "../shared/cod2_dvars.h"
 #include "../shared/gsc.h"
 #include "../shared/match.h"
+#include "../shared/weapons.h"
 
 HMODULE hModule;
 unsigned int gfx_module_addr;
@@ -80,6 +84,7 @@ void hook_Com_Frame()
             hotreload_unload();
             debug_unload();
             common_unload();
+            weapons_unload();
             radar_unload();
             demo_unload();
 
@@ -90,12 +95,12 @@ void hook_Com_Frame()
 
     // Only for client
     if (dedicated->value.integer == 0) {
-        affinity_frame();
         competitive_frame();
         cgame_frame();
     }
 
     // Shared & Server
+    module_detection_frame();
     debug_frame();
     freeze_frame();
     updater_frame();
@@ -182,7 +187,9 @@ void hook_CL_Init() {
     hwid_init(); 
     window_init();      // depends on being called before gfx dll is loaded
     rinput_init();
+    mouse_init();
     competitive_init();
+    console_init();
     cgame_init();
     master_server_init();
     match_init_client();
@@ -215,6 +222,7 @@ void hook_SV_Init() {
 
     // Shared & Server 
     freeze_init();
+    weapons_init();
     common_init();
     server_init();
     dvar_init();
@@ -242,6 +250,8 @@ void hook_Com_Init(const char* cmdline) {
     Com_Printf("Command line: '%s'\n", cmdline);
 
     exception_init();   // sending thru NET will work after Com_Init is called and updater is initialized
+    module_detection_init();
+    affinity_init();
     debug_init();
     admin_init();      // Must be called before file system initialization
     registry_init();   // Must be called before cdkey registry reading
@@ -257,7 +267,6 @@ void hook_Com_Init(const char* cmdline) {
             hook_CL_Init();
     }
 
-    affinity_init();
     common_printInfo();
 
     logger_add("Com_Init finished.");
@@ -294,7 +303,9 @@ bool hook_patch() {
     freeze_patch();
     window_patch();
     rinput_patch();
+    mouse_patch();
     competitive_patch();
+    console_patch();
     cgame_patch();
     updater_patch();
     master_server_patch();
@@ -304,6 +315,7 @@ bool hook_patch() {
     demo_patch();
     vmix_patch();
 
+    weapons_patch();
     // Patch server side
     common_patch();
     server_patch();
@@ -356,6 +368,16 @@ bool hook_patch() {
 
     // Fix console not closing when fatal error occured for server
     patch_byte(0x0046853b, 0xeb); // je => jmp  0x74 => 0xeb
+
+
+    // Fix MG sensitivity
+    patch_byte(0x0040867d, 0xeb); // 7416 je 0x408695 => EB16 jmp 0x408695
+
+
+
+    // Allow scanning 32 LAN servers instead of 4
+    patch_byte(0x00411bce + 2, 32); // 83fe04 -> 83fe20  -  originally 4 (28960 to 28963), now 32 (28960 to 28991)
+    
 
 
     // Hot-reloading in debug mode

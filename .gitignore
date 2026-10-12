@@ -37,3 +37,7 @@ bin/windows/main/*
 bin/windows/main/*/
 !bin/windows/main/players
 bin/windows/main/players/default/config_mp.cfg
+
+# Large Binary Ninja pseudo-C dumps - keep locally, too big for GitHub
+src/other/*.bndb_pseudo_c.txt
+src/other/*.bndb_disassembly.txt

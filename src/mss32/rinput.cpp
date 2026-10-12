@@ -70,6 +70,7 @@ LRESULT __stdcall rinput_window_proc(HWND hWnd, UINT message, WPARAM wParam, LPA
 
 // RInput has own dedicated thread to handle raw input messages
 DWORD WINAPI rinput_thread(LPVOID lpParam) {
+    thread_setName(GetCurrentThread(), L"CoD2x RawInput");
 
     // Register the window class
     WNDCLASSEX wcex;

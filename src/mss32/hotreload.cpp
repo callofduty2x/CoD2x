@@ -71,6 +71,7 @@ bool hotreload_getDllWriteTime(FILETIME* lastWriteTime, bool showError) {
 
 
 void hotreload_watch_dll_thread() {
+    thread_setName(GetCurrentThread(), L"CoD2x HotReload");
 
     FILETIME lastWriteTime;
     if (!hotreload_getDllWriteTime(&lastWriteTime, true)) {

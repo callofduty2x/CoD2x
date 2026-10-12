@@ -1,6 +1,7 @@
 #include "debug.h"
 
 #include <windows.h>
+#include <tlhelp32.h>
 #include <iostream>
 #include <string>
 #include <cstdio>
@@ -15,21 +16,27 @@
 #define DEBUG_WINDOW_CLASS "DebugWindowClass"
 #define DEBUG_WINDOW_TITLE "Debug Window"
 
-// New IDs and constants for toolbar.
+// IDs and constants for toolbar.
 #define TOOLBAR_HEIGHT 30
+#define TOGGLE_WIDTH   90
+#define CHECK_WIDTH    90
+#define CHECK_GAP      8
 #define IDM_TOGGLE_UPDATE 1001
 #define IDM_TOGGLE_SERVER 1002
 #define IDM_TOGGLE_CLIENT 1003
+#define IDM_TOGGLE_DLLS   1004
 
 // Global handles for the debug window, toolbar, and its text control.
 static HWND debug_hHWND = NULL;
-static HWND debug_hButtonUpdate = NULL;
-static HWND debug_hButtonServer = NULL;
-static HWND debug_hButtonClient = NULL;
+static HWND debug_hButtonToggle = NULL;
+static HWND debug_hCheckServer = NULL;
+static HWND debug_hCheckClient = NULL;
+static HWND debug_hCheckDlls = NULL;
 static HWND debug_hEdit = NULL;
 static bool debug_updateEnabled = true;
 static bool debug_serverEnabled = true;
 static bool debug_clientEnabled = true;
+static bool debug_dllsEnabled = true;
 static HANDLE debug_hThread = NULL;
 static DWORD debug_lastUpdateTime = 0;
 static int debug_x = 0;
@@ -44,36 +51,37 @@ LRESULT CALLBACK debug_WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
         case WM_SIZE: {
                 RECT rc;
                 GetClientRect(hwnd, &rc);
-                // Resize the toolbar buttons based on the window width.
-                int buttonCount = 3;
-                int buttonWidth = (rc.right - rc.left) / buttonCount;
-                if (debug_hButtonUpdate) {
-                    MoveWindow(debug_hButtonUpdate, 0, 0, buttonWidth, TOOLBAR_HEIGHT, TRUE);
+                int totalWidth = rc.right - rc.left;
+                if (debug_hButtonToggle) {
+                    MoveWindow(debug_hButtonToggle, 0, 0, TOGGLE_WIDTH, TOOLBAR_HEIGHT, TRUE);
                 }
-                if (debug_hButtonServer) {
-                    MoveWindow(debug_hButtonServer, buttonWidth, 0, buttonWidth, TOOLBAR_HEIGHT, TRUE);
+                if (debug_hCheckServer) {
+                    MoveWindow(debug_hCheckServer, TOGGLE_WIDTH + CHECK_GAP, 0, CHECK_WIDTH, TOOLBAR_HEIGHT, TRUE);
                 }
-                if (debug_hButtonClient) {
-                    MoveWindow(debug_hButtonClient, buttonWidth * 2, 0, (rc.right - rc.left) - buttonWidth * 2, TOOLBAR_HEIGHT, TRUE);
+                if (debug_hCheckClient) {
+                    MoveWindow(debug_hCheckClient, TOGGLE_WIDTH + CHECK_GAP + CHECK_WIDTH, 0, CHECK_WIDTH, TOOLBAR_HEIGHT, TRUE);
                 }
-                // Resize the edit control to fill below the toolbar.
+                if (debug_hCheckDlls) {
+                    MoveWindow(debug_hCheckDlls, TOGGLE_WIDTH + CHECK_GAP + CHECK_WIDTH * 2, 0, CHECK_WIDTH, TOOLBAR_HEIGHT, TRUE);
+                }
                 if (debug_hEdit) {
-                    MoveWindow(debug_hEdit, 0, TOOLBAR_HEIGHT, rc.right - rc.left, rc.bottom - rc.top - TOOLBAR_HEIGHT, TRUE);
+                    MoveWindow(debug_hEdit, 0, TOOLBAR_HEIGHT, totalWidth, rc.bottom - rc.top - TOOLBAR_HEIGHT, TRUE);
                 }
             }
             break;
         case WM_COMMAND:
             if (LOWORD(wParam) == IDM_TOGGLE_UPDATE) {
                 debug_updateEnabled = !debug_updateEnabled;
-                SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_UPDATE), debug_updateEnabled ? "Disable Update" : "Enable Update");
+                SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_UPDATE), debug_updateEnabled ? "Pause" : "Resume");
             }
             else if (LOWORD(wParam) == IDM_TOGGLE_SERVER) {
-                debug_serverEnabled = !debug_serverEnabled;
-                SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_SERVER), debug_serverEnabled ? "Disable Server" : "Enable Server");
-            } 
+                debug_serverEnabled = (SendMessage(GetDlgItem(hwnd, IDM_TOGGLE_SERVER), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            }
             else if (LOWORD(wParam) == IDM_TOGGLE_CLIENT) {
-                debug_clientEnabled = !debug_clientEnabled;
-                SetWindowText(GetDlgItem(hwnd, IDM_TOGGLE_CLIENT), debug_clientEnabled ? "Disable Client" : "Enable Client");
+                debug_clientEnabled = (SendMessage(GetDlgItem(hwnd, IDM_TOGGLE_CLIENT), BM_GETCHECK, 0, 0) == BST_CHECKED);
+            }
+            else if (LOWORD(wParam) == IDM_TOGGLE_DLLS) {
+                debug_dllsEnabled = (SendMessage(GetDlgItem(hwnd, IDM_TOGGLE_DLLS), BM_GETCHECK, 0, 0) == BST_CHECKED);
             }
             break;
         case WM_DESTROY:
@@ -94,6 +102,7 @@ void debug_createWindow(HINSTANCE hInstance) {
     wc.hInstance     = hInstance;
     wc.lpszClassName = DEBUG_WINDOW_CLASS;
     wc.hCursor       = LoadCursor(NULL, IDC_ARROW);
+    wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
     RegisterClass(&wc);
 
     if (debug_x == 0 && debug_y == 0 && debug_w == 0 && debug_h == 0) {
@@ -115,48 +124,61 @@ void debug_createWindow(HINSTANCE hInstance) {
 
     if (!debug_hHWND)
         return;
-    // Calculate button width to fit all three buttons in a row across the window width.
-    int buttonCount = 3;
-    int buttonWidth = debug_w / buttonCount;
 
-    // Create toolbar button for toggling updates.
-    debug_hButtonUpdate = CreateWindowExA(
+    // Create pause/resume toggle button.
+    debug_hButtonToggle = CreateWindowExA(
         0,
         "BUTTON",
-        "Disable Update", // Initial text when updateEnabled is true.
+        "Pause",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        0, 0, buttonWidth, TOOLBAR_HEIGHT,
+        0, 0, TOGGLE_WIDTH, TOOLBAR_HEIGHT,
         debug_hHWND,
         (HMENU)IDM_TOGGLE_UPDATE,
         hInstance,
         NULL
     );
 
-    // Create a button for toggling server.
-    debug_hButtonServer = CreateWindowExA(
+    // Create Server checkbox.
+    debug_hCheckServer = CreateWindowExA(
         0,
         "BUTTON",
-        "Disable Server", // Initial text when serverEnabled is true.
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        buttonWidth, 0, buttonWidth, TOOLBAR_HEIGHT,
+        "Server",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        TOGGLE_WIDTH + CHECK_GAP, 0, CHECK_WIDTH, TOOLBAR_HEIGHT,
         debug_hHWND,
         (HMENU)IDM_TOGGLE_SERVER,
         hInstance,
         NULL
     );
+    SendMessage(debug_hCheckServer, BM_SETCHECK, BST_CHECKED, 0);
 
-    // Create a button for toggling client.
-    debug_hButtonClient = CreateWindowExA(
+    // Create Client checkbox.
+    debug_hCheckClient = CreateWindowExA(
         0,
         "BUTTON",
-        "Disable Client", // Initial text when clientEnabled is true.
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-        buttonWidth * 2, 0, buttonWidth, TOOLBAR_HEIGHT,
+        "Client",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        TOGGLE_WIDTH + CHECK_GAP + CHECK_WIDTH, 0, CHECK_WIDTH, TOOLBAR_HEIGHT,
         debug_hHWND,
         (HMENU)IDM_TOGGLE_CLIENT,
         hInstance,
         NULL
     );
+    SendMessage(debug_hCheckClient, BM_SETCHECK, BST_CHECKED, 0);
+
+    // Create DLLs checkbox.
+    debug_hCheckDlls = CreateWindowExA(
+        0,
+        "BUTTON",
+        "DLLs",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+        TOGGLE_WIDTH + CHECK_GAP + CHECK_WIDTH * 2, 0, CHECK_WIDTH, TOOLBAR_HEIGHT,
+        debug_hHWND,
+        (HMENU)IDM_TOGGLE_DLLS,
+        hInstance,
+        NULL
+    );
+    SendMessage(debug_hCheckDlls, BM_SETCHECK, BST_CHECKED, 0);
 
     // Create a multi-line, read-only edit control below the toolbar.
     debug_hEdit = CreateWindowEx(
@@ -192,6 +214,7 @@ void debug_createWindow(HINSTANCE hInstance) {
 
 // This thread creates and runs the debug window's message loop.
 DWORD WINAPI debug_windowThread(LPVOID lpParam) {
+    thread_setName(GetCurrentThread(), L"CoD2x DebugWindow");
     HINSTANCE hInstance = GetModuleHandle(NULL);
     debug_createWindow(hInstance);
 
@@ -205,12 +228,14 @@ DWORD WINAPI debug_windowThread(LPVOID lpParam) {
 
     debug_hHWND = NULL;
     debug_hEdit = NULL;
-    debug_hButtonUpdate = NULL;
-    debug_hButtonServer = NULL;
-    debug_hButtonClient = NULL;
+    debug_hButtonToggle = NULL;
+    debug_hCheckServer = NULL;
+    debug_hCheckClient = NULL;
+    debug_hCheckDlls = NULL;
     debug_updateEnabled = true;
     debug_serverEnabled = true;
     debug_clientEnabled = true;
+    debug_dllsEnabled = true;
 
     return 0;
 }
@@ -286,7 +311,7 @@ void debug_frame() {
     debug_lastUpdateTime = currentTime;
 
     if (debug_hHWND && debug_hEdit && debug_updateEnabled) {
-        char buffer[16384];
+        char buffer[65536];
         buffer[0] = '\0';
 
         debug_append_linef(buffer, sizeof(buffer), "Tick count: %lu ms", GetTickCount());
@@ -384,6 +409,26 @@ void debug_frame() {
             }
 
 
+        }
+
+        if (debug_dllsEnabled) {
+            debug_append_linef(buffer, sizeof(buffer), "--------------------------------");
+            debug_append_linef(buffer, sizeof(buffer), "Loaded DLLs");
+            debug_append_linef(buffer, sizeof(buffer), "--------------------------------");
+            HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, GetCurrentProcessId());
+            if (snap != INVALID_HANDLE_VALUE) {
+                MODULEENTRY32 me = {};
+                me.dwSize = sizeof(me);
+                if (Module32First(snap, &me)) {
+                    do {
+                        debug_append_linef(buffer, sizeof(buffer), "  %-30s  Base: 0x%p  Size: %5lu KB  %s",
+                            me.szModule, (void*)me.modBaseAddr, me.modBaseSize / 1024, me.szExePath);
+                    } while (Module32Next(snap, &me));
+                }
+                CloseHandle(snap);
+            } else {
+                debug_append_line(buffer, sizeof(buffer), "  Failed to enumerate modules.");
+            }
         }
 
         SetWindowTextA(debug_hEdit, buffer);

@@ -101,7 +101,11 @@ typedef struct
 	snapshot_t *snap;
 	snapshot_t *nextSnap;
 
-	byte padding0[154504];
+	byte padding00[0xe8];
+
+	float zoomTransition;
+
+	byte padding0[0x25A9C];
 
 	int time;
 	int unk[3];
@@ -129,6 +133,7 @@ typedef struct
 	byte padding1[818376];
 } cg_t;
 static_assert((sizeof(cg_t) == 0xf49a0));
+static_assert(offsetof(cg_t, zoomTransition) == 0x0110);
 static_assert(offsetof(cg_t, predictedPlayerState) == 0x025bc4);
 static_assert(offsetof(cg_t, refdef) == 0x028570);
 static_assert(offsetof(cg_t, kick_angles) == 0x02c098);

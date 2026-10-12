@@ -127,6 +127,7 @@ void url_protocol_init() {
 
     // Register the URL protocol
     bool ok = url_protocol_registerUrlProtocol();
+    (void)ok;
 
     #if DEBUG
     if (!ok) {

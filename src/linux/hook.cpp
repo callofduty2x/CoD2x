@@ -6,6 +6,7 @@
 #include "../shared/iwd.h"
 #include "../shared/cod2_common.h"
 #include "../shared/common.h"
+#include "../shared/weapons.h"
 #include "../shared/server.h"
 #include "../shared/dvar.h"
 #include "../shared/game.h"
@@ -27,6 +28,7 @@ void __cdecl hook_Com_Frame() {
     gsc_frame();
     match_frame();
     iwd_frame();
+    updater_frame();
 }
 
 
@@ -42,6 +44,7 @@ void hook_SV_Init() {
 
     // Shared & Server
     common_init();
+    weapons_init();
     server_init();
     dvar_init();
     updater_init();
@@ -86,6 +89,7 @@ bool hook_patch() {
     patch_call(0x0806281a, (unsigned int)hook_Com_Frame);
 
 
+    weapons_patch();
     common_patch();
     server_patch();
     game_patch();

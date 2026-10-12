@@ -15,6 +15,8 @@
 dvar_t *match_login; // Cvar to store match login hash
 Match match;
 extern bool gsc_allowOneTimeLevelChange;
+extern dvar_t* sv_hideServerIp;
+bool match_hideServerIpWasSet = false; // whether sv_hideServerIp was automatically enabled by the match
 
 
 // TODO secure vypsani uuid, aby neslo zneuzit
@@ -405,6 +407,10 @@ void match_cancel(const char* reason) {
     } else {
         Com_Printf("No match is currently active.\n");
     }
+
+    // Clean up match state
+    match.downloading = false;
+    match.loading = false;
 }
 
 
@@ -487,13 +493,20 @@ void match_cmd() {
 
         // match create "http://localhost:8080/api/match/1234"
 
+        // There is a problem when URL is passed without quotes - // is then handled as separator for some reason 
+
         const char* endpoint = Cmd_Argv(2);
         if (endpoint[0] == '\0') {
             Com_Printf("Please provide an endpoint URL.\n");
             return;
         }
 
-        if (match.activated || match.downloading || match.loading) {
+        if (match.downloading) {
+            Com_Printf("Match is already downloading, please wait or cancel it first.\n");
+            return;
+        }
+
+        if (match.activated || match.loading) {
             Com_Printf("Match is already in progress, cancel it first.\n");
             return;
         }
@@ -551,7 +564,7 @@ void match_cmd() {
 
         match.httpClient->get(
             url,
-            [](const HttpClient::Response& res) {
+            [url](const HttpClient::Response& res) {
 
                 // Match downloading was canceled in the meantime
                 if (match.downloading == false || match.canceling == true)
@@ -573,7 +586,10 @@ void match_cmd() {
                     return;
                 }
 
-                Com_Printf("Match data downloaded successfully, loading first map...\n");
+                Com_Printf("==============================================\n");
+                Com_Printf("Match downloading from %s completed!\n", url);
+                Com_Printf("Loading first map...\n");
+                Com_Printf("==============================================\n");
 
                 match.downloading = false;
                 match.loading = true;
@@ -599,17 +615,21 @@ void match_cmd() {
 
     } else if (Q_stricmp(command, "status") == 0) {
 
-        if (match.downloading || match.loading) {
-            Com_Printf("Match is currently loading...\n");
-        } else if (!match.activated) {
-            Com_Printf("No match is currently active.\n");
-        } else {
+        if (match.activated) {
             auto progressData = match_create_json_data();
 
             Com_Printf("Match is currently active.\n");
             Com_Printf("URL: %s\n", match.url);
             Com_Printf("Match data:\n%s\n", match.data.json.c_str());
             Com_Printf("Progress data:\n%s\n", progressData.c_str());
+        } else {
+            if (match.downloading) {
+                Com_Printf("Match is currently downloading...\n");
+            } else if (match.loading) {
+                Com_Printf("Match is currently loading...\n");
+            } else {
+                Com_Printf("No match is currently active.\n");
+            }
         }
 
     } else if (Q_stricmp(command, "redownload") == 0) {
@@ -643,7 +663,17 @@ void match_onStartGameType() {
     if (match.loading) {
         match.loading = false;
         match.activated = true;
-        
+
+        // Hide the server IP address on the scoreboard if requested by the match data ("hideServerIp": true),
+        // so streams do not leak the server address
+        if (match.data.otherData.contains("hideServerIp")) {
+            const std::string& hide = match.data.otherData.at("hideServerIp");
+            if ((hide == "true" || hide == "1") && !sv_hideServerIp->value.boolean) {
+                Dvar_SetBool(sv_hideServerIp, true);
+                match_hideServerIpWasSet = true;
+            }
+        }
+
         Com_Printf("======================================================\n");
         Com_Printf("Match started successfully.\n");
         Com_Printf("- URL: %s\n", match.url);
@@ -703,7 +733,13 @@ bool match_beforeMapChangeOrRestart(bool fromScript, bool bComplete, bool shutdo
         match.downloading = false;
         match.progressData.globalData.clear();
         match.progressData.playerData.clear();
-        
+
+        // Restore the server IP visibility on the scoreboard if it was hidden by the match
+        if (match_hideServerIpWasSet) {
+            Dvar_SetBool(sv_hideServerIp, false);
+            match_hideServerIpWasSet = false;
+        }
+
     }
 
     return true;

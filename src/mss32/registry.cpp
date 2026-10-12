@@ -1,10 +1,17 @@
 #include "registry.h"
 
 #include <windows.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "shared.h"
 #include "main.h"
 #include "../shared/version.h"
+
+static const char* REGISTRY_COD2_PATH = "SOFTWARE\\Activision\\Call of Duty 2";
+static const char* REGISTRY_GAMMA_VALUE_PREFIX = "COD2X_GAMMA_";
+static const char* REGISTRY_GAMMA_DEVICE_SUFFIX = "_DEVICE";
+static const char* REGISTRY_GAMMA_RAMP_SUFFIX = "_RAMP";
 
 // Flag to indicate if the version has changed
 bool registry_version_changed = false;
@@ -30,7 +37,7 @@ bool registry_migrateVirtualStore() {
         return false;
     }
 
-    const char* realKeyPath    = "SOFTWARE\\Activision\\Call of Duty 2"; // this might be automatically redirected to WOW6432Node on 64-bit systems
+    const char* realKeyPath    = REGISTRY_COD2_PATH; // this might be automatically redirected to WOW6432Node on 64-bit systems
     const char* virtualStorePath32bit = "Software\\Classes\\VirtualStore\\MACHINE\\SOFTWARE\\Activision\\Call of Duty 2";
     const char* virtualStorePath64bit = "Software\\Classes\\VirtualStore\\MACHINE\\SOFTWARE\\WOW6432Node\\Activision\\Call of Duty 2";
 
@@ -91,6 +98,197 @@ bool registry_migrateVirtualStore() {
 }
 
 
+
+
+
+
+
+
+static void registry_gamma_encodeDeviceName(const char* deviceName, char* encodedName, size_t encodedNameSize) {
+    size_t written = 0;
+    static const char hex[] = "0123456789ABCDEF";
+    for (const unsigned char* ptr = (const unsigned char*)deviceName; *ptr != '\0' && written + 2 < encodedNameSize; ++ptr) {
+        encodedName[written++] = hex[*ptr >> 4];
+        encodedName[written++] = hex[*ptr & 0x0F];
+    }
+
+    if (encodedNameSize > 0) {
+        encodedName[written < encodedNameSize ? written : encodedNameSize - 1] = '\0';
+    }
+}
+
+
+static void registry_gamma_buildValueNames(const char* deviceName, char* deviceValueName, size_t deviceValueNameSize, char* rampValueName, size_t rampValueNameSize) {
+    char encodedName[128] = {0};
+    registry_gamma_encodeDeviceName(deviceName, encodedName, sizeof(encodedName));
+
+    snprintf(deviceValueName, deviceValueNameSize, "%s%s%s", REGISTRY_GAMMA_VALUE_PREFIX, encodedName, REGISTRY_GAMMA_DEVICE_SUFFIX);
+    snprintf(rampValueName, rampValueNameSize, "%s%s%s", REGISTRY_GAMMA_VALUE_PREFIX, encodedName, REGISTRY_GAMMA_RAMP_SUFFIX);
+}
+
+
+static bool registry_gamma_readValues(HKEY hKey, const char* deviceValueName, const char* rampValueName, const char* expectedDeviceName, WORD ramp[3][256], char* outDeviceName, size_t outDeviceNameSize) {
+    char deviceName[32] = {0};
+    DWORD deviceNameSize = sizeof(deviceName);
+    DWORD deviceType = 0;
+    LONG result = RegQueryValueExA(hKey, deviceValueName, NULL, &deviceType,
+        (LPBYTE)deviceName, &deviceNameSize);
+    if (result != ERROR_SUCCESS || deviceType != REG_SZ) {
+        return false;
+    }
+
+    if (expectedDeviceName != NULL && strcmp(deviceName, expectedDeviceName) != 0) {
+        return false;
+    }
+
+    DWORD rampType = 0;
+    DWORD rampSize = sizeof(WORD) * 3 * 256;
+    result = RegQueryValueExA(hKey, rampValueName, NULL, &rampType,
+        (LPBYTE)ramp, &rampSize);
+    if (result != ERROR_SUCCESS || rampType != REG_BINARY || rampSize != sizeof(WORD) * 3 * 256) {
+        return false;
+    }
+
+    if (outDeviceName != NULL && outDeviceNameSize > 0) {
+        strncpy(outDeviceName, deviceName, outDeviceNameSize - 1);
+        outDeviceName[outDeviceNameSize - 1] = '\0';
+    }
+
+    return true;
+}
+
+
+static bool registry_gamma_isPrefixedValue(const char* valueName, const char* suffix) {
+    size_t prefixLength = strlen(REGISTRY_GAMMA_VALUE_PREFIX);
+    size_t suffixLength = strlen(suffix);
+    size_t valueNameLength = strlen(valueName);
+
+    if (valueNameLength <= prefixLength + suffixLength) {
+        return false;
+    }
+
+    if (strncmp(valueName, REGISTRY_GAMMA_VALUE_PREFIX, prefixLength) != 0) {
+        return false;
+    }
+
+    return strcmp(valueName + valueNameLength - suffixLength, suffix) == 0;
+}
+
+
+bool registry_gamma_getSaved(const char* deviceName, WORD ramp[3][256]) {
+    if (deviceName == NULL || ramp == NULL) {
+        return false;
+    }
+
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char deviceValueName[160] = {0};
+        char rampValueName[160] = {0};
+        registry_gamma_buildValueNames(deviceName, deviceValueName, sizeof(deviceValueName), rampValueName, sizeof(rampValueName));
+
+        bool ok = registry_gamma_readValues(hKey, deviceValueName, rampValueName, deviceName, ramp, NULL, 0);
+        RegCloseKey(hKey);
+        if (ok) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+
+bool registry_gamma_save(const char* deviceName, const WORD ramp[3][256]) {
+    if (deviceName == NULL || ramp == NULL) {
+        return false;
+    }
+
+    HKEY hKey;
+    LONG result = RegCreateKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, NULL,
+        REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, NULL, &hKey, NULL);
+    if (result != ERROR_SUCCESS) {
+        return false;
+    }
+
+    char deviceValueName[160] = {0};
+    char rampValueName[160] = {0};
+    registry_gamma_buildValueNames(deviceName, deviceValueName, sizeof(deviceValueName), rampValueName, sizeof(rampValueName));
+
+    result = RegSetValueExA(hKey, deviceValueName, 0, REG_SZ,
+        (const BYTE*)deviceName, (DWORD)strlen(deviceName) + 1);
+    if (result == ERROR_SUCCESS) {
+        result = RegSetValueExA(hKey, rampValueName, 0, REG_BINARY,
+            (const BYTE*)ramp, sizeof(WORD) * 3 * 256);
+    }
+
+    RegCloseKey(hKey);
+    return result == ERROR_SUCCESS;
+}
+
+
+void registry_gamma_clear(const char* deviceName) {
+    if (deviceName == NULL) {
+        return;
+    }
+
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
+        char deviceValueName[160] = {0};
+        char rampValueName[160] = {0};
+        registry_gamma_buildValueNames(deviceName, deviceValueName, sizeof(deviceValueName), rampValueName, sizeof(rampValueName));
+        RegDeleteValueA(hKey, deviceValueName);
+        RegDeleteValueA(hKey, rampValueName);
+        RegCloseKey(hKey);
+    }
+}
+
+
+void registry_gamma_forEachSaved(registry_gamma_enum_callback_t callback, void* context) {
+    if (callback == NULL) {
+        return;
+    }
+
+    HKEY hKey;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char valueName[256];
+        DWORD index = 0;
+        while (true) {
+            DWORD valueNameSize = sizeof(valueName);
+            LONG enumResult = RegEnumValueA(hKey, index++, valueName, &valueNameSize, NULL, NULL, NULL, NULL);
+            if (enumResult != ERROR_SUCCESS) {
+                break;
+            }
+
+            if (!registry_gamma_isPrefixedValue(valueName, REGISTRY_GAMMA_DEVICE_SUFFIX)) {
+                continue;
+            }
+
+            char rampValueName[256] = {0};
+            size_t baseLength = strlen(valueName) - strlen(REGISTRY_GAMMA_DEVICE_SUFFIX);
+            memcpy(rampValueName, valueName, baseLength);
+            strcpy(rampValueName + baseLength, REGISTRY_GAMMA_RAMP_SUFFIX);
+
+            WORD ramp[3][256] = { 0 };
+            char deviceName[32] = { 0 };
+            bool ok = registry_gamma_readValues(hKey, valueName, rampValueName, NULL, ramp, deviceName, sizeof(deviceName));
+            if (!ok) {
+                continue;
+            }
+
+            if (!callback(deviceName, ramp, context)) {
+                break;
+            }
+        }
+
+        RegCloseKey(hKey);
+    }
+}
+
+
+
+
+
+
+
 void registry_init() {
 
     // Migrate VirtualStore settings to real registry location (if running as admin)
@@ -98,12 +296,12 @@ void registry_init() {
 
     
     HKEY hKey;
-    LONG regResult = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Activision\\Call of Duty 2", 0, KEY_READ | KEY_WRITE, &hKey);
+    LONG regResult = RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_READ | KEY_WRITE, &hKey);
 
     // If the game was not installed, the registry key will not exist.
     // If the key does not exist, create it
     if (regResult != ERROR_SUCCESS) {
-        regResult = RegCreateKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Activision\\Call of Duty 2", 0, NULL, REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, NULL, &hKey, NULL);
+        regResult = RegCreateKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, NULL, &hKey, NULL);
         if (regResult != ERROR_SUCCESS) {
             SHOW_ERROR("Failed to create registry key for Call of Duty 2.");
             exit(1);
@@ -187,7 +385,7 @@ void registry_frame() {
 
         // If the version has changed, update the registry
         HKEY hKey;
-        LONG regResult = RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Activision\\Call of Duty 2", 0, KEY_READ | KEY_WRITE, &hKey);
+        LONG regResult = RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_READ | KEY_WRITE, &hKey);
         if (regResult == ERROR_SUCCESS) {
             regResult = RegSetValueExA(hKey, "COD2X_VERSION", 0, REG_SZ, (const BYTE*)APP_VERSION, (DWORD)strlen(APP_VERSION) + 1);
             if (regResult != ERROR_SUCCESS) {

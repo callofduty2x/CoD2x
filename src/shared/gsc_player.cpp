@@ -146,3 +146,23 @@ void gsc_player_getStance(scr_entref_t ref) {
 	else
 		Scr_AddString("stand");
 }
+
+
+/** Get the player's stance */
+void gsc_player_isUsingTurret(scr_entref_t ref) {
+	int id = ref.entnum;
+
+	if ( id >= MAX_CLIENTS )
+	{
+		Scr_Error(va("entity %d is not a player", id));
+		Scr_AddUndefined();
+		return;
+	}
+
+	gentity_t* ent = &g_entities[id];
+
+	if (ent->s.eFlags & ENTITY_FLAG_MG)
+		Scr_AddBool(true);
+	else
+		Scr_AddBool(false);
+}

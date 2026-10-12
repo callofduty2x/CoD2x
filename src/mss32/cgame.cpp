@@ -130,6 +130,16 @@ void cgame_frame() {
 }
 
 
+void CG_RegisterItems() {
+    if (strlen(CL_GetConfigString(CS_ITEMS)) >= 0x108u) {
+        Com_Error(ERR_DROP, "CG_RegisterItems: overflowed");
+    }
+
+    // Call the original function
+    ((void(*)())0x004d5270)();
+}
+
+
 
 void CG_TraceCapsule(trace_t *result, const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end, int skipNumber, int mask) {
     ASM_CALL(RETURN_VOID, 0x004de690, 7, PUSH(result), PUSH(start), PUSH(mins), PUSH(maxs), PUSH(end), PUSH(skipNumber), PUSH(mask));
@@ -222,10 +232,29 @@ void CG_OffsetThirdPersonView( void ) {
 
 
 
+/**
+ * Replacement of the function that returns the server address string ("ip:port") drawn in the bottom right corner of the scoreboard.
+ * When the server enables sv_hideServerIp (for example while a streamed match is running), an empty string is returned
+ * so the IP address is not drawn and streams do not leak the server address. The hostname in the bottom left corner stays visible.
+ */
+const char* CG_ScoreboardServerAddress() {
+    const char* hide = Info_ValueForKey(CL_GetConfigString(CS_SERVERINFO), "sv_hideServerIp");
+    if (hide[0] == '1') {
+        return "";
+    }
+    // Call the original function returning the address of the server the client is connected to
+    return ((const char* (__cdecl*)())0x004120f0)();
+}
+
+
 /** Called before the entry point is called. Used to patch the memory. */
 void cgame_patch() {
 
     patch_call(0x004cfb27, (unsigned int)CG_OffsetThirdPersonView);
+
+    // Hook the function that returns the server address drawn at the bottom of the scoreboard,
+    // so the server can hide it via serverinfo cvar sv_hideServerIp
+    patch_call(0x004d9387, (unsigned int)CG_ScoreboardServerAddress); // 004d9387  e8648df3ff  call 0x4120f0 (inside CG_DrawScoreboard)
 
 
     // Cvar "snaps" max value change from 30 to 40
@@ -237,4 +266,8 @@ void cgame_patch() {
 
     // Make "RECORDING %s" message smaller
     patch_float(0x004147e0 + 1, 0.2f); // 004147e0  68abaaaa3e push    0.333333343
+
+
+    patch_jump(0x004d0c6b, (unsigned int)CG_RegisterItems);
+    patch_call(0x004bff65, (unsigned int)CG_RegisterItems); 
 }

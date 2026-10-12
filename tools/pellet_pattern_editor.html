@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shotgun Pellet Pattern Editor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #4ec9b0;
+        }
+        
+        .layout {
+            display: grid;
+            grid-template-columns: 350px 1fr 350px;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .panel {
+            background: #252526;
+            border: 1px solid #3e3e42;
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .panel h2 {
+            color: #569cd6;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .canvas-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        canvas {
+            border: 2px solid #3e3e42;
+            border-radius: 8px;
+            background: #1e1e1e;
+            cursor: crosshair;
+        }
+        
+        .pattern-select {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .pattern-btn {
+            flex: 1;
+            padding: 10px;
+            background: #3e3e42;
+            border: 2px solid #3e3e42;
+            color: #d4d4d4;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .pattern-btn:hover {
+            background: #505053;
+        }
+        
+        .pattern-btn.active {
+            background: #0e639c;
+            border-color: #007acc;
+        }
+        
+        .pellet-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .pellet-item {
+            background: #2d2d30;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .pellet-item:hover {
+            background: #3e3e42;
+        }
+        
+        .pellet-item.selected {
+            border-color: #007acc;
+            background: #1a3a52;
+        }
+        
+        .pellet-coords {
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+        }
+        
+        .pellet-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background: #0e639c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 13px;
+        }
+        
+        button:hover {
+            background: #1177bb;
+        }
+        
+        button.danger {
+            background: #c72e0e;
+        }
+        
+        button.danger:hover {
+            background: #e03e1e;
+        }
+        
+        button.small {
+            padding: 4px 8px;
+            font-size: 11px;
+        }
+        
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        label {
+            font-size: 13px;
+            color: #9cdcfe;
+        }
+        
+        input[type="number"] {
+            padding: 6px;
+            background: #3c3c3c;
+            border: 1px solid #3e3e42;
+            color: #d4d4d4;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+        }
+        
+        .code-output {
+            background: #1e1e1e;
+            border: 1px solid #3e3e42;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            white-space: pre;
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        
+        .info {
+            background: #1a3a52;
+            border-left: 4px solid #007acc;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            border-radius: 4px;
+        }
+        
+        .snap-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .snap-controls button {
+            flex: 1;
+        }
+        
+        .marquee {
+            position: absolute;
+            border: 2px dashed #007acc;
+            background: rgba(0, 122, 204, 0.1);
+            pointer-events: none;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 8px;
+            background: #1e1e1e;
+            border: 1px solid #3e3e42;
+            color: #d4d4d4;
+            border-radius: 4px;
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 10px 0;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+        }
+        
+        .checkbox-group label {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Shotgun Pellet Pattern Editor</h1>
+        
+        <div class="layout">
+            <!-- Left Panel: Controls -->
+            <div class="panel">
+                <h2>Pattern Selection</h2>
+                <div class="pattern-select">
+                    <!-- Patterns will be dynamically added here -->
+                </div>
+                
+                <div class="info">
+                    Drag pellets to move them<br>
+                    Drag on canvas for marquee select<br>
+                    Ctrl+click for multi-select
+                </div>
+                
+                <h2>Tools</h2>
+                <div class="controls">
+                    <button onclick="addPellet()">➕ Add Pellet</button>
+                    <button onclick="removeSelected()" class="danger">❌ Remove Selected</button>
+                    <button onclick="clearPattern()" class="danger">🗑️ Clear All</button>
+                </div>
+                
+                <h2>Alignment Tools</h2>
+                <div class="snap-controls">
+                    <button onclick="snapToGrid()" class="small">Snap Grid</button>
+                    <button onclick="flipHorizontal()" class="small">Flip H</button>
+                    <button onclick="flipVertical()" class="small">Flip V</button>
+                </div>
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" id="gridToggle" onchange="toggleGrid()">
+                    <label for="gridToggle">Show 5px Grid</label>
+                </div>
+                
+                <h2>Pattern Management</h2>
+                <div class="controls">
+                    <button onclick="newPattern()">➕ New Pattern</button>
+                    <button onclick="deletePattern()" class="danger">🗑️ Delete Current Pattern</button>
+                </div>
+                
+                <h2>Selected Pellet</h2>
+                <div class="control-group">
+                    <label>X Position:</label>
+                    <input type="number" id="pelletX" step="0.001" onchange="updateSelectedPosition()">
+                </div>
+                <div class="control-group">
+                    <label>Y Position:</label>
+                    <input type="number" id="pelletY" step="0.001" onchange="updateSelectedPosition()">
+                </div>
+            </div>
+            
+            <!-- Center Panel: Canvas -->
+            <div class="panel">
+                <div class="canvas-container">
+                    <h2>Visualization (Unit Circle)</h2>
+                    <canvas id="canvas" width="600" height="600"></canvas>
+                    <div style="color: #858585; font-size: 12px;">
+                        Circle radius = 1.0 unit | Drag pellets to reposition
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right Panel: Pellet List -->
+            <div class="panel">
+                <h2>Pellets (Count: <span id="pelletCount">0</span>)</h2>
+                <div class="pellet-list" id="pelletList"></div>
+                
+                <h2 style="margin-top: 20px;">Current Pattern C Code</h2>
+                <div class="info" style="font-size: 11px;">
+                    Edit code and click <strong>Update Pattern</strong> to apply changes
+                </div>
+                <textarea id="codeEditor" placeholder="Paste or edit C array here..."></textarea>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button onclick="updateFromCode()" style="flex: 1;">📝 Update Pattern</button>
+                    <button onclick="copyCode()" style="flex: 1;">📋 Copy Code</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let patterns = [];
+        
+        let currentPattern = 0;
+        let selectedPellets = new Set(); // Changed to Set for multiple selection
+        let dragging = false;
+        let dragOffset = { x: 0, y: 0 };
+        let marqueeStart = null;
+        let marqueeEnd = null;
+        let showGrid = false;
+        
+        // Canvas setup
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const scale = 250; // pixels per unit
+        
+        // LocalStorage management
+        function savePatterns() {
+            localStorage.setItem('pelletPatterns', JSON.stringify(patterns));
+        }
+        
+        function loadPatterns() {
+            const saved = localStorage.getItem('pelletPatterns');
+            if (saved) {
+                try {
+                    patterns = JSON.parse(saved);
+                    if (patterns.length === 0) {
+                        initializeEmptyPatterns();
+                    }
+                } catch (e) {
+                    console.error('Failed to load patterns:', e);
+                    initializeEmptyPatterns();
+                }
+            } else {
+                initializeEmptyPatterns();
+            }
+        }
+        
+        function initializeEmptyPatterns() {
+            patterns = [[], []];
+            savePatterns();
+        }
+        
+        // Initialize
+        function init() {
+            loadPatterns();
+            updatePatternButtons();
+            render();
+            updatePelletList();
+            generateCode();
+        }
+        
+        function updatePatternButtons() {
+            const container = document.querySelector('.pattern-select');
+            container.innerHTML = '';
+            
+            patterns.forEach((pattern, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'pattern-btn' + (idx === currentPattern ? ' active' : '');
+                btn.dataset.pattern = idx;
+                btn.textContent = `Pattern ${idx}`;
+                btn.addEventListener('click', () => {
+                    currentPattern = idx;
+                    selectedPellets.clear();
+                    updatePatternButtons();
+                    render();
+                    updatePelletList();
+                    generateCode();
+                });
+                container.appendChild(btn);
+            });
+        }
+        
+        // Rendering
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw fine grid if enabled
+            if (showGrid) {
+                ctx.strokeStyle = '#2a2a2a';
+                ctx.lineWidth = 1;
+                const gridSpacing = 5; // 5px grid
+                for (let x = 0; x < canvas.width; x += gridSpacing) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, canvas.height);
+                    ctx.stroke();
+                }
+                for (let y = 0; y < canvas.height; y += gridSpacing) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(canvas.width, y);
+                    ctx.stroke();
+                }
+            }
+            
+            // Draw main grid
+            ctx.strokeStyle = '#3e3e42';
+            ctx.lineWidth = 1;
+            for (let i = -1; i <= 1; i += 0.2) {
+                const x = centerX + i * scale;
+                const y = centerY + i * scale;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            // Draw axes
+            ctx.strokeStyle = '#505053';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(centerX, 0);
+            ctx.lineTo(centerX, canvas.height);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(0, centerY);
+            ctx.lineTo(canvas.width, centerY);
+            ctx.stroke();
+            
+            // Draw unit circle
+            ctx.strokeStyle = '#007acc';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, scale, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Draw pellets
+            const pattern = patterns[currentPattern];
+            pattern.forEach((pellet, idx) => {
+                const x = centerX + pellet[0] * scale;
+                const y = centerY - pellet[1] * scale; // Flip Y for screen coords
+                
+                // Pellet circle
+                ctx.fillStyle = selectedPellets.has(idx) ? '#1177bb' : '#4ec9b0';
+                ctx.beginPath();
+                ctx.arc(x, y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Pellet border
+                ctx.strokeStyle = selectedPellets.has(idx) ? '#ffffff' : '#2d2d30';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Pellet number
+                ctx.fillStyle = '#1e1e1e';
+                ctx.font = 'bold 11px Consolas';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(idx.toString(), x, y);
+            });
+            
+            // Draw marquee selection
+            if (marqueeStart && marqueeEnd) {
+                ctx.strokeStyle = '#007acc';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.fillStyle = 'rgba(0, 122, 204, 0.1)';
+                const x = Math.min(marqueeStart.x, marqueeEnd.x);
+                const y = Math.min(marqueeStart.y, marqueeEnd.y);
+                const w = Math.abs(marqueeEnd.x - marqueeStart.x);
+                const h = Math.abs(marqueeEnd.y - marqueeStart.y);
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeRect(x, y, w, h);
+                ctx.setLineDash([]);
+            }
+        }
+        
+        // Mouse interaction
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            const pattern = patterns[currentPattern];
+            let clickedPellet = null;
+            
+            // Check if clicked on pellet
+            for (let i = 0; i < pattern.length; i++) {
+                const x = centerX + pattern[i][0] * scale;
+                const y = centerY - pattern[i][1] * scale;
+                const dist = Math.sqrt((mouseX - x) ** 2 + (mouseY - y) ** 2);
+                
+                if (dist < 12) {
+                    clickedPellet = i;
+                    break;
+                }
+            }
+            
+            if (clickedPellet !== null) {
+                // Clicked on a pellet - start dragging
+                if (!e.ctrlKey && !selectedPellets.has(clickedPellet)) {
+                    selectedPellets.clear();
+                }
+                selectedPellets.add(clickedPellet);
+                dragging = true;
+                
+                const x = centerX + pattern[clickedPellet][0] * scale;
+                const y = centerY - pattern[clickedPellet][1] * scale;
+                dragOffset.x = mouseX - x;
+                dragOffset.y = mouseY - y;
+            } else {
+                // Clicked on empty space - start marquee selection
+                if (!e.ctrlKey) {
+                    selectedPellets.clear();
+                }
+                marqueeStart = { x: mouseX, y: mouseY };
+                marqueeEnd = { x: mouseX, y: mouseY };
+            }
+            
+            updatePelletList();
+            updateSelectedInputs();
+            render();
+        });
+        
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            
+            if (dragging && selectedPellets.size > 0) {
+                // Drag selected pellets
+                const pattern = patterns[currentPattern];
+                const firstSelected = Array.from(selectedPellets)[0];
+                
+                const newX = mouseX - dragOffset.x;
+                const newY = mouseY - dragOffset.y;
+                
+                const worldX = (newX - centerX) / scale;
+                const worldY = -(newY - centerY) / scale;
+                
+                const deltaX = worldX - pattern[firstSelected][0];
+                const deltaY = worldY - pattern[firstSelected][1];
+                
+                selectedPellets.forEach(idx => {
+                    pattern[idx] = [
+                        Math.round((pattern[idx][0] + deltaX) * 1000) / 1000,
+                        Math.round((pattern[idx][1] + deltaY) * 1000) / 1000
+                    ];
+                });
+                
+                updateSelectedInputs();
+                updatePelletList();
+                generateCode();
+                savePatterns();
+                render();
+            } else if (marqueeStart) {
+                // Update marquee selection
+                marqueeEnd = { x: mouseX, y: mouseY };
+                
+                // Check which pellets are in marquee
+                const pattern = patterns[currentPattern];
+                const minX = Math.min(marqueeStart.x, marqueeEnd.x);
+                const maxX = Math.max(marqueeStart.x, marqueeEnd.x);
+                const minY = Math.min(marqueeStart.y, marqueeEnd.y);
+                const maxY = Math.max(marqueeStart.y, marqueeEnd.y);
+                
+                selectedPellets.clear();
+                pattern.forEach((pellet, idx) => {
+                    const x = centerX + pellet[0] * scale;
+                    const y = centerY - pellet[1] * scale;
+                    if (x >= minX && x <= maxX && y >= minY && y <= maxY) {
+                        selectedPellets.add(idx);
+                    }
+                });
+                
+                updatePelletList();
+                render();
+            }
+        });
+        
+        canvas.addEventListener('mouseup', () => {
+            dragging = false;
+            marqueeStart = null;
+            marqueeEnd = null;
+            render();
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+            dragging = false;
+            marqueeStart = null;
+            marqueeEnd = null;
+            render();
+        });
+        
+        // Pellet list UI
+        function updatePelletList() {
+            const pattern = patterns[currentPattern];
+            const listEl = document.getElementById('pelletList');
+            const countEl = document.getElementById('pelletCount');
+            
+            countEl.textContent = pattern.length;
+            listEl.innerHTML = '';
+            
+            pattern.forEach((pellet, idx) => {
+                const item = document.createElement('div');
+                item.className = 'pellet-item' + (selectedPellets.has(idx) ? ' selected' : '');
+                item.innerHTML = `
+                    <div>
+                        <strong>Pellet ${idx}</strong><br>
+                        <span class="pellet-coords">[${pellet[0].toFixed(3)}, ${pellet[1].toFixed(3)}]</span>
+                    </div>
+                    <div class="pellet-actions">
+                        <button class="small" onclick="selectPellet(${idx}, event)">Select</button>
+                        <button class="small danger" onclick="deletePellet(${idx})">Del</button>
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+        
+        function selectPellet(idx, event) {
+            if (event && event.ctrlKey) {
+                // Toggle selection with Ctrl
+                if (selectedPellets.has(idx)) {
+                    selectedPellets.delete(idx);
+                } else {
+                    selectedPellets.add(idx);
+                }
+            } else {
+                // Single selection
+                selectedPellets.clear();
+                selectedPellets.add(idx);
+            }
+            updatePelletList();
+            updateSelectedInputs();
+            render();
+        }
+        
+        function deletePellet(idx) {
+            patterns[currentPattern].splice(idx, 1);
+            
+            // Update selected indices
+            const newSelected = new Set();
+            selectedPellets.forEach(selected => {
+                if (selected < idx) {
+                    newSelected.add(selected);
+                } else if (selected > idx) {
+                    newSelected.add(selected - 1);
+                }
+            });
+            selectedPellets = newSelected;
+            
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function updateSelectedInputs() {
+            const xInput = document.getElementById('pelletX');
+            const yInput = document.getElementById('pelletY');
+            
+            if (selectedPellets.size === 1) {
+                const pattern = patterns[currentPattern];
+                const idx = Array.from(selectedPellets)[0];
+                xInput.value = pattern[idx][0].toFixed(3);
+                yInput.value = pattern[idx][1].toFixed(3);
+            } else if (selectedPellets.size > 1) {
+                xInput.value = `(${selectedPellets.size} selected)`;
+                yInput.value = `(${selectedPellets.size} selected)`;
+            } else {
+                xInput.value = '';
+                yInput.value = '';
+            }
+        }
+        
+        function updateSelectedPosition() {
+            if (selectedPellets.size !== 1) return;
+            
+            const xInput = document.getElementById('pelletX');
+            const yInput = document.getElementById('pelletY');
+            const pattern = patterns[currentPattern];
+            const idx = Array.from(selectedPellets)[0];
+            
+            pattern[idx] = [
+                parseFloat(xInput.value) || 0,
+                parseFloat(yInput.value) || 0
+            ];
+            
+            updatePelletList();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        // Tools
+        function addPellet() {
+            patterns[currentPattern].push([0, 0]);
+            const newIdx = patterns[currentPattern].length - 1;
+            selectedPellets.clear();
+            selectedPellets.add(newIdx);
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function removeSelected() {
+            if (selectedPellets.size === 0) return;
+            
+            const pattern = patterns[currentPattern];
+            const toDelete = Array.from(selectedPellets).sort((a, b) => b - a);
+            
+            toDelete.forEach(idx => {
+                pattern.splice(idx, 1);
+            });
+            
+            selectedPellets.clear();
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function clearPattern() {
+            if (confirm('Clear all pellets in this pattern?')) {
+                patterns[currentPattern] = [];
+                selectedPellets.clear();
+                updatePelletList();
+                updateSelectedInputs();
+                generateCode();
+                savePatterns();
+                render();
+            }
+        }
+        
+        function toggleGrid() {
+            showGrid = document.getElementById('gridToggle').checked;
+            render();
+        }
+        
+        function snapToGrid() {
+            const pattern = patterns[currentPattern];
+            pattern.forEach(pellet => {
+                pellet[0] = Math.round(pellet[0] * 10) / 10;
+                pellet[1] = Math.round(pellet[1] * 10) / 10;
+            });
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function flipHorizontal() {
+            const pattern = patterns[currentPattern];
+            pattern.forEach(pellet => {
+                pellet[0] = -pellet[0];
+            });
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function flipVertical() {
+            const pattern = patterns[currentPattern];
+            pattern.forEach(pellet => {
+                pellet[1] = -pellet[1];
+            });
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        // Code generation
+        function generateCode() {
+            const pattern = patterns[currentPattern];
+            let code = `static const float pattern${currentPattern}[${pattern.length}][2] = {\n`;
+            
+            pattern.forEach((pellet, idx) => {
+                const x = pellet[0].toFixed(3) + 'f';
+                const y = pellet[1].toFixed(3) + 'f';
+                const comma = (idx < pattern.length - 1) ? ',' : '';
+                code += `    {${x.padStart(8)}, ${y.padStart(8)} }${comma}\n`;
+            });
+            
+            code += `};`;
+            
+            document.getElementById('codeEditor').value = code;
+        }
+        
+        function copyCode() {
+            const code = document.getElementById('codeEditor').value;
+            navigator.clipboard.writeText(code).then(() => {
+                alert('Code copied to clipboard!');
+            });
+        }
+        
+        function newPattern() {
+            patterns.push([]);
+            currentPattern = patterns.length - 1;
+            selectedPellets.clear();
+            
+            updatePatternButtons();
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function deletePattern() {
+            if (patterns.length <= 1) {
+                alert('Cannot delete the last pattern. At least one pattern must exist.');
+                return;
+            }
+            
+            if (!confirm(`Delete Pattern ${currentPattern}?`)) {
+                return;
+            }
+            
+            patterns.splice(currentPattern, 1);
+            currentPattern = Math.max(0, currentPattern - 1);
+            selectedPellets.clear();
+            
+            updatePatternButtons();
+            updatePelletList();
+            updateSelectedInputs();
+            generateCode();
+            savePatterns();
+            render();
+        }
+        
+        function updateFromCode() {
+            const input = document.getElementById('codeEditor').value;
+            if (!input.trim()) {
+                alert('Please enter C code first');
+                return;
+            }
+            
+            try {
+                // Parse C array - look for pattern like {0.5f, -0.3f}
+                const regex = /\{\s*([-+]?\d*\.?\d+)f?\s*,\s*([-+]?\d*\.?\d+)f?\s*\}/g;
+                const matches = [...input.matchAll(regex)];
+                
+                if (matches.length === 0) {
+                    alert('No valid pellet coordinates found in C code');
+                    return;
+                }
+                
+                const newPattern = matches.map(match => [
+                    parseFloat(match[1]),
+                    parseFloat(match[2])
+                ]);
+                
+                patterns[currentPattern] = newPattern;
+                selectedPellets.clear();
+                
+                updatePelletList();
+                updateSelectedInputs();
+                generateCode();
+                savePatterns();
+                render();
+                
+                alert(`Updated Pattern ${currentPattern} with ${newPattern.length} pellets`);
+            } catch (e) {
+                alert('Failed to parse C code: ' + e.message);
+            }
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

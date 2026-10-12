@@ -29,7 +29,7 @@ VERSION_PROTOCOL = 6
 
 # CoD2x patch version
 # Should be increased when new version is released and the changes are backward compatible
-VERSION_PATCH = 3
+VERSION_PATCH = 8
 
 # CoD2x test version (e.g. -test.1)
 VERSION_TEST =
@@ -90,6 +90,10 @@ configure_win:
 
 build_win: prebuild configure_win
 	$(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+ifeq ($(BUILD_TYPE),Release)
+	@echo Re-building with accurate mss32 symbols...
+	$(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+endif
 
 	@echo Renaming mss32.build.dll to mss32.dll + deleting old versions...
 	@del /Q "$(WIN_GAME_DIR)\mss32.dll*" >nul 2>&1
