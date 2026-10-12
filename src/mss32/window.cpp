@@ -6,6 +6,7 @@
 #include <cctype>
 
 #include "shared.h"
+#include "gamma.h"
 #include "rinput.h"
 #include "demo.h"
 #include "../shared/cod2_dvars.h"
@@ -24,7 +25,6 @@
 #define r_displayRefresh            (*((dvar_t**)(gfx_module_addr + 0x001ce804)))
 #define r_fullscreen_rendered       (*((dvar_t**)(gfx_module_addr + 0x001ce60c)))
 #define r_monitor                   (*((dvar_t**)(gfx_module_addr + 0x001ce610)))
-#define r_gamma                     (*((dvar_t**)(gfx_module_addr + 0x001ce62c)))
 
 #define R_GetMonitorFromCvars       ((HMONITOR (__cdecl*)())(gfx_module_addr + 0x000127d0))
 
@@ -57,14 +57,6 @@ int minHeight = 0;
 
 bool in_menu_last = true;
 int window_clientStateLast = -1;
-
-// Global state for gamma handling.
-static HDC gamma_currentDC = NULL;
-static char gamma_currentDeviceName[32] = "";
-static WORD gamma_originalRamp[3][256] = { 0 };
-static bool gamma_modified = false;
-static bool gamma_warningShowed = false;
-static float gamma_previous = 1.0f; // Previous gamma value to detect changes
 
 // dword_606E80 is the stock console field, with the editable text at +24 (byte_606E98).
 #define console_input_text           ((const char*)0x00606e98)
@@ -103,130 +95,6 @@ static bool Window_ShouldSuppressConsoleToggleKey(UINT uMsg, WPARAM wParam)
 
     return uMsg == WM_KEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP;
 }
-
-
-
-// Creates a gamma ramp from the provided gamma value.
-// A gamma of 1.0 results in an identity ramp.
-static void gamma_createRamp(float gamma, WORD ramp[3][256])
-{
-    for (int i = 0; i < 256; i++)
-    {
-        double normalized = i / 255.0;
-        double value = pow(normalized, 1.0 / gamma);
-        int rampValue = (int)(value * 65535.0 + 0.5);
-        if (rampValue > 65535)
-            rampValue = 65535;
-        ramp[0][i] = ramp[1][i] = ramp[2][i] = (WORD)rampValue;
-    }
-}
-
-// Restores the original gamma ramp on the current device and cleans up.
-void gamma_restore()
-{
-    if (gamma_currentDC && gamma_modified)
-    {
-        // Restore the saved gamma ramp.
-        SetDeviceGammaRamp(gamma_currentDC, gamma_originalRamp);
-        gamma_modified = false;
-    }
-    if (gamma_currentDC)
-    {
-        DeleteDC(gamma_currentDC);
-        gamma_currentDC = NULL;
-        gamma_currentDeviceName[0] = '\0';
-    }
-}
-
-// Updates the gamma ramp for the monitor on which 'hWnd' is located.
-// When in fullscreen (r_fullscreen true), the gamma is restored.
-// Otherwise, if gamma != 1.0 the new ramp is applied.
-// Call this function on WM_MOVE or whenever the window location changes.
-bool gamma_update()
-{
-    HWND hWnd = win_hwnd;
-    
-    // Get dvar by name to avoid error when renderer is not loaded (server)
-    dvar_t* gammaCvar = Dvar_GetDvarByName("r_gamma");
-    if (gammaCvar == nullptr) {
-        return true;
-    }
-    float gamma = gammaCvar->value.decimal;
-
-
-    // Check window mode. If fullscreen, restore gamma and do nothing.
-    if (r_fullscreen->value.boolean || win_hwnd == NULL)
-    {
-        gamma_restore();
-        return true;
-    }
-
-    // Determine which monitor the window is on.
-    HMONITOR hMonitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
-    MONITORINFOEX mi;
-    ZeroMemory(&mi, sizeof(MONITORINFOEX));
-    mi.cbSize = sizeof(MONITORINFOEX);
-    if (!GetMonitorInfo(hMonitor, &mi))
-        return false;
-
-    // If we are already using this monitor, then update or restore.
-    if (gamma_currentDC && strcmp(gamma_currentDeviceName, mi.szDevice) == 0)
-    {
-        if (gamma == 1.0f)
-        {
-            gamma_restore();
-        }
-        else
-        {
-            WORD newRamp[3][256] = { 0 };
-            gamma_createRamp(gamma, newRamp);
-            if (SetDeviceGammaRamp(gamma_currentDC, newRamp))
-            {
-                gamma_modified = true;
-            }
-        }
-        return true;
-    }
-    else
-    {
-        // New monitor: restore gamma on the old monitor before switching.
-        gamma_restore();
-
-        // Create a device context for the new monitor by its device name.
-        gamma_currentDC = CreateDC(NULL, mi.szDevice, NULL, NULL);
-        if (!gamma_currentDC)
-            return false;
-        strcpy(gamma_currentDeviceName, mi.szDevice);
-
-        // Save the original gamma ramp.
-        if (!GetDeviceGammaRamp(gamma_currentDC, gamma_originalRamp))
-        {
-            DeleteDC(gamma_currentDC);
-            gamma_currentDC = NULL;
-            gamma_currentDeviceName[0] = '\0';
-            return false;
-        }
-
-        // If gamma is 1.0, no change is needed.
-        if (gamma == 1.0f)
-            return true;
-
-        // Create and set the new gamma ramp.
-        WORD newRamp[3][256] = { 0 };
-        gamma_createRamp(gamma, newRamp);
-        if (!SetDeviceGammaRamp(gamma_currentDC, newRamp))
-        {
-            if (!gamma_warningShowed)
-                MessageBoxA(NULL, "Failed to apply gamma for the monitor.", "Gamma Warning", MB_ICONWARNING | MB_OK);
-            gamma_warningShowed = true;
-            gamma_restore();
-            return false;
-        }
-        gamma_modified = true;
-        return true;
-    }
-}
-
 
 
 
@@ -438,18 +306,6 @@ void Mouse_Loop()
     {
         Mouse_ProcessMovement();
     }
-
-    // Get dvar by name to avoid error when renderer is not loaded (server)
-    dvar_t* gammaCvar = Dvar_GetDvarByName("r_gamma");
-    if (gammaCvar == nullptr)
-        return;
-
-    float gamma = gammaCvar->value.decimal;
-    if (gamma != gamma_previous) {
-        gamma_previous = gamma;
-
-        gamma_update();
-    }
 }
 
 
@@ -555,7 +411,7 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 if (win_isActivated)
                     mouse_windowIsActive = 1;
 
-                gamma_update();
+                gamma_requestSync();
             }
 
             // Original function also contained logic to handle hiding the cursor, thats removed now
@@ -581,7 +437,7 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
                 logger_add("Window activated");
 
-                gamma_update();
+                gamma_requestSync();
             } else {
                 win_isActivated = 0;
 
@@ -731,6 +587,8 @@ int R_CreateWindow()
 
 /** Called every frame at the start of the frame. */
 void window_frame() {
+
+    gamma_onFrameStart();
 
     // Player disconnected from the server
     if (clientState != window_clientStateLast && clientState == CLIENT_STATE_CONNECTED) {

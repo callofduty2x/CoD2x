@@ -142,6 +142,8 @@ It focuses on fixing bugs and adding new features to the game.
     - `sv_master3` is customizable
 - New cvar `sv_cracked` to make the server accept players with invalid CDKEY
 - New cvar `showPacketStrings` to show network communication data
+- New cvar `sv_hideServerIp` to hide the server IP address at the bottom of the scoreboard (hostname stays visible), preventing the server address from leaking on streams
+  - automatically enabled when the match data contains `"hideServerIp": true`, restored when the match ends
 - New commands `/increase` and `/decrease` to increase or decrease the value of a cvar
 - Reversed function for third person, added new cvar `cg_thirdPersonMode 1` that rotates directly around player without collision with the world
 - Added possibility to set CPU affinity
@@ -253,6 +255,17 @@ It focuses on fixing bugs and adding new features to the game.
     - `LD_PRELOAD=./libCoD2x.so ./cod2_lnxded +set dedicated 2 +exec server.cfg`
     - 🛈 Its not common that server providers support adding this, only server administrators can do that.
 7. Auto-update is enabled by default. Make sure to enable UDP port 20720. If you want to disable auto-update, set `sv_update "0"` or disable UDP port 20720. On server start, the server will check for the latest version of CoD2x and download it if available. File libCoD2x.so will be replaced with the latest version. Process restart is needed to apply the update. 
+
+# How to run server in Docker (Linux)
+The image is built from the source in this repository (`libCoD2x.so` + original `cod2_lnxded` 1.3).
+1. Put the original Call of Duty 2 game files (`iw_*.iwd`, `localized_*.iwd`) and your `server.cfg` into a `main` folder next to `compose.yaml`
+2. Build the image and start the server:
+    ```
+    docker build -t cod2x:latest .
+    docker compose up -d
+    ```
+3. Only UDP port `28960` is needed. The server log is printed to the container output (`docker logs -f cod2x`).
+4. Auto-update is disabled in `compose.yaml` (`sv_update 0`) because the container is rebuilt instead. To update CoD2x, pull the latest version of this repository and rebuild the image (step 2).
 
 # How to run server
 ## On Windows
@@ -397,7 +410,6 @@ These functions act as a proxy to the original functions in the original mss32.d
 
 When our mss32.dll is loaded, it loads mss32_original.dll and redirect all exported functions.
 It also runs patching process that modifies the game memory to fix some bugs and add new features.
-
 
 # References
 - [CoD2rev_Server](https://github.com/voron00/CoD2rev_Server)

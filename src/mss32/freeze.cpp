@@ -20,6 +20,7 @@ extern volatile bool hotreload_requested;
 
 DWORD WINAPI freeze_watchdogThreadProc(LPVOID lpParameter) {
     (void)lpParameter; // Unused parameter.
+    thread_setName(GetCurrentThread(), L"CoD2x FreezeWatchdog");
     while (!freeze_exitThread && !exception_processCrashed && !hotreload_requested && !com_errorEntered) {
 
         Sleep(1000);
@@ -82,14 +83,22 @@ void sub_004624a0()
     
     if (result == WAIT_TIMEOUT)
         return;
-    
+
+    // Name the render backend thread on first sync (it's alive and running by this point).
+    static bool rb_named = false;
+    if (!rb_named) {
+        rb_named = true;
+        #define data_d528e8_thread (*(HANDLE*)0x00d528e8)
+        thread_setName(data_d528e8_thread, L"CoD2 RenderBackend");
+    }
+
     ResetEvent(data_d528a4_event);
     SetEvent(data_d528a8);
     //WaitForSingleObject(data_d528ec, 0xffffffff); - original
 
     // CoD2x:
     // Wait for the third event, but with finite timeout
-    DWORD wait = WaitForSingleObject(data_d528ec, 5000);
+    DWORD wait = WaitForSingleObject(data_d528ec, 4000);
 
     if (wait == WAIT_OBJECT_0)
         return;
@@ -154,6 +163,9 @@ void freeze_init() {
 
 /** Called before the entry point is called. Used to patch the memory. */
 void freeze_patch() {
+    // Name the main thread so it shows up clearly in debuggers.
+    thread_setName(GetCurrentThread(), L"CoD2 MainThread");
+
     patch_call(0x004c0edd, (unsigned int)Sys_LoadingKeepAlive); // in CG_Init
     patch_call(0x004c107a, (unsigned int)Sys_LoadingKeepAlive); // in CG_Init
     patch_call(0x004bfbac, (unsigned int)Sys_LoadingKeepAlive); // in CG_RegisterGraphics

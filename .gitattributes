@@ -1,0 +1,4 @@
+# Docker files must keep LF line endings, also when checked out on Windows
+Dockerfile    text eol=lf
+.dockerignore text eol=lf
+compose.yaml  text eol=lf

@@ -144,6 +144,31 @@ static inline bool json_iter_object(const char *json, const char *path, const st
 }
 
 /**
+ * Returns the length (2-4) of a valid UTF-8 multi-byte sequence starting at in[i],
+ * or 0 if the bytes at that position are not valid UTF-8.
+ */
+static inline size_t json_utf8_sequence_length(const std::string &in, size_t i) {
+    unsigned char c = (unsigned char) in[i];
+    size_t len;
+    unsigned int cp;
+    if (c >= 0xC2 && c <= 0xDF)      { len = 2; cp = c & 0x1F; }
+    else if (c >= 0xE0 && c <= 0xEF) { len = 3; cp = c & 0x0F; }
+    else if (c >= 0xF0 && c <= 0xF4) { len = 4; cp = c & 0x07; }
+    else return 0;
+    if (i + len > in.size()) return 0;
+    for (size_t k = 1; k < len; k++) {
+        unsigned char cc = (unsigned char) in[i + k];
+        if ((cc & 0xC0) != 0x80) return 0;
+        cp = (cp << 6) | (cc & 0x3F);
+    }
+    // Reject overlong encodings, UTF-16 surrogates and code points above U+10FFFF
+    if ((len == 3 && cp < 0x800) || (len == 4 && cp < 0x10000)) return 0;
+    if (cp >= 0xD800 && cp <= 0xDFFF) return 0;
+    if (cp > 0x10FFFF) return 0;
+    return len;
+}
+
+/**
  * Escape a string for JSON output.
  * Example: json_escape_string("Hello \"world\"", escaped, sizeof(escaped)); => "Hello \"world\""
  */
@@ -167,8 +192,22 @@ static inline std::string json_escape_string(const std::string &in) {
                     std::snprintf(buf, sizeof(buf), "\\u%04x", (unsigned) c);
                     buf[sizeof(buf) - 1] = '\0';
                     out.append(buf);
-                } else {
+                } else if (c < 0x80) {
                     out.push_back(static_cast<char>(c));
+                } else {
+                    // Keep valid UTF-8 sequences as they are. Any other byte (e.g. CP1252 text from
+                    // the game console or player names) would make the JSON invalid UTF-8,
+                    // so it is escaped as a Latin-1 code point instead.
+                    size_t seqLen = json_utf8_sequence_length(in, i);
+                    if (seqLen > 0) {
+                        out.append(in, i, seqLen);
+                        i += seqLen - 1;
+                    } else {
+                        char buf[8];
+                        std::snprintf(buf, sizeof(buf), "\\u%04x", (unsigned) c);
+                        buf[sizeof(buf) - 1] = '\0';
+                        out.append(buf);
+                    }
                 }
         }
     }

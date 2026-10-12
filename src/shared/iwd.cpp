@@ -10,6 +10,8 @@
 #include <cstdio>       // fopen, fwrite, fclose
 #include <cerrno>       // errno
 #include <cstring>      // strerror
+#include <cstdarg>      // va_list
+#include <string>       // std::string
 
 #include "cod2_common.h"
 #include "cod2_dvars.h"
@@ -458,6 +460,45 @@ qboolean FS_iwIwd_Linux(char *iwd, const char *base) {
 
 #if COD2X_WIN32
 
+// Two sets of the processed-file log produced by Sys_ListFiles.
+// 'Current' accumulates during the active FS session. On every FS restart
+// (FS_RegisterDvars) the current log is moved into 'previous' and a fresh
+// current log is started. This way, after disconnecting from a server (which
+// reloads the files), the log from the previous session is still available.
+static std::string fs_processedListCurrent;
+static std::string fs_processedListPrevious;
+
+// Append a formatted line to the current processed-file log. Also prints it to
+// the console so the live behaviour is preserved.
+static void iwd_processedLog(const char* format, ...) {
+    va_list val;
+    va_start(val, format);
+    char buffer[1024];
+    vsnprintf(buffer, sizeof(buffer), format, val);
+    va_end(val);
+
+    Com_Printf("%s", buffer);
+    fs_processedListCurrent += buffer;
+}
+
+// Rotate the current log into the previous one and clear the current log.
+// Called from FS_RegisterDvars on every FS restart.
+static void iwd_processedList_Rotate() {
+    fs_processedListPrevious = fs_processedListCurrent;
+    fs_processedListCurrent.clear();
+}
+
+// Console command "fs_processedList": print the previous and the current
+// processed-file logs.
+static void iwd_processedList_Cmd() {
+    Com_Printf("------------------ fs_processedList ------------------\n");
+    Com_Printf("=== Previous session ===\n");
+    Com_Printf("%s", fs_processedListPrevious.empty() ? "(empty)\n" : fs_processedListPrevious.c_str());
+    Com_Printf("\n\n=== Current session ===\n");
+    Com_Printf("%s", fs_processedListCurrent.empty() ? "(empty)\n" : fs_processedListCurrent.c_str());
+    Com_Printf("------------------------------------------------------\n");
+}
+
 // Windows only
 // Called when the game needs to list files in a directory
 char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
@@ -552,17 +593,41 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
                 cod2x_version = g_cod2x->value.integer; // 0 for 1.3 and <1.4.5.1 servers, 5 for 1.4.5.1 (and so on for new versions)
             }
             if (i == 0) {
-                Com_Printf("Loading IWD files for CoD2x version: %d\n", cod2x_version);
+                const char* fs_basepath = Dvar_GetString("fs_basepath");
+                const char* systeminfo = CL_GetConfigString(CS_SYSTEMINFO);
+                const char* sv_iwdNames = Info_ValueForKey(systeminfo, "sv_iwdNames");
+                iwd_processedLog("Processing directory ^9%s^7\n", directory);
+                iwd_processedLog("  fs_basepath:        ^9%s^7\n", (fs_basepath && fs_basepath[0]) ? fs_basepath : "(empty)");
+                iwd_processedLog("  fs_game:            ^9%s^7\n", (fs_game && fs_game[0]) ? fs_game : "(empty)");
+                iwd_processedLog("  CoD2x version:      ^9%d^7\n", cod2x_version);
+
+                // Print each file required by the server on its own line, quoted, so the
+                // exact tokens are visible (this is what the loaded files are matched against)
+                Cmd_TokenizeString((sv_iwdNames && sv_iwdNames[0]) ? sv_iwdNames : "");
+                int reqCount = Cmd_Argc();
+                iwd_processedLog("  Required by server: ^9%d file(s)^7\n", reqCount);
+                for (int j = 0; j < reqCount; j++) {
+                    iwd_processedLog("    ^9\"%s\"^7\n", Cmd_Argv(j));
+                }
             }
+
+            // Keep the original file name pointer for logging (the entry gets swapped below)
+            char* currentFile = result[i];
+
+            // Reason describing why the file is loaded or ignored (filled below, used for the log)
+            char reason[256] = "not required";
 
             // Remove ".iwd" extension from result[i]
             char iwIwdName[MAX_QPATH];
             char* dot = strrchr(result[i], '.');
             int len = dot ? (int)(dot - result[i]) : (int)strlen(result[i]);
             snprintf(iwIwdName, sizeof(iwIwdName), "/%.*s", len, result[i]);
-            
+
             // Is file "iw_00" - "iw_15" or starts with "localized_"
             bool allowFileToBeLoaded = FS_iwIwd(iwIwdName, "", cod2x_version);
+            if (allowFileToBeLoaded) {
+                snprintf(reason, sizeof(reason), "original IW / localized file");
+            }
 
 
             // When connecting to server or replaying demo
@@ -570,8 +635,9 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
 
                 // When playing demo, load all IWD files in movie folder
                 // This allows to load mod IWD files when playing demo
-                if (demo_isPlaying && stricmp(folder, "movie") == 0) {                 
-                    allowFileToBeLoaded = true;                  
+                if (demo_isPlaying && stricmp(folder, "movie") == 0) {
+                    allowFileToBeLoaded = true;
+                    snprintf(reason, sizeof(reason), "demo movie folder");
                 }
                 // For other non-movie folders or when conecting to server, load only IWD files referenced by the server
                 else {
@@ -583,16 +649,21 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
                     int count = Cmd_Argc();
                     if (count > 1024)
                         count = 1024;
-                    if (count > 0) {               
+                    if (count > 0) {
                         // Check if this iwd is in the list
                         for (int j = 0; j < count; j++) {
                             const char* demoIwdName = Cmd_Argv(j); // "zpam334"
                             // If demo iwd name starts with currently processed iwd file
                             // demoIwdName might be "zpam_maps_v4"
                             // result[i] might be "zpam_maps_v4.iwd" or "zpam_maps_v4.8bb28f35.iwd" (use both)
-                            if (I_strnicmp(demoIwdName, result[i], strlen(demoIwdName)) == 0) {
-                                Com_Printf("Required IWD from server/demo: %s.iwd\n", demoIwdName);
+                            // The matched prefix must be followed by '.', otherwise a short/garbage
+                            // token (e.g. "z") would wrongly match "zpam408.iwd" by prefix alone.
+                            size_t demoIwdNameLen = strlen(demoIwdName);
+                            if (demoIwdNameLen > 0
+                                && I_strnicmp(demoIwdName, result[i], demoIwdNameLen) == 0
+                                && result[i][demoIwdNameLen] == '.') {
                                 allowFileToBeLoaded = true;
+                                snprintf(reason, sizeof(reason), "required by server/demo: %s", demoIwdName);
                                 break;
                             }
                         }
@@ -628,21 +699,22 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
 
                 // Allow latest "zpam[...].iwd" file
                 if (isLatestZpamIwd("zpam")) {
-                    Com_Printf("Allowed latest ZPAM IWD file: %s\n", result[i]);
                     allowFileToBeLoaded = true;
+                    snprintf(reason, sizeof(reason), "latest ZPAM IWD file");
                 }
 
                 // Allow latest "zpam_maps_vX[...].iwd" file
                 if (isLatestZpamIwd("zpam_maps_v")) {
-                    Com_Printf("Allowed latest ZPAM_MAPS IWD file: %s\n", result[i]);
                     allowFileToBeLoaded = true;
+                    snprintf(reason, sizeof(reason), "latest ZPAM_MAPS IWD file");
                 }
-                
+
             }
 
-            // Runned with fs_game, but not connecting to server yet, allow loading IWD files for that folder 
+            // Runned with fs_game, but not connecting to server yet, allow loading IWD files for that folder
             if (allowFileToBeLoaded == false && isFsGameFolder) {
                 allowFileToBeLoaded = true;
+                snprintf(reason, sizeof(reason), "fs_game folder");
             }
 
 
@@ -655,8 +727,9 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
                     result[i] = temp;
                 }
                 writeIndex++;
+                iwd_processedLog("  ^2[LOADED]^7 %s\\%s ^9(%s)^7\n", directory, currentFile, reason);
             } else {
-                Com_Printf("Filtered out IWD file: %s\n", result[i]);
+                iwd_processedLog("  ^1[IGNORE]^7 %s\\%s ^9(%s)^7\n", directory, currentFile, reason);
             }
         }
         *numFiles = writeIndex;
@@ -798,6 +871,12 @@ bool iwd_firstTime = true;
 void FS_RegisterDvars() {
     ASM_CALL(RETURN_VOID, ADDR(0x00425110, 0x080a2c3c));
 
+    #if COD2X_WIN32
+        // Move the processed-file log of the finished FS session into 'previous' and
+        // start a fresh log for the new session (see fs_processedList command).
+        iwd_processedList_Rotate();
+    #endif
+
     if (iwd_firstTime) {
         iwd_firstTime = false;
 
@@ -836,6 +915,12 @@ void iwd_frame() {
 /** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
 void iwd_init() {
     com_writeConfig = Dvar_RegisterBool("com_writeConfig", true, DVAR_ARCHIVE);
+
+    #if COD2X_WIN32
+        // Prints the log of files processed by Sys_ListFiles (which were loaded/ignored and why),
+        // for both the current and the previous FS session.
+        Cmd_AddCommand("fs_processedList", iwd_processedList_Cmd);
+    #endif
 }
 
 

@@ -11,6 +11,7 @@
 #include "../shared/cod2_net.h"
 #include "../shared/cod2_cmd.h"
 #include "../shared/cod2_shared.h"
+#include "../shared/updater_https.h"
 
 
 #define cl_updateAvailable (*(dvar_t **)(0x0096b644))
@@ -36,6 +37,8 @@ extern char hwid_old[33];
 extern char hwid_regid[33];
 extern char hwid_changed_diff[1024];
 extern int hwid_changed_count;
+
+static void updater_processResponse(int updateAvailable, const char* updateFile, const char* newVersionString);
 
 
 void updater_showForceUpdateDialog() {
@@ -224,6 +227,36 @@ bool updater_resolveServerAddress() {
 
 
 
+// Sends the HTTPS update check with the same data as the UDP request (runs on a background thread).
+// If it fails, the UDP request is sent as a fallback.
+static void updater_sendHttpsRequest() {
+    UpdaterHttpsRequest request;
+
+    if (dedicated->value.boolean == 0) // Client
+    {
+        char CDKeyHash[34];
+        CL_BuildMd5StrFromCDKey(CDKeyHash);
+
+        request.type = "client";
+        request.cdkeyHash = CDKeyHash;
+        request.regid = hwid_regid;
+        request.hasHwid = true;
+        request.hwid = cl_hwid ? cl_hwid->value.integer : 0;
+        request.hwid2 = cl_hwid2 ? cl_hwid2->value.string : "";
+        request.hwid2Old = hwid_old;
+        request.hasHwid2DiffCnt = true;
+        request.hwid2DiffCnt = hwid_changed_count;
+        request.hwid2Diff = hwid_changed_diff;
+        request.systemInfo = SYS_VERSION_INFO;
+    } else {
+        request.type = "server";
+    }
+
+    if (updater_https_checkForUpdate(request)) {
+        Com_Printf("Auto-Updater: Checking for updates...\n");
+    }
+}
+
 // This function is called on startup to check for updates
 // Original func: 0x0041162f
 bool updater_sendRequest() {
@@ -309,6 +342,13 @@ void updater_updatePacketResponse(struct netaddr_s addr)
         return;
     }
 
+    updater_processResponse(atol(Cmd_Argv(1)), Cmd_Argv(2), Cmd_Argv(3));
+}
+
+
+// Process the update check response (from UDP or HTTPS)
+static void updater_processResponse(int updateAvailable, const char* updateFile, const char* newVersionString)
+{
     Com_Printf("-----------------------------------\n");
 
     updater_waitingForResponse = false;
@@ -316,13 +356,7 @@ void updater_updatePacketResponse(struct netaddr_s addr)
 
     hwid_clearRegistryFromHWIDChange();
 
-    const char* updateAvailableNumber = Cmd_Argv(1);
-    int updateAvailable = atol(updateAvailableNumber);
-
     if (updateAvailable) {
-        const char* updateFile = Cmd_Argv(2);
-        const char* newVersionString = Cmd_Argv(3);
-        
         Com_Printf("CoD2x: Update available: %s -> %s\n", APP_VERSION, newVersionString);
 
         // Server
@@ -367,6 +401,22 @@ void updater_updatePacketResponse(struct netaddr_s addr)
 }
 
 
+// Called on the main thread when the HTTPS update check has finished
+static void updater_processHttpsResult(const UpdaterHttpsResult& result)
+{
+    if (result.ok) {
+        updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
+        return;
+    }
+
+    Com_Printf("Auto-Updater: Request failed: %s\n", result.error.c_str());
+
+    // Fallback to the legacy UDP request (the master server logs UDP requests from new versions as HTTPS failures)
+    Com_Printf("Auto-Updater: Trying UDP...\n");
+    updater_sendRequest();
+}
+
+
 
 
 // This function is called when the user confirms the update dialog
@@ -390,10 +440,10 @@ void updater_checkForUpdate() {
     if (dedicated->value.boolean > 0) {
         // Send the request to the Auto-Update server
         if (sv_update->value.boolean && sv_running->value.boolean) {
-            updater_sendRequest();
+            updater_sendHttpsRequest();
         }
     } else {
-        updater_sendRequest();
+        updater_sendHttpsRequest();
     }
 }
 
@@ -429,6 +479,12 @@ void updater_frame() {
         updater_waitingForResponse = false;
         updater_waitingForResponseRepeats++;
         updater_checkForUpdate();
+    }
+
+    // Result of the HTTPS update check (the request runs on a background thread)
+    UpdaterHttpsResult httpsResult;
+    if (updater_https_pollResult(&httpsResult)) {
+        updater_processHttpsResult(httpsResult);
     }
 
     updater_lastClientState = clientState;

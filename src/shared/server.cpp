@@ -37,6 +37,7 @@ dvar_t*		showpacketstrings;
 dvar_t*		sv_playerBroadcastLimit;
 int 		nextIPTime = 0;
 dvar_t*		g_competitive;
+dvar_t*		sv_hideServerIp;
 bool		server_ignoreMapChangeThisFrame = false;
 
 extern dvar_t* g_cod2x;
@@ -1309,6 +1310,10 @@ void server_init()
 
 	// Maximum number of players that will be sent to all clients, if there are more players, only visible players will be sent
 	sv_playerBroadcastLimit = Dvar_RegisterInt("sv_playerBroadcastLimit", 15, 0, 64, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
+
+	// Hide the server IP address at the bottom of the scoreboard on clients, so streams do not leak the server address
+	// It is automatically enabled while a match is running
+	sv_hideServerIp = Dvar_RegisterBool("sv_hideServerIp", false, (dvarFlags_e)(DVAR_SERVERINFO | DVAR_CHANGEABLE_RESET));
 
 	// Sets limits on client side for competitive settings
 	dvarFlags_e noWriteForClientFlag = (dedicated->value.integer == 0) ? DEBUG_RELEASE(DVAR_CHEAT, DVAR_NOWRITE) : DVAR_NOFLAG;

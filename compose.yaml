@@ -1,0 +1,20 @@
+services:
+  cod2x_server:
+    image: cod2x:latest
+    container_name: cod2x
+    restart: unless-stopped
+    ports:
+      - "28960:28960/udp"
+    volumes:
+      # Original CoD2 game files (iw_*.iwd, localized_*.iwd), server.cfg, mods
+      - ./main:/home/cod2/main
+    command:
+      [
+        "+set", "dedicated", "2",
+        "+set", "net_port", "28960",
+        "+set", "sv_update", "0",
+        "+set", "sv_punkbuster", "0",
+        "+exec", "server.cfg"
+      ]
+    stdin_open: true
+    tty: true

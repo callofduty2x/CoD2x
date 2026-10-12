@@ -12,6 +12,14 @@
 
 #define APP_MODULE_NAME "mss32.dll"
 
+// Set a human-readable name on a thread, visible in debuggers (WinDbg, x64dbg, VS).
+// Uses SetThreadDescription (Win10 1607+). Safe no-op on older Windows.
+static inline void thread_setName(HANDLE h, const wchar_t* name) {
+    typedef HRESULT (WINAPI *PFN)(HANDLE, PCWSTR);
+    static PFN pfn = (PFN)(void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "SetThreadDescription");
+    if (pfn) pfn(h, name);
+}
+
 void getErrorMessage(DWORD errorCode, char* buffer, size_t bufferSize);
 void showErrorBox(const char *file, const char *function, int line, const char *format, ...);
 void showErrorBoxWithLastError(const char *file, const char *function, int line, const char *format, ...);

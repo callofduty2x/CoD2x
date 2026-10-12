@@ -108,8 +108,9 @@ if (WIN32)
   target_compile_options(mss32 PRIVATE
     $<$<OR:$<COMPILE_LANGUAGE:C>,$<COMPILE_LANGUAGE:CXX>>:
         -Wall -Wextra -Wno-unused-parameter -Wno-address-of-packed-member
-        -g -m32 -msse -O0 
-        -DCJSON_CDECL=__cdecl 
+        -g -m32 -msse -O0
+        -pipe # pass assembly to the assembler in memory; temp .s files in %TEMP% got corrupted by antivirus scans during parallel builds
+        -DCJSON_CDECL=__cdecl
         -DMG_TLS=MG_TLS_OPENSSL -DMG_ENABLE_POSIX_FS=0
         -fdiagnostics-color=always
         $<$<CONFIG:Debug>:-DDEBUG=1>

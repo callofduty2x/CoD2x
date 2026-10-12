@@ -2,12 +2,104 @@
 
 #include <windows.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "shared.h"
 #include "cod2_shared.h"
 
 
 #define S_WCD_HWNDBUFFER_ADDR (*((HWND*)0x00D76AFC))
+
+// Crash-safe mirror of console text, independent from the EDIT control.
+// Writer uses a sequence lock so readers can take a consistent snapshot
+// without blocking (important in crash context).
+// CONSOLE_MIRROR_CAPACITY is defined in console.h.
+static char g_consoleMirror[CONSOLE_MIRROR_CAPACITY];
+static size_t g_consoleMirrorLen = 0;
+static volatile LONG g_consoleMirrorSeq = 0;
+
+static void console_mirror_append(const char* text, size_t textLen) {
+	if (!text || textLen == 0) {
+		return;
+	}
+
+	// Begin write section (odd seq means writer active).
+	InterlockedIncrement(&g_consoleMirrorSeq);
+
+	// Keep only the newest chunk if input itself is larger than capacity.
+	if (textLen >= CONSOLE_MIRROR_CAPACITY - 1) {
+		text += textLen - (CONSOLE_MIRROR_CAPACITY - 1);
+		textLen = CONSOLE_MIRROR_CAPACITY - 1;
+		memcpy(g_consoleMirror, text, textLen);
+		g_consoleMirrorLen = textLen;
+		g_consoleMirror[g_consoleMirrorLen] = '\0';
+		InterlockedIncrement(&g_consoleMirrorSeq);
+		return;
+	}
+
+	// If needed, drop oldest bytes from the front.
+	size_t freeBytes = (CONSOLE_MIRROR_CAPACITY - 1) - g_consoleMirrorLen;
+	if (textLen > freeBytes) {
+		size_t drop = textLen - freeBytes;
+		if (drop >= g_consoleMirrorLen) {
+			g_consoleMirrorLen = 0;
+		} else {
+			memmove(g_consoleMirror, g_consoleMirror + drop, g_consoleMirrorLen - drop);
+			g_consoleMirrorLen -= drop;
+		}
+	}
+
+	memcpy(g_consoleMirror + g_consoleMirrorLen, text, textLen);
+	g_consoleMirrorLen += textLen;
+	g_consoleMirror[g_consoleMirrorLen] = '\0';
+
+	// End write section (even seq means stable snapshot available).
+	InterlockedIncrement(&g_consoleMirrorSeq);
+}
+
+static size_t console_mirror_snapshot(char* out, size_t outSize) {
+	if (!out || outSize < 2) {
+		return 0;
+	}
+
+	for (int tries = 0; tries < 8; ++tries) {
+		LONG seqBefore = g_consoleMirrorSeq;
+		if (seqBefore & 1) {
+			continue; // writer in progress
+		}
+
+		size_t len = g_consoleMirrorLen;
+		size_t srcOffset = 0;
+		if (len >= outSize) {
+			// Buffer too small: keep the NEWEST bytes (drop oldest from the front) so the
+			// most recent logs are never lost and the last print is not cut mid-line.
+			srcOffset = len - (outSize - 1);
+			len = outSize - 1;
+		}
+
+		if (len > 0) {
+			memcpy(out, g_consoleMirror + srcOffset, len);
+		}
+		out[len] = '\0';
+
+		LONG seqAfter = g_consoleMirrorSeq;
+		if (seqBefore == seqAfter && !(seqAfter & 1)) {
+			// If we dropped bytes from the front, skip the (possibly partial) first line.
+			if (srcOffset > 0) {
+				char* nl = (char*)memchr(out, '\n', len);
+				if (nl) {
+					size_t skip = (size_t)(nl - out) + 1;
+					memmove(out, out + skip, len - skip);
+					len -= skip;
+					out[len] = '\0';
+				}
+			}
+			return len;
+		}
+	}
+
+	return 0;
+}
 
 
 // 00468b10    uint32_t Conbuf_AppendText(char* msg @ ecx)
@@ -67,6 +159,11 @@ void Conbuf_AppendText() {
 	*b = 0;
 	bufLen = b - buffer;
 
+	// Keep a crash-safe mirror so handler can fetch logs even when UI thread is stuck.
+	if (bufLen > 0) {
+		console_mirror_append(buffer, (size_t)bufLen);
+	}
+
 	s_totalChars += bufLen;
 
     // CoD2x: disable deleting all text in console when full
@@ -112,34 +209,21 @@ void Conbuf_AppendText() {
 
 
 /**
- * Read the game console text from S_WCD_HWNDBUFFER_ADDR (a Win32 EDIT control).
- * The content is already CRLF-terminated by the EDIT control.
+ * Read the game console text from the crash-safe mirror buffer.
  * Returns the number of bytes written into buf.
  */
 size_t console_getLogs(char* buf, size_t bufSize) {
-    if (!buf || bufSize < 2) return 0;
+	if (!buf || bufSize < 2) {
+		return 0;
+	}
 
-    HWND hwndBuffer = S_WCD_HWNDBUFFER_ADDR;
-    if (!hwndBuffer || !IsWindow(hwndBuffer)) {
-        return (size_t)snprintf(buf, bufSize, "(console window unavailable)\r\n");
-    }
+	// Mirror does not depend on the UI thread and is safe in crash context.
+	size_t mirrored = console_mirror_snapshot(buf, bufSize);
+	if (mirrored > 0) {
+		return mirrored;
+	}
 
-    int textLen = GetWindowTextLengthA(hwndBuffer);
-    if (textLen <= 0) {
-        return (size_t)snprintf(buf, bufSize, "(no logs)\r\n");
-    }
-
-    // Clamp to what fits in the destination buffer (leave room for NUL)
-    if (textLen >= (int)(bufSize - 1))
-        textLen = (int)(bufSize - 2);
-
-    int got = GetWindowTextA(hwndBuffer, buf, textLen + 1);
-    if (got <= 0) {
-        return (size_t)snprintf(buf, bufSize, "(failed to read console logs)\r\n");
-    }
-
-    buf[got] = '\0';
-    return (size_t)got;
+	return (size_t)snprintf(buf, bufSize, "(no logs)\r\n");
 }
 
 

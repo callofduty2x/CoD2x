@@ -28,6 +28,7 @@ void __cdecl hook_Com_Frame() {
     gsc_frame();
     match_frame();
     iwd_frame();
+    updater_frame();
 }
 
 
