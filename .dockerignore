@@ -1,0 +1,7 @@
+# Send only what the Docker build needs (the whole repository is several GB)
+*
+!CMakeLists.txt
+!makefile
+!src/
+src/other/
+!bin/linux/cod2_lnxded
