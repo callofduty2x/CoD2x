@@ -28,6 +28,7 @@
 #include "downloading.h"
 #include "demo.h"
 #include "vmix.h"
+#include "physics.h"
 #include "debug.h"
 #include "module_detection.h"
 #include "../shared/iwd.h"
@@ -97,6 +98,7 @@ void hook_Com_Frame()
     if (dedicated->value.integer == 0) {
         competitive_frame();
         cgame_frame();
+        physics_frame();
     }
 
     // Shared & Server
@@ -228,6 +230,7 @@ void hook_SV_Init() {
     dvar_init();
     updater_init();
     game_init();
+    physics_init();
     animation_init();
     match_init();
     iwd_init();
@@ -314,6 +317,7 @@ bool hook_patch() {
     radar_patch();
     demo_patch();
     vmix_patch();
+    physics_patch();
 
     weapons_patch();
     // Patch server side
