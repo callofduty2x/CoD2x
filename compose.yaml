@@ -1,13 +1,16 @@
 services:
   cod2x_server:
+    build: .
     image: cod2x:latest
     container_name: cod2x
     restart: unless-stopped
     ports:
       - "28960:28960/udp"
     volumes:
-      # Original CoD2 game files (iw_*.iwd, localized_*.iwd), server.cfg, mods
+      # Original CoD2 game files (iw_*.iwd, localized_*.iwd), server.cfg
       - ./main:/home/cod2/main
+      # Mods, loaded with +set fs_game mods/<name>
+      - ./mods:/home/cod2/mods
     command:
       [
         "+set", "dedicated", "2",

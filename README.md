@@ -259,13 +259,13 @@ It focuses on fixing bugs and adding new features to the game.
 # How to run server in Docker (Linux)
 The image is built from the source in this repository (`libCoD2x.so` + original `cod2_lnxded` 1.3).
 1. Put the original Call of Duty 2 game files (`iw_*.iwd`, `localized_*.iwd`) and your `server.cfg` into a `main` folder next to `compose.yaml`
-2. Build the image and start the server:
+2. Optionally put mods into a `mods` folder next to `compose.yaml` and load them with `+set fs_game mods/<name>` in `command` of `compose.yaml`
+3. Build the image and start the server:
     ```
-    docker build -t cod2x:latest .
-    docker compose up -d
+    docker compose up -d --build
     ```
-3. Only UDP port `28960` is needed. The server log is printed to the container output (`docker logs -f cod2x`).
-4. Auto-update is disabled in `compose.yaml` (`sv_update 0`) because the container is rebuilt instead. To update CoD2x, pull the latest version of this repository and rebuild the image (step 2).
+4. Only UDP port `28960` is needed. The server log is printed to the container output (`docker logs -f cod2x`).
+5. Auto-update is disabled (`sv_update 0`) because the image is rebuilt instead. To update CoD2x, pull the latest version of this repository and rebuild the image (step 3).
 
 # How to run server
 ## On Windows

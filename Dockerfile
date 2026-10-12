@@ -40,12 +40,14 @@ RUN chmod +x cod2_lnxded libCoD2x.so
 RUN mkdir -p .callofduty2/main \
  && ln -sf /dev/stdout .callofduty2/main/games_mp.log
 
-# Game files (original CoD2 .iwd files, server.cfg, mods) are mounted here
-VOLUME [ "/home/cod2/main" ]
+# Game files (original CoD2 .iwd files, server.cfg) and mods (loaded with fs_game mods/<name>) are mounted here
+VOLUME [ "/home/cod2/main", "/home/cod2/mods" ]
 
 # Game port (UDP)
 EXPOSE 28960/udp
 
 # LD_PRELOAD is set only for the server process, not for the whole container
 ENTRYPOINT [ "env", "LD_PRELOAD=/home/cod2/libCoD2x.so", "./cod2_lnxded" ]
-CMD [ "+set", "dedicated", "2", "+set", "net_port", "28960", "+exec", "server.cfg" ]
+
+# Auto-update is disabled: the image is rebuilt to update CoD2x (the updater can't replace files in the image)
+CMD [ "+set", "dedicated", "2", "+set", "net_port", "28960", "+set", "sv_update", "0", "+exec", "server.cfg" ]
