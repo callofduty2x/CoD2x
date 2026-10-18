@@ -3,7 +3,6 @@
 #include <windows.h>
 #include <stdio.h>
 #include <cstdint>
-#include <cctype>
 
 #include "shared.h"
 #include "gamma.h"
@@ -58,43 +57,6 @@ int minHeight = 0;
 bool in_menu_last = true;
 int window_clientStateLast = -1;
 
-// dword_606E80 is the stock console field, with the editable text at +24 (byte_606E98).
-#define console_input_text           ((const char*)0x00606e98)
-
-// Suppress toggle only while typing an explicit console command ("/" or "\").
-// This keeps legacy open/close-on-0 behavior for plain console lines.
-static bool Window_IsConsoleInputActive()
-{
-    return (input_mode & 1) != 0;
-}
-
-static bool Window_IsSlashCommandInputActive()
-{
-    if (!Window_IsConsoleInputActive())
-        return false;
-
-    const char* p = console_input_text;
-    if (!p)
-        return false;
-
-    while (*p && std::isspace((unsigned char)*p))
-        ++p;
-
-    return *p == '/' || *p == '\\';
-}
-
-static bool Window_ShouldSuppressConsoleToggleKey(UINT uMsg, WPARAM wParam)
-{
-    if (!Window_IsSlashCommandInputActive())
-        return false;
-
-    // Most layouts report the hardcoded console key as VK_OEM_3, but some setups
-    // can surface it as '0' in our message path.
-    if (wParam != VK_OEM_3 && wParam != '0')
-        return false;
-
-    return uMsg == WM_KEYDOWN || uMsg == WM_KEYUP || uMsg == WM_SYSKEYDOWN || uMsg == WM_SYSKEYUP;
-}
 
 
 
@@ -313,9 +275,6 @@ void Mouse_Loop()
 
 // 00468db0
 LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    if (Window_ShouldSuppressConsoleToggleKey(uMsg, wParam))
-        return DefWindowProcA(hwnd, uMsg, wParam, lParam);
-
     bool callOriginal = true;
 
     switch (uMsg)
