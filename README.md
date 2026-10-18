@@ -144,6 +144,8 @@ It focuses on fixing bugs and adding new features to the game.
 - New cvar `showPacketStrings` to show network communication data
 - New cvar `sv_hideServerIp` to hide the server IP address at the bottom of the scoreboard (hostname stays visible), preventing the server address from leaking on streams
   - automatically enabled when the match data contains `"hideServerIp": true`, restored when the match ends
+- Added search field to the server browser to filter servers by hostname or map name (case insensitive, color codes ignored)
+  - new cvar `ui_browserFilterText` holds the search text
 - New commands `/increase` and `/decrease` to increase or decrease the value of a cvar
 - Reversed function for third person, added new cvar `cg_thirdPersonMode 1` that rotates directly around player without collision with the world
 - Added possibility to set CPU affinity

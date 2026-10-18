@@ -24,6 +24,7 @@
 #include "radar.h"
 #include "drawing.h"
 #include "master_server.h"
+#include "server_browser.h"
 #include "error.h"
 #include "downloading.h"
 #include "demo.h"
@@ -99,6 +100,7 @@ void hook_Com_Frame()
     if (dedicated->value.integer == 0) {
         competitive_frame();
         cgame_frame();
+        server_browser_frame();
     }
 
     // Shared & Server
@@ -197,6 +199,7 @@ void hook_CL_Init() {
     console_init();
     cgame_init();
     master_server_init();
+    server_browser_init();
     match_init_client();
     drawing_init();
     radar_init();
@@ -316,6 +319,7 @@ bool hook_patch() {
     cgame_patch();
     updater_patch();
     master_server_patch();
+    server_browser_patch();
     downloading_patch();
     drawing_patch();
     radar_patch();

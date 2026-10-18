@@ -44,10 +44,13 @@
 // The file name depends on the name used in CMakeLists.txt - file name is used with non-alphanumeric characters replaced by '_'
 extern "C" {
     EMBEDDED_FILE_DECLARATIONS(iw_CoD2x_01_iwd)
+    #if COD2X_WIN32
+        EMBEDDED_FILE_DECLARATIONS(iw_CoD2x_02_iwd) // client only - menus
+    #endif
 }
 
 #define NUM_IW_IWDS 25 // Original
-#define NUM_IW_COD2X_IWDS 1 // New CoD2x iwds
+#define NUM_IW_COD2X_IWDS 2 // New CoD2x iwds
 
 #define ZPAM_LATEST_VERSION "zpam406"
 #define ZPAM_LATEST_MAPPACK "zpam_maps_v7"
@@ -629,6 +632,13 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
                 snprintf(reason, sizeof(reason), "original IW / localized file");
             }
 
+            // CoD2x client menus (iw_CoD2x_02) are needed only in main menu (server browser)
+            // Not loaded when connecting to server, because servers do not have this file
+            if (allowFileToBeLoaded == false && isListenServer == false && clientState < CLIENT_STATE_CONNECTING && I_strnicmp(iwIwdName, "/iw_CoD2x_02", strlen("/iw_CoD2x_02")) == 0) {
+                allowFileToBeLoaded = true;
+                snprintf(reason, sizeof(reason), "CoD2x client menus");
+            }
+
 
             // When connecting to server or replaying demo
             if (allowFileToBeLoaded == false && COD2X_WIN32 && isListenServer == false && clientState >= CLIENT_STATE_CONNECTING) {
@@ -891,6 +901,14 @@ void FS_RegisterDvars() {
 
         // Extract embedded iw_CoD2x_01.iwd file into main folder
         iwd_extractIwdFileToMain("iw_CoD2x_01", EMBEDDED_FILE_SYMBOLS(iw_CoD2x_01_iwd));
+
+        // Extract embedded iw_CoD2x_02.iwd file (client menus) into main folder
+        // Not extracted on dedicated servers, so servers never reference it and clients never need to download it
+        #if COD2X_WIN32
+            if (Dvar_GetInt("dedicated") == 0) {
+                iwd_extractIwdFileToMain("iw_CoD2x_02", EMBEDDED_FILE_SYMBOLS(iw_CoD2x_02_iwd));
+            }
+        #endif
     }
 }
 

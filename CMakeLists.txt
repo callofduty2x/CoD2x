@@ -35,6 +35,13 @@ set(EMBED_FILES
     ${CMAKE_SOURCE_DIR}/src/embedded/iw_CoD2x_01.iwd
 )
 
+# Client only files (menus)
+if(WIN32)
+    list(APPEND EMBED_FILES
+        ${CMAKE_SOURCE_DIR}/src/embedded/iw_CoD2x_02.iwd
+    )
+endif()
+
 # Pick objcopy output format depending on platform
 if(WIN32)
     set(OBJCOPY_FORMAT pe-i386)
