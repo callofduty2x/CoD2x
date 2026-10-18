@@ -208,6 +208,29 @@ void Conbuf_AppendText() {
 }
 
 
+#define K_KP_UPARROW    0xb7
+#define K_KP_DOWNARROW  0xbd
+
+// 0040aa70    void Console_Key(int32_t key @ eax)
+void Console_Key(int key) {
+	// CoD2x: numpad 8 / 2 with NumLock on are mapped to K_KP_UPARROW / K_KP_DOWNARROW (MapKey) and the digit
+	// comes afterwards via WM_CHAR. Console_Key handled them as history up/down, so the history line replaced
+	// the input and '2' or '8' could not be typed. Keep the history only when NumLock is off (real arrows).
+	if ((key == K_KP_UPARROW || key == K_KP_DOWNARROW) && (GetKeyState(VK_NUMLOCK) & 1)) {
+		return;
+	}
+	// CoD2x: End
+
+	ASM_CALL(RETURN_VOID, 0x0040aa70, 0, EAX(key));
+}
+
+void Console_Key_Win32() {
+	int key;
+	ASM( movr, key, "eax" );
+	Console_Key(key);
+}
+
+
 /**
  * Read the game console text from the crash-safe mirror buffer.
  * Returns the number of bytes written into buf.
@@ -237,4 +260,6 @@ void console_patch() {
     patch_call(0x0046579e, (unsigned int)Conbuf_AppendText);
     patch_call(0x004657a8, (unsigned int)Conbuf_AppendText);
     patch_call(0x004686e8, (unsigned int)Conbuf_AppendText);
+
+    patch_call(0x0040bab8, (unsigned int)Console_Key_Win32); // CL_KeyEvent
 }
