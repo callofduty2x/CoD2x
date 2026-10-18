@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "binja": {
+      "type": "http",
+      "url": "http://127.0.0.1:24642/mcp"
+    }
+  }
+}
