@@ -20,7 +20,7 @@ extern vec4_t colYellow;
 #define fontSmall               *((fontHandle_t**)0x01979114)
 #define fontBig			        *((fontHandle_t**)0x01979110)
 #define fontConsole		        *((fontHandle_t**)0x01979118)
-#define fontExtraBigSmall       *((fontHandle_t**)0x01979124)
+#define fontExtraBig            *((fontHandle_t**)0x01979124)
 
 #define shaderWhite             *((materialHandle_t**)0x00966bfc)
 #define shaderConsole           *((materialHandle_t**)0x00966c00)
@@ -113,6 +113,17 @@ inline int UI_TextHeight(fontHandle_t* font, float scale) {
     ASM_CALL_RETURN(int, 0x00532290, 1, PUSH(scale), ESI(font))
 }
 
+/**
+ * Returns the font for a UI font type (textfont of menu and HUD elements)
+ * Fixed fonts: 2 = big, 3 = small, 5 = console. For the other types the font is picked by the scale
+ * (converted to real screen pixels) compared with ui_smallFont / ui_bigFont / ui_extraBigFont:
+ * small, normal, big or extra big (type 4: small, normal or normal bold)
+ */
+// 00532410    void* UI_GetFontHandle(int32_t fontEnum @ eax, float scale)
+inline fontHandle_t* UI_GetFontHandle(int fontEnum, float scale) {
+    ASM_CALL_RETURN(fontHandle_t*, 0x00532410, 1, EAX(fontEnum), PUSH(scale));
+}
+
 
 
 /**
@@ -134,8 +145,6 @@ inline void CG_DrawRotatedPic(float x, float y, float w, float h, horizontalAlig
 
 void drawing_frame();
 void drawing_init();
-void drawing_renderer();
-void drawing_install_text_hooks();
 void drawing_patch();
 
 

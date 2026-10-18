@@ -1,0 +1,1087 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CoD2x Colors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@100;400;500;600&family=Tinos:wght@400;700&display=swap">
+<style>
+/* Layout: white workbench - text + character strip on top, paint and library left,
+   code and the in-game preview right. The game itself stays dark: colors are judged on it. */
+:root {
+  --bg: #f4f5f7;          /* page */
+  --surface: #ffffff;     /* cards */
+  --surface-2: #eef0f3;   /* wells, segmented controls */
+  --fg: #151820;
+  --muted: #5d6472;
+  --line: #e1e4ea;
+  --line-strong: #c9ced8;
+  --accent: #d9480f;      /* tracer orange */
+  --accent-ink: #ffffff;
+  --accent-soft: #fff0e8;
+  --danger: #c4321b;
+  --focus: #2563eb;
+  --shadow: 0 1px 2px rgba(21,24,32,.05), 0 4px 16px rgba(21,24,32,.04);
+  /* the game screen looks the same in both themes */
+  --scene-1: #2f343c;
+  --scene-2: #181b20;
+  --scene-ink: #e9ebe4;
+  --strip: #2a2e35;
+  --font-display: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", Consolas, "Courier New", monospace;
+  /* game fonts: normal/extraBigFont is a Times-like serif, boldFont its bold, consoleFont a thin monospace bitmap */
+  --font-game: Tinos, "Times New Roman", Times, serif;
+  --font-console: "IBM Plex Mono", "Courier New", monospace;
+  --radius: 12px;
+  --radius-sm: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1014; --surface: #171a20; --surface-2: #20242c; --fg: #e9ebef; --muted: #9aa1ad;
+    --line: #2a2f38; --line-strong: #3a404b; --accent: #ff7a3d; --accent-ink: #1a0d05; --accent-soft: #3a2014;
+    --danger: #ff7a66; --focus: #7aa7ff; --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1014; --surface: #171a20; --surface-2: #20242c; --fg: #e9ebef; --muted: #9aa1ad;
+  --line: #2a2f38; --line-strong: #3a404b; --accent: #ff7a3d; --accent-ink: #1a0d05; --accent-soft: #3a2014;
+  --danger: #ff7a66; --focus: #7aa7ff; --shadow: 0 1px 2px rgba(0,0,0,.4); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 var(--font-body); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1600px; margin-inline: auto; padding-inline: 24px; padding-block: 20px 32px; display: grid; gap: 16px; }
+@media (max-width: 600px) { .wrap { padding-inline: 16px; } }
+h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 1.55rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.1; }
+h2 { font-size: .95rem; font-weight: 700; letter-spacing: .01em; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.label { font-size: .7rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+code, .mono { font-family: var(--font-mono); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* header */
+.top { display: grid; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.logo { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none;
+  background: var(--scene-2); color: #fff; font: 700 1.05rem/1 var(--font-game); }
+.logo b { color: #ff8a00; font-weight: 700; }
+.brand .label { margin-top: 2px; }
+.cheat { display: flex; flex-wrap: wrap; gap: 6px; }
+.cheat span { display: inline-flex; gap: 6px; align-items: baseline; font-size: .78rem; padding: 4px 10px; border-radius: 99px; background: var(--surface); border: 1px solid var(--line); white-space: nowrap; color: var(--muted); }
+.cheat span em { font-style: normal; font-size: .66rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg); }
+.cheat b { font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+
+/* panels */
+.grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.stack { display: grid; gap: 16px; min-width: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.edit-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.edit-bar #txt { flex: 2 1 260px; min-width: 0; font-size: 1rem; }
+.edit-bar #importCode { flex: 1 1 220px; min-width: 0; font-size: .85rem; }
+.edit-bar .spacer { flex: 0 0 4px; }
+
+.field { display: grid; gap: 6px; }
+.input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.input:focus { border-color: var(--focus); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent); }
+.input.mono { font-family: var(--font-mono); }
+textarea.input { height: auto; padding: 8px 12px; }
+.btn { height: 32px; border: 1px solid var(--line-strong); background: var(--surface); padding: 0 12px; border-radius: var(--radius-sm); cursor: pointer; font-size: .85rem; font-weight: 500; white-space: nowrap; transition: background .12s, border-color .12s; }
+.btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { background: var(--surface-2); color: var(--fg); }
+.btn.danger { color: var(--danger); }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+
+/* character strip: the game's dark backdrop */
+.strip { display: flex; flex-wrap: wrap; gap: 4px; row-gap: 20px; padding: 12px 12px 26px; min-height: 64px; border-radius: var(--radius-sm);
+  background: var(--strip); user-select: none; touch-action: none; align-content: flex-start; }
+.cell { position: relative; width: 30px; height: 40px; display: grid; place-items: center; border-radius: 6px; cursor: pointer;
+  font: 400 1.4rem/1 var(--font-game); text-shadow: 1px 1px 0 rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.05); }
+.cell:hover { border-color: rgba(255,255,255,.3); }
+.cell.space::after { content: "·"; color: rgba(255,255,255,.25); text-shadow: none; }
+.cell.sel { background: rgba(255,138,0,.2); border: 2px solid #ff9a3c; }
+.cell.caret { box-shadow: inset 0 -3px 0 #ff9a3c; }
+.cell .rbdot { position: absolute; top: 3px; right: 4px; width: 5px; height: 5px; border-radius: 50%;
+  background: conic-gradient(red, yellow, lime, cyan, blue, magenta, red); }
+.strip-empty { color: #e9ebe4; opacity: .8; align-self: center; font-size: 1rem; }
+.hint { font-size: .8rem; color: var(--muted); }
+.kbd { font-family: var(--font-mono); font-size: .76rem; border: 1px solid var(--line-strong); border-bottom-width: 2px; padding: 0 5px; border-radius: 4px; background: var(--surface); }
+
+/* palette */
+.shade-scroll { overflow-x: auto; padding-bottom: 2px; }
+.shades { display: grid; grid-template-columns: 52px repeat(10, minmax(46px, 1fr)); gap: 4px; min-width: 540px; align-items: stretch; }
+.fam { font-family: var(--font-mono); font-size: .78rem; font-weight: 600; text-align: center; color: var(--fg); line-height: 1.15; }
+.fam small { display: block; font-family: var(--font-body); font-weight: 400; font-size: .64rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shade-name { display: grid; align-content: center; font-size: .6rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.shade-name code { font-size: .95rem; font-weight: 600; color: var(--fg); letter-spacing: 0; text-transform: none; }
+.shade { height: 40px; border-radius: 6px; border: 1px solid rgba(0,0,0,.12); background-color: var(--c); cursor: pointer; display: grid; align-content: space-between; justify-items: start; padding: 3px 5px; text-align: left; min-width: 0; color: var(--t); transition: transform .1s; }
+.shade code { font-size: .74rem; font-weight: 600; color: inherit; }
+.shade small { font-size: .6rem; line-height: 1.1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; opacity: .9; }
+.shade.team { background-image: repeating-linear-gradient(135deg, transparent 0 5px, rgba(0,0,0,.22) 5px 7px); }
+.shade.deflt { box-shadow: inset 0 0 0 2px var(--accent); }
+.shade:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,.18); }
+.shade:disabled { opacity: .3; cursor: not-allowed; transform: none; box-shadow: none; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.tools .sep { width: 1px; height: 22px; background: var(--line); }
+.tools select { height: 32px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); min-width: 0; max-width: 170px; }
+.paint-for { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+/* output */
+.out { position: relative; font-family: var(--font-mono); font-size: .98rem; padding: 12px 84px 12px 14px; background: var(--surface-2); border: 1px solid transparent; border-radius: var(--radius-sm);
+  overflow-wrap: anywhere; white-space: pre-wrap; min-height: 48px; cursor: copy; transition: border-color .12s, background .12s; }
+.out:hover { border-color: var(--accent); background: var(--accent-soft); }
+.out::after { content: "Copy"; position: absolute; top: 50%; right: 10px; transform: translateY(-50%); height: 28px; padding: 0 12px; border-radius: 7px;
+  background: var(--accent); color: var(--accent-ink); font: 600 .8rem/28px var(--font-body); }
+.out.copied::after { content: "Copied"; }
+.opts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.opts .seg button small { font-size: .72rem; font-weight: 400; color: var(--muted); }
+.out .c { color: var(--accent); font-weight: 600; }
+.out .e { color: var(--muted); text-decoration: underline dotted; }
+.stats .over { color: var(--danger); font-weight: 600; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.warn { font-size: .8rem; color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); padding: 6px 10px; border-radius: var(--radius-sm); }
+.toast { font-size: .8rem; color: var(--accent); min-height: 1.2em; }
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border-radius: 10px; }
+.seg button { height: 26px; border: 0; background: transparent; padding: 0 11px; border-radius: 7px; cursor: pointer; font-size: .82rem; font-weight: 500; color: var(--muted); }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(21,24,32,.12); }
+.seg button:disabled { opacity: .4; cursor: not-allowed; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: .85rem; }
+.check input { margin-top: 4px; accent-color: var(--accent); }
+
+/* in-game preview: a 16:9 screen, text sized to the screen width */
+.game { font-family: var(--font-game); position: relative; aspect-ratio: 16 / 9; width: 100%; max-width: 100%; height: auto; border-radius: var(--radius-sm); overflow: hidden; container-type: inline-size;
+  color: #e9ebe4; font-size: clamp(7px, 1.7cqi, 15px);
+  background:
+    radial-gradient(60% 40% at 70% 38%, rgba(255,226,170,.18), transparent 70%),
+    linear-gradient(180deg, #5f6758 0%, #8b8c75 40%, #55533f 41%, #3a382b 70%, #24231b 100%); }
+.game .sbx { position: absolute; left: 30%; right: 30%; top: 8%; background: rgba(10,11,9,.62); border: 1px solid rgba(255,255,255,.08); padding: .4em .6em; }
+.sb { width: 100%; border-collapse: collapse; color: inherit; font-size: inherit; }
+.sb th { text-align: left; font: 600 .7em/1 var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: rgba(233,235,228,.5); padding: .2em .4em; }
+.sb td { white-space: nowrap; padding: .12em .4em; line-height: 1.25; border-top: 1px solid rgba(255,255,255,.06); font-variant-numeric: tabular-nums; }
+.sb tr.me td { background: rgba(255,138,0,.16); }
+.sb tr.team th { color: inherit; padding: .45em .4em .2em; font: 600 1em/1 var(--font-game); letter-spacing: .04em; text-transform: uppercase; text-shadow: 1px 1px 0 #000; border-bottom: 2px solid currentColor; }
+.sb tr.team th.num { font-variant-numeric: tabular-nums; }
+.sb td.num, .sb th.num { text-align: right; width: 3.6em; }
+.game .chat { position: absolute; left: 1.4%; top: 30%; display: grid; gap: .25em; justify-items: start; max-width: 26%; }
+.chatline { display: inline-block; padding: .05em .9em .05em .4em; }
+.game .kfeed { position: absolute; left: 1.4%; bottom: 17%; display: grid; gap: .3em; max-width: 70%; }
+.kf { display: flex; flex-wrap: nowrap; align-items: center; gap: .5em; white-space: nowrap; }
+.kf svg { width: 2.2em; height: .9em; flex: none; }
+.game .ammo { position: absolute; right: 2.5%; bottom: 4%; font: 600 1.4em/1 var(--font-game); text-shadow: 1px 1px 0 #000; opacity: .9; }
+.game .ammo small { font-size: .65em; opacity: .7; }
+.game-note { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: .8rem; color: var(--muted); }
+.game-note b { color: var(--fg); font-weight: 600; }
+
+@keyframes rainbow {
+  0% { color: #ff0000; } 16.66% { color: #ffff00; } 33.33% { color: #00ff00; }
+  50% { color: #00ffff; } 66.66% { color: #0000ff; } 83.33% { color: #ff00ff; } 100% { color: #ff0000; }
+}
+.rb { animation: rainbow 10s linear infinite; } /* the game cycles once in 10 s */
+/* CoD2x fonts: @+ bold (boldFont, much heavier than a regular bold), @= console (consoleFont, a 16 px bitmap
+   stretched to the text height: thin) - both as high as the text around */
+.f-b { font-family: var(--font-game); font-weight: 700; -webkit-text-stroke: .045em currentColor; paint-order: stroke fill; letter-spacing: .03em; }
+.f-m { font-family: var(--font-console); font-weight: 100; font-size: .95em; letter-spacing: .02em; }
+.cell.f-m { font-size: 1.3rem; }
+/* modifier badges sit under the character box; they never take the glyph's font, stroke or rainbow */
+.cell .mods { position: absolute; top: calc(100% + 3px); left: -2px; right: -2px; display: flex; justify-content: center; gap: 2px;
+  pointer-events: none; animation: none; -webkit-text-stroke: 0; text-shadow: none; }
+.cell .mods i { display: block; font-style: normal; }
+.cell .mods .fdot { min-width: 13px; height: 13px; padding: 0 2px; border-radius: 3px; background: #ff9a3c; color: #1c1206;
+  font: 700 9px/13px var(--font-body); letter-spacing: 0; text-align: center; }
+.cell .mods .rbdot { position: static; width: 13px; height: 13px; border-radius: 3px; }
+.cell .mods .bgdot { width: 13px; height: 13px; border-radius: 3px; border: 2px solid #ff9a3c; }
+@media (prefers-reduced-motion: reduce) {
+  .rb { animation: none; background: linear-gradient(90deg, #f33, #fd0, #3e3, #3cf, #66f, #f3f); -webkit-background-clip: text; background-clip: text; color: transparent !important; text-shadow: none; }
+  .shade, .btn { transition: none; }
+}
+
+/* library */
+.lib { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 600px) { .lib { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.lib-group { grid-column: 1 / -1; font-size: .7rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding-top: 6px; }
+.lib-group:first-child { padding-top: 0; }
+.item { position: relative; border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--surface); padding: 0; display: grid; min-width: 0; cursor: pointer; text-align: left; transition: border-color .12s, box-shadow .12s; }
+.item:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(21,24,32,.08); }
+.item .swatchline { background: linear-gradient(160deg, var(--scene-1), var(--scene-2)); border-radius: 7px; padding: 9px 12px; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item .del { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); border: 0; border-radius: 5px; padding: 0 6px; font-size: .8rem; line-height: 1.4; cursor: pointer; background: rgba(0,0,0,.5); color: #fff; }
+.item .del.armed { background: var(--danger); }
+.empty { border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); padding: 18px; color: var(--muted); font-size: .88rem; }
+.tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border-radius: 10px; justify-self: start; }
+.tabs button { height: 26px; border: 0; background: none; padding: 0 12px; border-radius: 7px; cursor: pointer; font-size: .82rem; font-weight: 500; color: var(--muted); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: 0 1px 2px rgba(21,24,32,.12); }
+footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid; gap: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">A<b>a</b></div>
+      <div>
+        <h1>CoD2x Colors</h1>
+        <div class="label">CoD2x · player names &amp; chat</div>
+      </div>
+    </div>
+    <div class="cheat" aria-label="Code syntax">
+      <span><em>Colors</em><b>^0</b>–<b>^9</b> classic <b>$0</b> dark <b>#0</b> light <b>@0</b> deep</span>
+      <span title="Animation"><em>Rainbow</em><b>$*</b> on <b>$-</b> off</span>
+      <span title="Font"><em>Font</em><b>@+</b> bold <b>@=</b> mono <b>@-</b> off</span>
+      <span title="The current color becomes a background under the characters, the text goes back to the color it had before"><em>Background</em><b>#_</b> on <b>#-</b> off</span>
+      <span title="Double codes also style killfeed and chat names"><em>Everywhere</em><b>$$11</b> <b>$$**</b> <b>@@++</b> <b>##__</b></span>
+      <span title="A code between the characters shows them as text"><em>As text</em><b>$^75</b> = $5</span>
+    </div>
+  </header>
+
+  <section class="panel" aria-label="Text and characters">
+    <div class="edit-bar">
+      <input id="txt" class="input" type="text" maxlength="96" autocomplete="off" spellcheck="false" placeholder="Name or message" aria-label="Name or message">
+      <input id="importCode" class="input mono" type="text" placeholder="or paste a code: @4#_@+@3[CoD2x]^7 EYZA" autocomplete="off" spellcheck="false" aria-label="Paste a colored code">
+      <button id="importBtn" class="btn">Load code</button>
+      <span class="spacer"></span>
+      <button id="selAll" class="btn ghost" title="Select all characters">All</button>
+      <button id="selNone" class="btn ghost" title="Clear the selection">None</button>
+      <button id="undo" class="btn ghost" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="redo" class="btn ghost" title="Redo (Ctrl+Y)">Redo</button>
+    </div>
+    <div id="strip" class="strip" role="listbox" aria-multiselectable="true" aria-label="Characters" tabindex="0"
+      title="Click or drag to select · Shift+click extends · Ctrl+click adds · keys: 0-9 classic colors, $ # @ then a digit, * rainbow, + bold, = mono, - normal font, _ background from the text color, Del clears"></div>
+  </section>
+
+  <div class="grid">
+    <div class="stack">
+      <section class="panel" aria-labelledby="h-paint">
+        <div class="panel-head">
+          <h2 id="h-paint">Paint</h2>
+          <span class="hint" id="selInfo"></span>
+        </div>
+        <div class="paint-for">
+          <div class="seg" role="group" aria-label="Paint the">
+            <button id="forText" aria-pressed="true" title="The palette colors the characters">Text color</button>
+            <button id="forBg" aria-pressed="false" title="The palette colors a semi-transparent background under the characters (#_)">Background</button>
+          </div>
+          <button id="bgOff" class="btn ghost" title="Remove the background (#-)">No background</button>
+        </div>
+        <div class="shade-scroll"><div id="palExt" class="shades" title="^ classic (^7 default, ^8 allies, ^9 axis) · $ dark · # light · @ deep"></div></div>
+        <div class="tools">
+          <button id="rbOn" class="btn" title="Animated colors over the painted color">Rainbow</button>
+          <button id="rbOff" class="btn" title="Back to the painted color">Rainbow off</button>
+          <span class="sep"></span>
+          <div class="seg" role="group" aria-label="Font">
+            <button id="fontN" data-font="" title="Default font (@-)">Normal</button>
+            <button id="fontB" data-font="b" title="Bold font (@+)">Bold</button>
+            <button id="fontM" data-font="m" title="Console font, monospace (@=)">Mono</button>
+          </div>
+          <button id="clearColors" class="btn">Clear</button>
+          <button id="randomBtn" class="btn">Random</button>
+        </div>
+      </section>
+
+      <!-- LIBRARY -->
+      <section class="panel" aria-labelledby="h-lib">
+        <div class="panel-head">
+          <h2 id="h-lib">Library</h2>
+          <form id="saveForm" class="row" style="flex:1;justify-content:flex-end;min-width:0">
+            <input id="saveTitle" class="input" type="text" placeholder="Name for this text" maxlength="40" style="max-width:260px">
+            <button class="btn primary" type="submit" title="Saved in this browser only">Save</button>
+          </form>
+        </div>
+        <div class="tabs" role="tablist">
+          <button role="tab" id="tabSaved" aria-selected="true" aria-controls="libSaved">Saved</button>
+          <button role="tab" id="tabEx" aria-selected="false" aria-controls="libEx">Examples</button>
+        </div>
+        <div id="libSaved" role="tabpanel" aria-labelledby="tabSaved"></div>
+        <div id="libEx" role="tabpanel" aria-labelledby="tabEx" hidden></div>
+      </section>
+    </div>
+
+    <!-- OUTPUT + PREVIEW -->
+    <div class="stack">
+      <section class="panel" aria-labelledby="h-out">
+        <div class="panel-head">
+          <h2 id="h-out">Code</h2>
+          <span class="stats" id="stats"></span>
+        </div>
+        <div id="out" class="out" role="button" tabindex="0" aria-live="polite" title="Click to copy the code"></div>
+        <p class="warn" id="warn" hidden></p>
+        <div class="opts">
+          <span class="label">Show colors in</span>
+          <div class="seg" role="group" aria-label="Where the name is styled">
+            <button id="dblOff" aria-pressed="true" title="Single codes ($1): the killfeed and chat show the name in the team color">Scoreboard <small>single colors</small></button>
+            <button id="dblOn" aria-pressed="false" title="Double codes ($$11): also the killfeed and chat names; each code takes twice the characters">Everywhere <small>double colors</small></button>
+          </div>
+        </div>
+        <p class="toast" id="toast" role="status"></p>
+        <textarea id="copyFallback" class="input mono" rows="2" hidden aria-label="Text to copy"></textarea>
+      </section>
+
+      <section class="panel" aria-labelledby="h-prev">
+        <div class="panel-head">
+          <h2 id="h-prev">In game</h2>
+          <div class="seg" role="group" aria-label="Preview as">
+            <button id="viewX" aria-pressed="true">CoD2x player</button>
+            <button id="viewV" aria-pressed="false" title="How players without CoD2x see it">Original game</button>
+          </div>
+        </div>
+        <div class="game" id="scene" role="img" aria-label="In-game preview"></div>
+        <div class="game-note" id="gameNote"></div>
+      </section>
+    </div>
+  </div>
+
+
+  <footer>
+    <p><code>Ca$h</code> and <code>$niper</code> stay text, a code needs a digit · <code>%</code> becomes a dot in game · Killfeed and chat names show only double codes · Fonts change the typeface, not the size; <code>^7</code> ends rainbow, font and background · ^8 and ^9 are sample team colors here; the server sets them</p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- palette (matches CoD2x TextColor_Lookup / textColor_extended) ----------
+  // Color ids: "0".."9" vanilla, "$0".."@9" CoD2x shades.
+  const VANILLA = [
+    ["0", "Black", [0, 0, 0]], ["1", "Red", [1, 0, 0]], ["2", "Green", [0, 1, 0]], ["3", "Yellow", [1, 1, 0]],
+    ["4", "Blue", [0, 0, 1]], ["5", "Cyan", [0, 1, 1]], ["6", "Pink", [1, 0, 1]], ["7", "Default", [1, 1, 1]],
+    ["8", "Allies", [.30, .42, .78]], ["9", "Axis", [.62, .62, .62]],
+  ];
+  const FAMILIES = ["Brown", "Red", "Green", "Yellow", "Blue", "Cyan", "Pink", "Grey", "Orange", "Violet"];
+  const SHADES = [
+    ["$", "Dark", [
+      ["Espresso", [.25, .13, .07]], ["Maroon", [.45, .05, .10]], ["Pine", [.05, .35, .15]], ["Olive", [.50, .47, .10]],
+      ["Navy", [.05, .10, .40]], ["Teal", [0, .45, .45]], ["Plum", [.45, .10, .40]], ["Dark grey", [.30, .30, .30]],
+      ["Rust", [.60, .25, .05]], ["Indigo", [.25, .10, .50]]]],
+    ["#", "Light", [
+      ["Tan", [.80, .62, .42]], ["Coral", [1, .50, .45]], ["Lime", [.65, .95, .20]], ["Cream", [1, .95, .65]],
+      ["Sky", [.45, .70, 1]], ["Ice", [.70, .95, 1]], ["Rose", [1, .65, .85]], ["Light grey", [.80, .80, .80]],
+      ["Peach", [1, .75, .55]], ["Lavender", [.75, .65, 1]]]],
+    ["@", "Deep", [
+      ["Chocolate", [.55, .30, .12]], ["Crimson", [.80, .05, .20]], ["Emerald", [0, .72, .40]], ["Gold", [.95, .75, .10]],
+      ["Royal blue", [.15, .35, .95]], ["Aqua", [.10, .80, .85]], ["Hot pink", [.95, .15, .60]], ["Grey", [.50, .50, .50]],
+      ["Orange", [1, .50, 0]], ["Violet", [.55, .15, .95]]]],
+  ];
+  const EXT = [];
+  for (const [prefix, shade, list] of SHADES) list.forEach(([name, rgb], d) => EXT.push([prefix + d, name, rgb, shade, d]));
+  const ALL = new Map([...VANILLA.map(([c, n, rgb]) => [c, { id: c, name: n, rgb }]),
+                       ...EXT.map(([c, n, rgb]) => [c, { id: c, name: n, rgb }])]);
+  const TEAM_RGB = [.62, .78, 1]; // killfeed team color, for the preview only
+  const isVanilla = id => id.length === 1;
+  const isExt = id => id.length === 2;
+  const isPrefix = c => c === "$" || c === "#" || c === "@";
+  const isDigit = c => c >= "0" && c <= "9";
+  const css = rgb => `rgb(${rgb.map(v => Math.round(v * 255)).join(",")})`;
+  const esc = s => s.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const codeLabel = id => isVanilla(id) ? "^" + id : id;
+
+  // ---------- parsing (mirrors Text_ParseMarkup) ----------
+  // Returns {len, kind, id, font, double}: kind "color" (id), "rainbow", "plain" (rainbow off),
+  // "font" (font "" default, "b" bold, "m" mono), "bg" / "bgoff" (background); len 0 = no code.
+  // A digit after a prefix is a color; a symbol is a style of that prefix: $ animation, @ font, # background.
+  const STYLES = {
+    "$*": { kind: "rainbow" }, "$-": { kind: "plain" },
+    "@+": { kind: "font", font: "b" }, "@=": { kind: "font", font: "m" }, "@-": { kind: "font", font: "" },
+    "#_": { kind: "bg" }, "#-": { kind: "bgoff" },
+  };
+  function parseMarkup(s, i, cod2x) {
+    const a = s[i], b = s[i + 1], c = s[i + 2], d = s[i + 3];
+    if (a === undefined || b === undefined) return { len: 0 };
+    if (a === "^") return isDigit(b) ? { len: 2, kind: "color", id: b } : { len: 0 };
+    if (!cod2x || !isPrefix(a)) return { len: 0 };
+    if (b === a && isDigit(c) && isDigit(d)) return { len: 4, kind: "color", id: a + d, double: true };
+    if (isDigit(b)) return { len: 2, kind: "color", id: a + b };
+    if (b === a && STYLES[a + c] && d === c) return { len: 4, ...STYLES[a + c], double: true };
+    if (STYLES[a + b]) return { len: 2, ...STYLES[a + b] };
+    return { len: 0 };
+  }
+  // Applies a code to {color, prev, rb, font, bg} (TextStyle_ApplyCode). "#_" turns the current color into the
+  // background and the text goes back to the color it had before (in a chat line "^8Name^1#_" the allies
+  // color, in the killfeed the team color); "^7" ends rainbow, font and background.
+  function applyCode(st, m, colorOf) {
+    if (m.kind === "rainbow") st.rb = true;
+    else if (m.kind === "plain") st.rb = false;
+    else if (m.kind === "font") st.font = m.font;
+    else if (m.kind === "bg") { st.bg = st.color; st.color = st.prev ?? colorOf("7"); }
+    else if (m.kind === "bgoff") st.bg = "";
+    else if (m.id === "7") { st.color = st.prev = colorOf("7"); st.rb = false; st.font = ""; st.bg = ""; }
+    else { st.prev = st.color; st.color = colorOf(m.id); }
+  }
+  // CoD2x Text_ResolveDoubleColors: on the HUD a double code is the same color as a single one
+  const resolveDoubles = s => s.replace(/\^\^(\d)(\d)/g, "^$2");
+
+  // Code string -> editor model (as a CoD2x player sees it on the HUD).
+  function codeToModel(code) {
+    const s = resolveDoubles(code);
+    const chars = [];
+    const st = { color: "7", rb: false, font: "", bg: "" };
+    for (let i = 0; i < s.length;) {
+      const m = parseMarkup(s, i, true);
+      if (m.len) { applyCode(st, m, id => id); i += m.len; continue; }
+      chars.push({ ch: s[i], color: st.color, rainbow: st.rb, font: st.font, bg: st.bg });
+      i++;
+    }
+    return chars;
+  }
+
+  // Editor model -> code string. A literal $ # @ that would join the next characters into a code
+  // gets the current font code inserted after it ("$5" -> "$@-5"), which changes nothing and shows it as text.
+  // Single codes color the scoreboard; double codes color it too and also the killfeed and chat.
+  function colorCode(id, double) {
+    if (isVanilla(id)) return double ? "^^" + id + id : "^" + id;
+    return double ? id[0] + id[0] + id[1] + id[1] : id;
+  }
+  function modelToCode(chars, opts) {
+    const parts = []; // {s, lit, font}
+    const st = { color: "7", rb: false, font: "", bg: "" };
+    const emit = (code, m) => { parts.push({ s: code, lit: false }); applyCode(st, m, id => id); };
+    const color = id => emit(colorCode(id, opts.double), { kind: "color", id });
+    const style = key => emit(opts.double ? key[0] + key[0] + key[1] + key[1] : key, STYLES[key]);
+    const fontKey = f => f === "b" ? "@+" : f === "m" ? "@=" : "@-";
+    for (const c of chars) {
+      const want = { color: c.color, rb: c.rainbow, font: c.font || "", bg: c.bg || "" };
+      // the color of a space is invisible (its font and background are not)
+      if (c.ch === " " && !want.rb && !st.rb && want.font === st.font && want.bg === st.bg) { parts.push({ s: " ", lit: true, font: st.font }); continue; }
+      // "^7" resets everything, so it goes first
+      if (want.color === "7" && st.color !== "7") color("7");
+      if (want.bg !== st.bg) {
+        if (want.bg) { if (st.color !== want.bg) color(want.bg); style("#_"); }
+        else style("#-");
+      }
+      if (want.color !== st.color) color(want.color);
+      if (want.rb !== st.rb) style(want.rb ? "$*" : "$-");
+      if (want.font !== st.font) style(fontKey(want.font));
+      parts.push({ s: c.ch, lit: true, font: st.font });
+    }
+    let out = "";
+    for (let k = 0; k < parts.length; k++) {
+      const part = parts[k];
+      out += part.s;
+      if (part.lit && isPrefix(part.s)) {
+        const rest = part.s + parts.slice(k + 1, k + 4).map(x => x.s).join("");
+        if (parseMarkup(rest, 0, true).len) out += fontKey(part.font);
+      }
+    }
+    return out;
+  }
+
+  // ---------- game renderers -> list of {t, rgb, rb} ----------
+  function renderHud(code, cod2x) {
+    const s = cod2x ? resolveDoubles(code) : code;
+    const segs = []; const st = { color: [1, 1, 1], rb: false, font: "", bg: "" };
+    for (let i = 0; i < s.length;) {
+      const m = parseMarkup(s, i, cod2x);
+      if (m.len) { applyCode(st, m, id => ALL.get(id).rgb); i += m.len; continue; }
+      push(segs, s[i], st); i++;
+    }
+    return segs;
+  }
+  // Killfeed, like CL_AddConsoleText + R_DrawConsoleText: single codes are stripped, so the name keeps the
+  // team color; double CoD2x codes ("$$11", "##__") become control cells; a vanilla double ("^^11") leaves
+  // "^1" in the characters, which the renderer applies ("^7" = team color).
+  function renderKillfeed(code, cod2x, teamRgb = TEAM_RGB) {
+    const cells = []; // {ch} or {m}
+    for (let i = 0; i < code.length;) {
+      if (cod2x && code[i] !== "^") {
+        const m = parseMarkup(code, i, true);
+        if (m.len) { if (m.double) cells.push({ m }); i += m.len; continue; }
+      }
+      if (code[i] === "^" && code[i + 1] !== undefined && code[i + 1] !== "^" && isDigit(code[i + 1])) { i += 2; continue; }
+      cells.push({ ch: code[i] }); i++;
+    }
+    const segs = []; const st = { color: teamRgb, rb: false, font: "", bg: "" };
+    const colorOf = id => id === "7" ? teamRgb : ALL.get(id).rgb;
+    for (let k = 0; k < cells.length; k++) {
+      const cell = cells[k];
+      if (cell.m) { applyCode(st, cell.m, colorOf); continue; }
+      const next = cells[k + 1];
+      if (cell.ch === "^" && next && next.ch !== undefined && isDigit(next.ch)) { applyCode(st, { kind: "color", id: next.ch }, colorOf); k++; continue; }
+      if (cell.ch.charCodeAt(0) >= 32 && cell.ch.charCodeAt(0) < 127) push(segs, cell.ch, st);
+    }
+    return segs;
+  }
+  // ClientCleanName (server, 0x004fe010): how the game stores a player name. At most 31 characters;
+  // a "^X" pair is kept only if both characters fit; leading spaces and more than 3 spaces in a row
+  // are dropped. (CoD2x keeps "^0", vanilla removed it.)
+  function clientCleanName(raw) {
+    let out = "", spaces = 0;
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i];
+      if (!out && c === " ") continue;
+      if (c === "^") {
+        const next = raw[i + 1];
+        if (next === undefined) break;
+        if (out.length > 29) break;
+        out += c + next; i++;
+        continue;
+      }
+      if (c === " ") { if (++spaces > 3) continue; }
+      else spaces = 0;
+      if (out.length > 30) break;
+      out += c;
+    }
+    return out || "UnnamedPlayer";
+  }
+  // Vanilla client: only single "^digit" codes are stripped.
+  function vanillaClean(s) {
+    let out = "";
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "^" && s[i + 1] !== undefined && s[i + 1] !== "^" && isDigit(s[i + 1])) { i++; continue; }
+      out += s[i];
+    }
+    return out;
+  }
+  function push(segs, ch, st) {
+    const last = segs[segs.length - 1];
+    if (last && last.rgb === st.color && last.rb === st.rb && last.font === st.font && last.bg === st.bg) last.t += ch;
+    else segs.push({ t: ch, rgb: st.color, rb: st.rb, font: st.font, bg: st.bg });
+  }
+  // The background is a bar at half the alpha of the text
+  const bgCss = rgb => `rgba(${rgb.map(v => Math.round(v * 255)).join(",")},.5)`;
+  function segsHtml(segs) {
+    return segs.map(s => {
+      const cls = [s.rb ? "rb" : "", s.font ? "f-" + s.font : ""].join(" ").trim();
+      const style = [s.rb ? "" : `color:${css(s.rgb)}`, s.bg ? `background:${bgCss(s.bg)}` : ""].filter(Boolean).join(";");
+      return `<span${cls ? ` class="${cls}"` : ""}${style ? ` style="${style}"` : ""}>${esc(s.t)}</span>`;
+    }).join("");
+  }
+  // Chat bar tint: the first color code of the line * 0.25 (CG_DrawChatMessages). Player lines
+  // start with the team color, so the bar is the team color.
+  function chatBg(code, cod2x) {
+    const m = parseMarkup(code, 0, cod2x);
+    const rgb = m.kind === "color" ? ALL.get(m.id).rgb : [1, 1, 1];
+    return `rgba(${rgb.map(v => Math.round(v * 255 * .25)).join(",")},.6)`;
+  }
+  // G_Say cleans the name (CoD2x G_Say_CleanName): single codes are removed, so the name shows in the
+  // team color; double codes turn into single ones ("^^11" -> "^1", "$$11" -> "$1") and color it.
+  // The message itself is not cleaned.
+  function cleanName(s) {
+    let ext = "";
+    for (let i = 0; i < s.length;) {
+      const a = s[i], b = s[i + 1];
+      if (isPrefix(a) && b === a && isDigit(s[i + 2]) && isDigit(s[i + 3])) { ext += a + s[i + 3]; i += 4; continue; }
+      if (isPrefix(a) && b === a && STYLES[a + s[i + 2]] && s[i + 3] === s[i + 2]) { ext += a + s[i + 3]; i += 4; continue; }
+      if (isPrefix(a) && isDigit(b)) { i += 2; continue; }
+      if (isPrefix(a) && STYLES[a + b]) { i += 2; continue; }
+      ext += a; i++;
+    }
+    let out = "";
+    for (let i = 0; i < ext.length; i++) {
+      if (ext[i] === "^" && ext[i + 1] !== undefined && ext[i + 1] !== "^" && isDigit(ext[i + 1])) { i++; continue; }
+      if (ext.charCodeAt(i) >= 32 && ext.charCodeAt(i) < 127) out += ext[i];
+    }
+    return out;
+  }
+
+  // ---------- state ----------
+  const $ = id => document.getElementById(id);
+  let chars = [];
+  let sel = new Set();
+  let anchor = -1, caret = -1;
+  let opts = { double: false };
+  let view = "x";
+  let pendingPrefix = null;
+  const undoStack = [], redoStack = [];
+
+  const store = {
+    get(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+    set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } },
+  };
+  const KEY_SAVED = "cod2x-painter-saved-v3", KEY_DRAFT = "cod2x-painter-draft-v3";
+
+  const EXAMPLES = [
+    { group: "Color", title: "Gold tag", code: "@3[CoD2x]^7 EYZA" },
+    { group: "Color", title: "Sky and ice", code: "#4[CoD2x] #5EYZA" },
+    { group: "Color", title: "Orange and cream", code: "@8[CoD2x] #3EYZA" },
+    { group: "Color", title: "Lime and emerald", code: "#2[CoD2x] @2EYZA" },
+    { group: "Color", title: "Rose and lavender", code: "#6[CoD2x] #9EYZA" },
+    { group: "Color", title: "Aqua tag", code: "@5[CoD2x]^7 EYZA" },
+    { group: "Gradient", title: "Sunset", code: "@1[Co@8D2@3x] #3EYZA" },
+    { group: "Gradient", title: "Ocean", code: "@4[Co#4D2@5x] #5EYZA" },
+    { group: "Gradient", title: "Forest", code: "@2[Co#2D2#3x] #3EYZA" },
+    { group: "Gradient", title: "Berry", code: "@6[Co#6D2#9x] @9EYZA" },
+    { group: "Gradient", title: "Ice to violet", code: "#5[Co#4D2#9x] @9EYZA" },
+    { group: "Gradient", title: "Gold to rust", code: "#3[Co@3D2@8x] $8EYZA" },
+    { group: "Gradient", title: "Fire letters", code: "[CoD2x] @1E@8Y@3Z#3A" },
+    { group: "Gradient", title: "Fade out", code: "^7[CoD2x] E#7Y@7Z$7A" },
+    { group: "Gradient", title: "Rose to sky", code: "#6[Co#9D2#4x] #5EYZA" },
+    { group: "Background", title: "Royal blue tag", code: "@4#_[CoD2x]#- EYZA" },
+    { group: "Background", title: "Crimson tag", code: "@1#_[CoD2x]#- EYZA" },
+    { group: "Background", title: "Orange tag", code: "@8#_[CoD2x]#- EYZA" },
+    { group: "Background", title: "Emerald name", code: "@2#_[CoD2x] EYZA" },
+    { group: "Background", title: "Violet name", code: "@9#_[CoD2x] EYZA" },
+    { group: "Background", title: "Blue and aqua", code: "@4#_[CoD2x]#- @5#_EYZA" },
+    { group: "Font", title: "Bold tag", code: "@+[CoD2x]@- EYZA" },
+    { group: "Font", title: "Mono tag", code: "@=[CoD2x]@- EYZA" },
+    { group: "Font", title: "Bold name", code: "[CoD2x] @+EYZA" },
+    { group: "Font", title: "Mono name", code: "[CoD2x] @=EYZA" },
+    { group: "Font", title: "All bold", code: "@+[CoD2x] EYZA" },
+    { group: "Font", title: "All mono", code: "@=[CoD2x] EYZA" },
+    { group: "Rainbow", title: "Rainbow name", code: "[CoD2x] $*EYZA" },
+    { group: "Rainbow", title: "Rainbow tag", code: "$*[CoD2x]$- EYZA" },
+    { group: "Rainbow", title: "All rainbow", code: "$*[CoD2x] EYZA" },
+    { group: "Combined", title: "Navy and gold", code: "@4#_@+@3[CoD2x]^7 EYZA" },
+    { group: "Combined", title: "Ice and navy", code: "#5#_@+$4[CoD2x]^7 #5EYZA" },
+    { group: "Combined", title: "Gold plate", code: "@3#_@+$0[CoD2x]^7 @3EYZA" },
+    { group: "Combined", title: "Crimson and cream", code: "@1#_@+#3[CoD2x]^7 #3EYZA" },
+    { group: "Combined", title: "Terminal", code: "@2#_@=[CoD2x]^7 @=#2EYZA" },
+    { group: "Combined", title: "Violet and rainbow", code: "@9#_@+[CoD2x]^7 $*EYZA" },
+    { group: "Everywhere", title: "Background", code: "@@44##__[CoD2x]##-- EYZA" },
+    { group: "Everywhere", title: "Bold gold", code: "@@++@@33[CoD2x]^^77 EYZA" },
+    { group: "Everywhere", title: "Rainbow", code: "$$**[CoD2x]$$-- EYZA" },
+    { group: "Chat", title: "Callout", code: "Meet at @3#_$0B site^7 now" },
+    { group: "Chat", title: "Good game", code: "@2gg $*@+wp^7 all" },
+    { group: "Chat", title: "Warning", code: "@1#_@+ CAMPER ^7 near @3house" },
+  ];
+
+  function snapshot() { return JSON.stringify(chars); }
+  function pushUndo() { undoStack.push(snapshot()); if (undoStack.length > 200) undoStack.shift(); redoStack.length = 0; }
+  function restore(json) { chars = JSON.parse(json); sel = new Set([...sel].filter(i => i < chars.length)); syncText(); render(); }
+
+  // ---------- painting ----------
+  function targets() {
+    if (sel.size) return [...sel].sort((a, b) => a - b);
+    return chars.map((_, i) => i); // nothing selected: whole text
+  }
+  let paintFor = "text"; // the palette paints the "text" or the "bg"
+  function paint(id) {
+    if (!chars.length || !ALL.has(id)) return;
+    pushUndo();
+    for (const i of targets()) { if (paintFor === "bg") chars[i].bg = id; else chars[i].color = id; }
+    render();
+  }
+  function setBackground(id) {
+    if (!chars.length) return;
+    pushUndo();
+    for (const i of targets()) chars[i].bg = id;
+    render();
+  }
+  function setPaintFor(which) {
+    paintFor = which;
+    $("forText").setAttribute("aria-pressed", String(which === "text"));
+    $("forBg").setAttribute("aria-pressed", String(which === "bg"));
+  }
+  function setRainbow(on) {
+    if (!chars.length) return;
+    pushUndo();
+    for (const i of targets()) chars[i].rainbow = on;
+    render();
+  }
+  function setFont(font) {
+    if (!chars.length) return;
+    pushUndo();
+    for (const i of targets()) chars[i].font = font;
+    render();
+  }
+  function clearColors() {
+    if (!chars.length) return;
+    pushUndo();
+    for (const i of targets()) { chars[i].color = "7"; chars[i].rainbow = false; chars[i].font = ""; chars[i].bg = ""; }
+    render();
+  }
+  // Team colors (^8, ^9) depend on server cvars, so random leaves them out.
+  function allowedCodes() {
+    const vanilla = VANILLA.filter(v => v[0] !== "8" && v[0] !== "9").map(v => v[0]);
+    return [...vanilla, ...EXT.map(e => e[0])];
+  }
+  function randomColors() {
+    const idx = targets();
+    if (!idx.length) return;
+    const codes = allowedCodes().filter(c => !["0", "$0", "$1", "$4", "$9"].includes(c)); // skip colors too dark to read
+    pushUndo();
+    for (const i of idx) chars[i].color = codes[Math.floor(Math.random() * codes.length)];
+    render();
+  }
+
+  // ---------- text editing keeps colors on their characters ----------
+  function onTextInput() {
+    const next = $("txt").value;
+    const prev = chars.map(c => c.ch).join("");
+    if (next === prev) return;
+    pushUndo();
+    let p = 0;
+    while (p < prev.length && p < next.length && prev[p] === next[p]) p++;
+    let s = 0;
+    while (s < prev.length - p && s < next.length - p && prev[prev.length - 1 - s] === next[next.length - 1 - s]) s++;
+    const inherit = chars[p - 1] || chars[p] || { color: "7", rainbow: false, font: "", bg: "" };
+    const inserted = [...next.slice(p, next.length - s)].map(ch => ({ ch, color: inherit.color, rainbow: inherit.rainbow, font: inherit.font || "", bg: inherit.bg || "" }));
+    chars = [...chars.slice(0, p), ...inserted, ...chars.slice(prev.length - s)];
+    sel = new Set([...sel].filter(i => i < chars.length));
+    render();
+  }
+  function syncText() { $("txt").value = chars.map(c => c.ch).join(""); }
+
+  // ---------- rendering ----------
+  function render() {
+    renderStrip();
+    renderOutput();
+    renderScene();
+    renderSelInfo();
+    $("undo").disabled = !undoStack.length;
+    $("redo").disabled = !redoStack.length;
+    store.set(KEY_DRAFT, modelToCode(chars, { vanilla: false, double: false }));
+  }
+
+  function renderStrip() {
+    const strip = $("strip");
+    if (!chars.length) { strip.innerHTML = `<span class="strip-empty">Type a name or message.</span>`; return; }
+    strip.innerHTML = chars.map((c, i) => {
+      const color = ALL.get(c.color);
+      const cls = ["cell", c.ch === " " ? "space" : "", sel.has(i) ? "sel" : "", i === caret ? "caret" : "", c.rainbow ? "rb" : "", c.font ? "f-" + c.font : ""].join(" ");
+      const bg = c.bg ? ALL.get(c.bg) : null;
+      const style = [c.rainbow ? "" : `color:${css(color.rgb)}`, bg ? `background:${bgCss(bg.rgb)}` : ""].filter(Boolean).join(";");
+      const name = color.name + (c.rainbow ? ", rainbow" : "") + (c.font === "b" ? ", bold" : c.font === "m" ? ", mono" : "") + (bg ? `, ${bg.name} background` : "");
+      const mods = (c.rainbow ? '<i class="rbdot" title="Rainbow"></i>' : "") + (c.font ? `<i class="fdot">${c.font === "b" ? "B" : "M"}</i>` : "")
+        + (bg ? `<i class="bgdot" style="background:${css(bg.rgb)}" title="${esc(bg.name)} background"></i>` : "");
+      return `<div class="${cls}" style="${style}" role="option" aria-selected="${sel.has(i)}" data-i="${i}" aria-label="${esc(c.ch === " " ? "space" : c.ch)}, ${esc(name)}">${c.ch === " " ? "" : esc(c.ch)}${mods ? `<span class="mods" aria-hidden="true">${mods}</span>` : ""}</div>`;
+    }).join("");
+    syncRainbow(strip);
+  }
+
+  function renderFontButtons() {
+    const idx = targets();
+    const fonts = new Set(idx.map(i => chars[i].font || ""));
+    for (const b of document.querySelectorAll("[data-font]"))
+      b.setAttribute("aria-pressed", String(idx.length > 0 && fonts.size === 1 && fonts.has(b.dataset.font)));
+  }
+  function renderSelInfo() {
+    renderFontButtons();
+    const n = sel.size;
+    let text = !chars.length ? "" : n ? `${n} selected` : "All characters";
+    if (pendingPrefix) text = `${pendingPrefix} + digit…`;
+    $("selInfo").textContent = text;
+  }
+
+  function currentCode() { return modelToCode(chars, opts); }
+
+  function renderOutput() {
+    const code = currentCode();
+    const out = $("out");
+    if (!code) { out.innerHTML = `<span class="muted">The code appears here.</span>`; }
+    else {
+      let html = "", i = 0;
+      const s = code;
+      while (i < s.length) {
+        const dbl = s[i] === "^" && s[i + 1] === "^" && isDigit(s[i + 2]) && isDigit(s[i + 3]);
+        if (dbl) { html += `<span class="c">${esc(s.slice(i, i + 4))}</span>`; i += 4; continue; }
+        const m = parseMarkup(s, i, true);
+        if (m.len) { html += `<span class="c">${esc(s.slice(i, i + m.len))}</span>`; i += m.len; continue; }
+        html += esc(s[i]); i++;
+      }
+      out.innerHTML = html;
+    }
+    const visible = chars.length;
+    // Player names are cut to 31 characters by the game (ClientCleanName), codes included
+    const NAME_MAX = 31;
+    $("stats").innerHTML = `<span class="${code.length > NAME_MAX ? "over" : ""}" title="The game keeps 31 characters of a player name, codes included">${code.length} / ${NAME_MAX} for a name</span><span>${visible} visible</span><span>${code.length - visible} for colors</span>`;
+
+    // round trip: the code must read back to the same colors
+    const back = codeToModel(code);
+    const want = chars;
+    let ok = back.length === want.length;
+    if (ok) for (let k = 0; k < want.length; k++) {
+      if (back[k].ch !== want[k].ch) { ok = false; break; }
+      if (want[k].ch !== " " && (back[k].color !== want[k].color || back[k].rainbow !== want[k].rainbow)) { ok = false; break; }
+      if ((back[k].font || "") !== (want[k].font || "") || (back[k].bg || "") !== (want[k].bg || "")) { ok = false; break; }
+    }
+    const warn = $("warn");
+    if (!ok) { warn.hidden = false; warn.textContent = "A ^ in your text joins the next digit into a color code, so the game will show it differently. Put a space or another character between them."; }
+    else if (code.length > NAME_MAX) {
+      warn.hidden = false;
+      warn.textContent = `Name over 31 characters, the game cuts it (see the preview). Fine for chat messages.`;
+    }
+    else warn.hidden = true;
+  }
+
+  function renderScene() {
+    const fullCode = currentCode() || "Player";
+    const code = clientCleanName(fullCode); // the game cuts player names to 31 characters, codes included
+    const cod2x = view === "x";
+    const name = segsHtml(renderHud(code, cod2x));
+    const plain = n => segsHtml(renderHud(n, cod2x));
+    // G_Say: team color ("^8" allies, "^9" axis) + cleaned name + "^7: " + message
+    const chatName = "^8" + cleanName(code) + "^7: gg wp";
+    const chatMsg = "^9Wolfgang^7: " + fullCode; // messages are not cut
+    const gun = `<svg viewBox="0 0 30 12" aria-hidden="true"><path fill="#d8d8cc" d="M1 4h17l2-2h3v2h6v3h-9l-2 4h-3l1-4H1z"/></svg>`;
+    // ^8 and ^9 are the allies and axis team colors (sample values; the server sets them)
+    const allies = ALL.get("8").rgb, axis = ALL.get("9").rgb;
+    const kill = (n, team) => `<span>${segsHtml(renderKillfeed(n, cod2x, team))}</span>`; // one flex item per name
+    const row = (n, score, deaths, ping, me) =>
+      `<tr${me ? ' class="me"' : ""}><td class="g">${me ? name : plain(n)}</td><td class="num">${score}</td><td class="num">${deaths}</td><td class="num">${ping}</td></tr>`;
+    const teamRow = (label, rgb, score) =>
+      `<tr class="team" style="color:${css(rgb)}"><th>${label}</th><th class="num">${score}</th><th></th><th></th></tr>`;
+    $("scene").innerHTML = `
+      <div class="sbx">
+        <table class="sb"><thead><tr><th>Name</th><th class="num">Score</th><th class="num">Deaths</th><th class="num">Ping</th></tr></thead>
+        <tbody>
+          ${teamRow("Allies", allies, 55)}
+          ${row(code, 37, 9, 24, true)}
+          ${row("[CoD2x] Sipex", 31, 12, 29)}
+          ${teamRow("Axis", axis, 54)}
+          ${row("Wolfgang", 42, 11, 38)}
+          ${row("Kowalski_88", 12, 17, 45)}
+        </tbody></table>
+      </div>
+      <div class="chat">
+        <span class="g chatline" style="background:${chatBg(chatName, cod2x)}">${plain(chatName)}</span>
+        <span class="g chatline" style="background:${chatBg(chatMsg, cod2x)}">${plain(chatMsg)}</span>
+      </div>
+      <div class="kfeed">
+        <div class="g kf">${kill("Wolfgang", axis)} ${gun} ${kill("[CoD2x] Sipex", allies)}</div>
+        <div class="g kf">${kill(code, allies)} ${gun} ${kill("Kowalski_88", axis)}</div>
+        <div class="g kf">${kill("Wolfgang", axis)} ${gun} ${kill(code, allies)}</div>
+      </div>
+      <div class="ammo">30 <small>/ 120</small></div>`;
+    syncRainbow($("scene"));
+
+    // Single codes color everything but the killfeed; double codes also color the killfeed.
+    const colored = chars.some(c => c.color !== "7" || c.rainbow || c.font || c.bg);
+    const note = $("gameNote");
+    if (!colored) note.innerHTML = "";
+    else if (opts.double) note.innerHTML = `<span><b>Everywhere</b>: styled on the scoreboard, in the killfeed and in chat.</span>`;
+    else note.innerHTML = `<span><b>Scoreboard</b>: killfeed and chat names keep the team color. Choose <b>Everywhere</b> in Code to style them too.</span>`;
+  }
+  // The game cycles all rainbow text with one clock, so keep every rainbow element in phase.
+  function syncRainbow(root) {
+    const offset = -(performance.now() % 10000);
+    root.querySelectorAll(".rb").forEach(el => { el.style.animationDelay = offset + "ms"; });
+  }
+
+  // ---------- palette UI ----------
+  // Dark ink on light colors, light ink on dark ones.
+  function swatchStyle(rgb) {
+    const lum = .2126 * rgb[0] + .7152 * rgb[1] + .0722 * rgb[2];
+    return `--c:${css(rgb)};--t:${lum > .5 ? "#111" : "#fff"}`;
+  }
+  function buildPalettes() {
+    const head = `<span></span>` + FAMILIES.map((f, d) => `<span class="fam">${d}<small>${f}</small></span>`).join("");
+    const vanillaNote = { "7": "Default text color", "8": "Allies team color: dark blue, red or green by nation", "9": "Axis team color: grey" };
+    let grid = head + `<span class="shade-name"><code>^</code>Classic</span>` + VANILLA.map(([c, name, rgb]) =>
+      `<button class="shade${c === "8" || c === "9" ? " team" : ""}${c === "7" ? " deflt" : ""}" data-code="${c}" title="${vanillaNote[c] || name} (^${c})" style="${swatchStyle(rgb)}"><code>^${c}</code><small>${name}</small></button>`).join("");
+    for (const [prefix, shade, list] of SHADES) {
+      grid += `<span class="shade-name"><code>${prefix}</code>${shade}</span>`;
+      grid += list.map(([name, rgb], d) =>
+        `<button class="shade" data-code="${prefix}${d}" title="${name} (${prefix}${d})" style="${swatchStyle(rgb)}"><code>${prefix}${d}</code><small>${name}</small></button>`).join("");
+    }
+    $("palExt").innerHTML = grid;
+  }
+
+  // ---------- strip interaction ----------
+  let dragging = false, dragStart = -1;
+  function cellIndex(e) { const el = e.target.closest(".cell"); return el ? +el.dataset.i : -1; }
+  function rangeSet(a, b) { const s = new Set(); for (let i = Math.min(a, b); i <= Math.max(a, b); i++) s.add(i); return s; }
+
+  $("strip").addEventListener("pointerdown", e => {
+    const i = cellIndex(e);
+    if (i < 0) return;
+    e.preventDefault();
+    $("strip").focus({ preventScroll: true });
+    if (e.shiftKey && anchor >= 0) { sel = rangeSet(anchor, i); }
+    else if (e.ctrlKey || e.metaKey) { sel.has(i) ? sel.delete(i) : sel.add(i); anchor = i; }
+    else { anchor = i; sel = new Set([i]); dragging = true; dragStart = i; $("strip").setPointerCapture(e.pointerId); }
+    caret = i;
+    renderStrip(); renderSelInfo();
+  });
+  $("strip").addEventListener("pointermove", e => {
+    if (!dragging) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = el && el.closest && el.closest(".cell");
+    if (!cell) return;
+    const i = +cell.dataset.i;
+    if (i === caret) return;
+    sel = rangeSet(dragStart, i); caret = i;
+    renderStrip(); renderSelInfo();
+  });
+  const endDrag = () => { dragging = false; };
+  $("strip").addEventListener("pointerup", endDrag);
+  $("strip").addEventListener("pointercancel", endDrag);
+
+  $("strip").addEventListener("keydown", e => {
+    if (!chars.length) return;
+    const k = e.key;
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "a") { e.preventDefault(); sel = rangeSet(0, chars.length - 1); renderStrip(); renderSelInfo(); return; }
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "y") { e.preventDefault(); doRedo(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (k === "ArrowLeft" || k === "ArrowRight" || k === "Home" || k === "End") {
+      e.preventDefault();
+      pendingPrefix = null;
+      let i = caret < 0 ? 0 : caret;
+      i = k === "Home" ? 0 : k === "End" ? chars.length - 1 : Math.max(0, Math.min(chars.length - 1, i + (k === "ArrowLeft" ? -1 : 1)));
+      if (e.shiftKey) { if (anchor < 0) anchor = caret < 0 ? i : caret; sel = rangeSet(anchor, i); }
+      else { anchor = i; sel = new Set([i]); }
+      caret = i; renderStrip(); renderSelInfo(); return;
+    }
+    if (k === "Escape") { pendingPrefix = null; sel = new Set(); renderStrip(); renderSelInfo(); return; }
+    if (k === "Delete" || k === "Backspace") { e.preventDefault(); pendingPrefix = null; clearColors(); return; }
+    if (k === "*") { e.preventDefault(); pendingPrefix = null; const on = !targets().every(i => chars[i].rainbow); setRainbow(on); return; }
+    if (k === "_") { e.preventDefault(); pendingPrefix = null; const idx = targets(); if (idx.length) setBackground(idx.every(i => chars[i].bg) ? "" : chars[idx[0]].color); renderSelInfo(); return; }
+    if (k === "+" || k === "=" || k === "-") { e.preventDefault(); pendingPrefix = null; setFont(k === "+" ? "b" : k === "=" ? "m" : ""); renderSelInfo(); return; }
+    if (isPrefix(k)) { e.preventDefault(); pendingPrefix = k; renderSelInfo(); return; } // $ # @
+    if (isDigit(k)) {
+      e.preventDefault();
+      const id = pendingPrefix ? pendingPrefix + k : k;
+      pendingPrefix = null;
+      paint(id);
+      renderSelInfo();
+    }
+  });
+
+  // ---------- undo ----------
+  function doUndo() { if (!undoStack.length) return; redoStack.push(snapshot()); restore(undoStack.pop()); }
+  function doRedo() { if (!redoStack.length) return; undoStack.push(snapshot()); restore(redoStack.pop()); }
+
+  // ---------- copy ----------
+  let toastTimer = 0;
+  function toast(msg) { $("toast").textContent = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 2600); }
+  function copyText(text, what) {
+    const fb = $("copyFallback");
+    const fallback = () => { fb.hidden = false; fb.value = text; fb.focus(); fb.select(); toast("Copying is blocked here. The text is selected below, press Ctrl+C."); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => { fb.hidden = true; toast(`Copied ${what}.`); }, fallback);
+    } else fallback();
+  }
+  let copiedTimer = 0;
+  function copyCode() {
+    const code = currentCode();
+    if (!code) { toast("Type some text first."); return; }
+    copyText(code, "the code");
+    $("out").classList.add("copied");
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => $("out").classList.remove("copied"), 1500);
+  }
+  $("out").addEventListener("click", copyCode);
+  $("out").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); copyCode(); } });
+
+  // ---------- library ----------
+  function itemHtml(item, idx, saved) {
+    const preview = segsHtml(renderHud(item.code, true));
+    return `<div class="item" role="button" tabindex="0" data-load="${saved ? "s" : "e"}${idx}" title="${esc(item.title)}: open in the editor" aria-label="${esc(item.title)}">
+      <div class="swatchline g">${preview}</div>
+      ${saved ? `<button class="del" data-del="${idx}" title="Delete" aria-label="Delete ${esc(item.title)}">×</button>` : ""}
+    </div>`;
+  }
+  let pendingDelete = -1;
+  function renderLibrary() {
+    const saved = store.get(KEY_SAVED, []);
+    $("libSaved").innerHTML = saved.length
+      ? `<div class="lib">${saved.map((it, i) => itemHtml(it, i, true)).join("")}</div>`
+      : `<div class="empty">Nothing saved yet.</div>`;
+    $("libEx").innerHTML = `<div class="lib">${EXAMPLES.map((it, i) =>
+      (i === 0 || EXAMPLES[i - 1].group !== it.group ? `<div class="lib-group">${esc(it.group)}</div>` : "") + itemHtml(it, i, false)).join("")}</div>`;
+    if (pendingDelete >= 0) {
+      const b = document.querySelector(`[data-del="${pendingDelete}"]`);
+      if (b) { b.textContent = "Delete?"; b.classList.add("armed"); }
+    }
+    syncRainbow($("libSaved")); syncRainbow($("libEx"));
+  }
+  function loadCode(code) {
+    pushUndo();
+    chars = codeToModel(code);
+    sel = new Set(); anchor = caret = -1;
+    opts.double = /\^\^\d\d|([$#@])\1(\d\d|([*+=_-])\3)/.test(code);
+    updateDoubleUi();
+    syncText(); render();
+  }
+  document.addEventListener("click", e => {
+    const del = e.target.closest("[data-del]");
+    const load = !del && e.target.closest("[data-load]");
+    if (load) {
+      const id = load.dataset.load, i = +id.slice(1);
+      const item = id[0] === "s" ? store.get(KEY_SAVED, [])[i] : EXAMPLES[i];
+      if (item) { loadCode(item.code); $("saveTitle").value = id[0] === "s" ? item.title : ""; toast(`Opened “${item.title}”.`); window.scrollTo({ top: 0, behavior: "smooth" }); }
+      return;
+    }
+    if (del) {
+      const i = +del.dataset.del;
+      if (pendingDelete !== i) { pendingDelete = i; renderLibrary(); return; }
+      const saved = store.get(KEY_SAVED, []);
+      const [gone] = saved.splice(i, 1);
+      store.set(KEY_SAVED, saved);
+      pendingDelete = -1; renderLibrary();
+      if (gone) toast(`Deleted “${gone.title}”.`);
+      return;
+    }
+    if (pendingDelete >= 0) { pendingDelete = -1; renderLibrary(); }
+  });
+  $("saveForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const code = modelToCode(chars, opts);
+    if (!code) { toast("Type some text first."); return; }
+    const title = $("saveTitle").value.trim() || chars.map(c => c.ch).join("").slice(0, 24);
+    const saved = store.get(KEY_SAVED, []);
+    const existing = saved.findIndex(s => s.title === title);
+    const entry = { title, code, saved: Date.now() };
+    if (existing >= 0) saved[existing] = entry; else saved.unshift(entry);
+    if (store.set(KEY_SAVED, saved)) toast(existing >= 0 ? `Updated “${title}”.` : `Saved “${title}”.`);
+    else toast("This browser blocks saving here (private window or blocked site data).");
+    selectTab("saved");
+    renderLibrary();
+  });
+  function selectTab(which) {
+    const saved = which === "saved";
+    $("tabSaved").setAttribute("aria-selected", String(saved));
+    $("tabEx").setAttribute("aria-selected", String(!saved));
+    $("libSaved").hidden = !saved; $("libEx").hidden = saved;
+  }
+  $("tabSaved").addEventListener("click", () => selectTab("saved"));
+  $("tabEx").addEventListener("click", () => selectTab("ex"));
+
+  // ---------- wiring ----------
+  $("txt").addEventListener("input", onTextInput);
+  $("importBtn").addEventListener("click", () => {
+    const code = $("importCode").value;
+    if (!code.trim()) { toast("Paste a colored name or message first."); return; }
+    loadCode(code); toast("Loaded the code into the editor.");
+  });
+  $("importCode").addEventListener("keydown", e => { if (e.key === "Enter") $("importBtn").click(); });
+  document.addEventListener("keydown", e => { // library cards open with Enter / Space too
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("item")) { e.preventDefault(); e.target.click(); }
+  });
+  $("selAll").addEventListener("click", () => { if (chars.length) { sel = rangeSet(0, chars.length - 1); renderStrip(); renderSelInfo(); } });
+  $("selNone").addEventListener("click", () => { sel = new Set(); renderStrip(); renderSelInfo(); });
+  for (const id of ["palExt"]) $(id).addEventListener("click", e => {
+    const b = e.target.closest("[data-code]"); if (b && !b.disabled) paint(b.dataset.code);
+  });
+  $("rbOn").addEventListener("click", () => setRainbow(true));
+  $("rbOff").addEventListener("click", () => setRainbow(false));
+  document.querySelectorAll("[data-font]").forEach(b => b.addEventListener("click", () => setFont(b.dataset.font)));
+  $("forText").addEventListener("click", () => setPaintFor("text"));
+  $("forBg").addEventListener("click", () => setPaintFor("bg"));
+  $("bgOff").addEventListener("click", () => setBackground(""));
+  $("clearColors").addEventListener("click", clearColors);
+  $("undo").addEventListener("click", doUndo);
+  $("redo").addEventListener("click", doRedo);
+  $("randomBtn").addEventListener("click", randomColors);
+  function updateDoubleUi() {
+    $("dblOff").setAttribute("aria-pressed", String(!opts.double));
+    $("dblOn").setAttribute("aria-pressed", String(opts.double));
+  }
+  $("dblOff").addEventListener("click", () => { opts.double = false; updateDoubleUi(); render(); });
+  $("dblOn").addEventListener("click", () => { opts.double = true; updateDoubleUi(); render(); });
+  $("viewX").addEventListener("click", () => { view = "x"; $("viewX").setAttribute("aria-pressed", "true"); $("viewV").setAttribute("aria-pressed", "false"); renderScene(); });
+  $("viewV").addEventListener("click", () => { view = "v"; $("viewV").setAttribute("aria-pressed", "true"); $("viewX").setAttribute("aria-pressed", "false"); renderScene(); });
+
+  buildPalettes();
+  // First visit: a name that shows everything at once - background, bold, color and a gradient (30 / 31 characters)
+  const DEFAULT_CODE = "@4#_@+@3[CoD2x]^7 #5E#4Y#9Z@9A";
+  chars = codeToModel(store.get(KEY_DRAFT, "") || DEFAULT_CODE);
+  syncText();
+  render();
+  renderLibrary();
+  if (!store.get(KEY_SAVED, []).length) selectTab("ex");
+})();
+</script>
+</body>
+</html>

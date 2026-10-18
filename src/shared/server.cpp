@@ -361,6 +361,60 @@ void SV_UserinfoChanged_Win32() {
 }
 
 
+// 0044a8d0    void I_CleanStr(char* string @ eax)
+// Hooked only in G_Say, for the player name in front of a chat message. Vanilla I_CleanStr removes
+// single "^1" codes, so the name shows in the team color, and only double "^^11" codes (which turn
+// into "^1") color it - the same as in the killfeed.
+void I_CleanStr(char* name)
+{
+    // CoD2x: the same for extended colors and styles - single "$1" "#1" "@1" "$*" "@+" "#_" ... are
+    // removed, double "$$11" "##11" "@@11" "$$**" "@@++" "##__" ... become single ones
+    // (styles: "$*" "$-" rainbow, "@+" "@=" "@-" font, "#_" "#-" background, see text.cpp in mss32)
+    auto isStyle = [](char prefix, char c) {
+        return (prefix == '$' && (c == '*' || c == '-')) ||
+               (prefix == '@' && (c == '+' || c == '=' || c == '-')) ||
+               (prefix == '#' && (c == '_' || c == '-'));
+    };
+    char* out = name;
+    for (const char* p = name; *p; ) {
+        bool prefix = p[0] == '$' || p[0] == '#' || p[0] == '@';
+        if (prefix && p[1] == p[0] && p[2] >= '0' && p[2] <= '9' && p[3] >= '0' && p[3] <= '9') {
+            *out++ = p[0];
+            *out++ = p[3];
+            p += 4;
+            continue;
+        }
+        if (prefix && p[1] == p[0] && isStyle(p[0], p[2]) && p[3] == p[2]) {
+            *out++ = p[0];
+            *out++ = p[3];
+            p += 4;
+            continue;
+        }
+        if (prefix && p[1] >= '0' && p[1] <= '9') {
+            p += 2;
+            continue;
+        }
+        if (prefix && isStyle(p[0], p[1])) {
+            p += 2;
+            continue;
+        }
+        *out++ = *p++;
+    }
+    *out = '\0';
+    // CoD2x: End
+
+    // Call the original function
+    ASM_CALL(RETURN_VOID, ADDR(0x0044a8d0, 0x080b7e54), WL(0, 1), WL(EAX, PUSH)(name));
+}
+
+// 0044a8d0    void I_CleanStr(char* string @ eax)
+void I_CleanStr_Win32() {
+    char* name;
+    ASM( movr, name, "eax" );
+    I_CleanStr(name);
+}
+
+
 
 
 void server_unbanAll_command() {
@@ -1338,6 +1392,12 @@ void server_patch()
 
     // Remove the Com_DPrintf("SV_DirectConnect()\n") call - now its being done in SV_DirectConnect
     patch_nop(ADDR(0x00453c87, 0x0808e2f7), 5);
+
+    // Allow black (^0) in player names - ClientCleanName removed it, so "^0Name" showed in the default color
+    patch_byte(ADDR(0x004fe056, 0x080f8ba2), 0xeb); // from '7503 jne' (Linux '7505 jne') to 'eb jmp'
+
+    // Chat names: extended colors follow the vanilla rule - only double codes color the name
+    patch_call(ADDR(0x00502883, 0x080ff799), (unsigned int)WL(I_CleanStr_Win32, I_CleanStr)); // G_Say
 
     // Hook the SV_ConnectionlessPacket function
     patch_call(ADDR(0x0045bbc2, 0x08096126), (unsigned int)SV_ConnectionlessPacket);

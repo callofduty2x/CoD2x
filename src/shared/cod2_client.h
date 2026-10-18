@@ -210,4 +210,34 @@ inline int CG_CalcMuzzlePoint(const vec3_t pos, int clientNum, int32_t sourceEnt
     return result;
 }
 
+// Converts the character of a color code ('0' .. '9' of ^0 .. ^9) to RGBA:
+// '0' .. '7' from the vanilla color table, '8' / '9' the allies / axis team color,
+// any other character gives the default color of ^7.
+// 004032e0    void CL_LookupColor(char c @ edx, float* color @ eax)
+inline void CL_LookupColor(int32_t c, float* color) {
+    ASM_CALL(RETURN_VOID, 0x004032e0, 0, EDX(c), EAX(color));
+}
+
+// Ends the current console line: finishes the line in the message window of the channel
+// (Con_UpdateNotifyLine with lineFeed 1), moves to the next line of the console buffer and clears it.
+// 00404340    void Con_Linefeed(int32_t channel @ ecx, int32_t duration @ edx)
+inline void Con_Linefeed(int32_t channel, int32_t duration) {
+    ASM_CALL(RETURN_VOID, 0x00404340, 0, ECX(channel), EDX(duration));
+}
+
+// Puts the current console line into the on-screen message window of the channel:
+// 0 = mini console, 1 = game messages, 2 = bold game messages, 3 = subtitles (other channels are ignored).
+// lineFeed is 1 when the line is finished, duration is how long the line stays on screen.
+// 004042c0    void Con_UpdateNotifyLine(int32_t lineFeed @ eax, int32_t channel @ ecx, int32_t duration @ edx)
+inline void Con_UpdateNotifyLine(int32_t lineFeed, int32_t channel, int32_t duration) {
+    ASM_CALL(RETURN_VOID, 0x004042c0, 0, EAX(lineFeed), ECX(channel), EDX(duration));
+}
+
+// Returns the number of visible characters of a string - color codes ^0 .. ^9 and line breaks
+// are not counted, a double-byte character of a multi-byte language counts as one.
+// 004abeb0    int32_t SEH_PrintStrlen(char* string @ edx)
+inline int32_t SEH_PrintStrlen(const char* string) {
+    ASM_CALL_RETURN(int32_t, 0x004abeb0, 0, EDX(string));
+}
+
 #endif

@@ -164,7 +164,7 @@ It focuses on fixing bugs and adding new features to the game.
 - Radar
 - vMIX support
 - URL protocol to launch the game from web links: `cod2x://`
-- Toggle killfeed custom color rendering (`con_printDoubleColors`);
+- Toggle colored player names (double colors) in killfeed and chat (`con_printDoubleColors`);
 - Bullet trace debugging (`cg_debugBullets`);
 - Automatic zPAM updates
 - Smarter IWD handling and configs: always use `main/config_mp.cfg`; improved filtering to prevent sum/name mismatch; for demos only IWDs used at record-time are loaded; for listen servers only the latest zPAM files are loaded; assets in `movie` are included for demo playback; automatic extraction of `iw_CoD2x_01.iwd`.
