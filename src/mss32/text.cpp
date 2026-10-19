@@ -43,6 +43,7 @@
 
 
 dvar_t* con_printDoubleColors = NULL;
+extern bool cgame_hideServerIp;
 
 
 
@@ -618,12 +619,160 @@ static int Text_Width(const char* text, int maxChars, fontHandle_t* font)
     return (int)(maxWidth + 0.5f);
 }
 
+// ======================================================================================================
+// Hidden IP addresses (cl_hideServerIp)
+// ======================================================================================================
+
+// Every text drawn by the renderer replacements below goes through here, so with cl_hideServerIp (or
+// sv_hideServerIp of the connected server, see cgame_hideServerIp) the IP addresses are hidden everywhere
+// on screen - console, game messages, menus, edit fields. The digits are
+// replaced by '*' and the length stays the same, so cursor positions and the layout do not change, and the
+// original text comes back when the cvar is turned off (the console buffer itself is not changed).
+//   - IPv4 "a.b.c.d" with octets 0..255 and the port - "94.199.215.103:10405" is drawn as
+//     "**.***.***.***:*****". Four single-digit numbers ("1.4.6.9") are a version, not an address, and stay.
+//   - the address of the connect command, in every command of the line ("]\connect host" in the console, the
+//     console input line, "connect 94.199.215.103:10405; password abc") - only the address up to the next
+//     space or ';' is hidden, so a host name or a partly typed address does not leak either; the other
+//     commands of the line stay visible.
+
+static inline bool Text_IsDigit(char c) { return c >= '0' && c <= '9'; }
+static inline bool Text_IsAlnum(char c) { return Text_IsDigit(c) || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+
+// Length of an IPv4 address at text[start], or 0. Single-digit-only addresses are versions, see above.
+static int Text_IpAddressLength(const char* text, int len, int start)
+{
+    int p = start;
+    bool multiDigit = false;
+    for (int octet = 0; octet < 4; ++octet) {
+        int octetStart = p;
+        int value = 0;
+        while (p < len && Text_IsDigit(text[p]) && p - octetStart < 3)
+            value = value * 10 + (text[p++] - '0');
+        if (p == octetStart || value > 255 || (p < len && Text_IsDigit(text[p])))
+            return 0;
+        if (p - octetStart > 1)
+            multiDigit = true;
+        if (octet < 3) {
+            if (p >= len || text[p] != '.')
+                return 0;
+            ++p;
+        }
+    }
+    if (p < len && (Text_IsAlnum(text[p]) || (text[p] == '.' && p + 1 < len && Text_IsDigit(text[p + 1]))))
+        return 0;
+    if (!multiDigit)
+        return 0;
+
+    // Port
+    if (p + 1 < len && text[p] == ':' && Text_IsDigit(text[p + 1])) {
+        ++p;
+        while (p < len && Text_IsDigit(text[p]))
+            ++p;
+    }
+
+    return p - start;
+}
+
+// Masks the IP addresses in a writable text of len characters; returns true if anything changed.
+static bool Text_MaskIpAddresses(char* text, int len)
+{
+    bool changed = false;
+
+    // The address of the connect command - at the start of the line and after every ';'
+    for (int p = 0; p < len; ) {
+        while (p < len && (text[p] == ']' || text[p] == '/' || text[p] == '\\' || text[p] == ' '))
+            ++p;
+        if (len - p >= 8 && strnicmp(text + p, "connect ", 8) == 0) {
+            for (p += 8; p < len && text[p] == ' '; ++p)
+                ;
+            for (; p < len && text[p] != ' ' && text[p] != ';'; ++p) {
+                if (Text_IsAlnum(text[p])) {
+                    text[p] = '*';
+                    changed = true;
+                }
+            }
+        }
+        while (p < len && text[p] != ';')
+            ++p;
+        ++p; // skip ';'
+    }
+
+    char prev = ' '; // character before text[i], a code counts as a separator
+    for (int i = 0; i < len; ) {
+        // Color and style codes ("^1", "$1", "#1", "@1") are not part of an address
+        if ((text[i] == '^' || text[i] == '$' || text[i] == '#' || text[i] == '@') && i + 1 < len) {
+            i += 2;
+            prev = ' ';
+            continue;
+        }
+        bool separated = !Text_IsAlnum(prev) && prev != '.';
+        int ipLen = (separated && Text_IsDigit(text[i])) ? Text_IpAddressLength(text, len, i) : 0;
+        if (ipLen == 0) {
+            prev = text[i++];
+            continue;
+        }
+        prev = text[i + ipLen - 1];
+        for (int j = i; j < i + ipLen; ++j) {
+            if (Text_IsDigit(text[j]))
+                text[j] = '*';
+        }
+        i += ipLen;
+        changed = true;
+    }
+    return changed;
+}
+
+// Text with hidden IP addresses if IP addresses are hidden (cgame_hideServerIp). Returns text if nothing changed.
+static const char* Text_HideIpAddresses(const char* text, char* buffer, size_t size)
+{
+    if (!cgame_hideServerIp)
+        return text;
+
+    size_t len = strlen(text);
+    if (len >= size)
+        return text;
+    memcpy(buffer, text, len + 1);
+
+    return Text_MaskIpAddresses(buffer, (int)len) ? buffer : text;
+}
+
+// The same for console cells (see the console buffer cells below) - only the characters are masked,
+// killfeed control cells (channels 10..39) separate them. Returns text if nothing changed.
+static const uint16_t* Text_HideIpAddressesInCells(const uint16_t* text, int textLen, uint16_t* buffer, int size)
+{
+    if (!cgame_hideServerIp || textLen > size)
+        return text;
+
+    char chars[1024];
+    if (textLen > (int)sizeof(chars))
+        return text;
+    for (int i = 0; i < textLen; ++i) {
+        int hi = (text[i] >> 8) & 0xff;
+        chars[i] = (hi >= 10 && hi < 0x40) ? '\x01' : (char)(text[i] & 0xff);
+    }
+
+    if (!Text_MaskIpAddresses(chars, textLen))
+        return text;
+
+    for (int i = 0; i < textLen; ++i) {
+        buffer[i] = text[i];
+        if (chars[i] == '*' && (char)(text[i] & 0xff) != '*')
+            buffer[i] = (text[i] & 0xff00) | '*';
+    }
+    return buffer;
+}
+
+
 // 1000bf80 (gfx)    int32_t R_TextWidth(char* text, int32_t maxChars, void* font)
 static int R_TextWidth(const char* text, int maxChars, fontHandle_t* font)
 {
-    // CoD2x: vanilla double colors "^^11" count like "^1", text with CoD2x codes is measured by CoD2x
+    // CoD2x: vanilla double colors "^^11" count like "^1", text with CoD2x codes is measured by CoD2x,
+    // IP addresses are hidden with cl_hideServerIp
     char resolved[1024];
     text = Text_ResolveDoubleColors(text, resolved, sizeof(resolved));
+
+    char hidden[1024];
+    text = Text_HideIpAddresses(text, hidden, sizeof(hidden));
 
     if (Text_HasCoD2xCodes(text))
         return Text_Width(text, maxChars, font);
@@ -635,9 +784,13 @@ static int R_TextWidth(const char* text, int maxChars, fontHandle_t* font)
 // 1000c030 (gfx)    char* R_DrawText(char* text, int32_t maxChars, void* font, float x, float y, float xScale, float yScale, float* color, int32_t style)
 static void R_DrawText(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style)
 {
-    // CoD2x: vanilla double colors "^^11" draw like "^1", text with CoD2x codes is drawn by CoD2x
+    // CoD2x: vanilla double colors "^^11" draw like "^1", text with CoD2x codes is drawn by CoD2x,
+    // IP addresses are hidden with cl_hideServerIp
     char resolved[1024];
     text = Text_ResolveDoubleColors(text, resolved, sizeof(resolved));
+
+    char hidden[1024];
+    text = Text_HideIpAddresses(text, hidden, sizeof(hidden));
 
     if (Text_HasCoD2xCodes(text)) {
         Text_Draw(text, maxChars, font, x, y, xScale, yScale, color, style);
@@ -652,7 +805,10 @@ static void R_DrawText(const char* text, int maxChars, fontHandle_t* font, float
 // Text of edit fields (console, menus).
 static void R_AddCmdDrawTextWithCursor(const char* text, int maxChars, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style, int cursorPos, char cursor)
 {
-    // CoD2x: text with CoD2x codes is drawn by CoD2x
+    // CoD2x: text with CoD2x codes is drawn by CoD2x, IP addresses are hidden with cl_hideServerIp
+    char hidden[1024];
+    text = Text_HideIpAddresses(text, hidden, sizeof(hidden));
+
     if (Text_HasCoD2xCodes(text)) {
         Text_Draw(text, maxChars, font, x, y, xScale, yScale, color, style, cursorPos, cursor);
         return;
@@ -896,7 +1052,11 @@ static float Text_DrawKillfeedLine(const uint16_t* text, int textLen, fontHandle
 // Width of a console line, used to center the bold game messages (iprintlnbold).
 static int R_ConsoleTextWidth(const uint16_t* text, int textLen, fontHandle_t* font)
 {
-    // CoD2x: lines with CoD2x cells are measured like Text_DrawConsoleLine / Text_DrawKillfeedLine draw them
+    // CoD2x: lines with CoD2x cells are measured like Text_DrawConsoleLine / Text_DrawKillfeedLine draw them,
+    // IP addresses are hidden with cl_hideServerIp
+    uint16_t hidden[1024];
+    text = Text_HideIpAddressesInCells(text, textLen, hidden, 1024);
+
     bool isKillfeed;
     if (Text_HasCoD2xCells(text, textLen, &isKillfeed)) {
         float width = isKillfeed
@@ -913,7 +1073,10 @@ static int R_ConsoleTextWidth(const uint16_t* text, int textLen, fontHandle_t* f
 // Lines of the console, game messages and killfeed.
 static void R_DrawConsoleText(const uint16_t* text, int textLen, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style)
 {
-    // CoD2x: lines with CoD2x cells are drawn by CoD2x
+    // CoD2x: lines with CoD2x cells are drawn by CoD2x, IP addresses are hidden with cl_hideServerIp
+    uint16_t hidden[1024];
+    text = Text_HideIpAddressesInCells(text, textLen, hidden, 1024);
+
     bool isKillfeed;
     if (Text_HasCoD2xCells(text, textLen, &isKillfeed)) {
         if (isKillfeed)
