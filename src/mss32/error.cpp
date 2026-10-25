@@ -12,6 +12,7 @@
 #include "shared.h"
 #include "system.h"
 #include "console.h"
+#include "exception.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/logger.h"
 
@@ -98,19 +99,25 @@ void error_sendErrorData(const char* message) {
     std::vector<char> logsBuf(CONSOLE_MIRROR_CAPACITY + 1, 0);
     console_getLogs(logsBuf.data(), logsBuf.size());
 
+    // Who called Sys_Error (skips this function)
+    char stackBuf[8192] = {0};
+    exception_captureCallerStack(stackBuf, sizeof(stackBuf), 1);
+
     const char* installId = hwid_regid[0] ? hwid_regid : "";
     const char* hwid2 = (cl_hwid2 && cl_hwid2->value.string) ? cl_hwid2->value.string : "";
 
     // Build the JSON payload (mirrors the crash telemetry structure in exception.cpp).
     std::string* json = new std::string();
-    json->reserve(4096 + strlen(loggerBuf) + strlen(logsBuf.data()));
+    json->reserve(4096 + strlen(stackBuf) + strlen(loggerBuf) + strlen(logsBuf.data()));
 
     *json += "{";
     *json += "\"version\":\"" + json_escape_string(APP_VERSION) + "\",";
     *json += "\"type\":\"win-client\",";
     *json += "\"installId\":\"" + json_escape_string(installId) + "\",";
     *json += "\"hwid2\":\"" + json_escape_string(hwid2) + "\",";
-    *json += "\"errorInfo\":{\"message\":\"" + json_escape_string(message ? message : "") + "\"},";
+    *json += "\"errorInfo\":{\"message\":\"" + json_escape_string(message ? message : "") + "\",";
+    error_jsonAppendLinesArray(*json, "stack", stackBuf);
+    *json += "},";
 
     *json += "\"systemInfo\":{";
     *json += "\"winBuild\":\"" + json_escape_string(SYS_WIN_BUILD) + "\",";
@@ -120,6 +127,7 @@ void error_sendErrorData(const char* message) {
     *json += "\"virtualization\":\"" + json_escape_string(SYS_VIRTUALIZATION) + "\",";
     *json += "\"compatibilityFlags\":\"" + json_escape_string(SYS_COMPATIBILITY_FLAGS) + "\",";
     *json += "\"versionInfo\":\"" + json_escape_string(SYS_VERSION_INFO) + "\",";
+    *json += "\"gpu\":\"" + json_escape_string(SYS_GPU_INFO) + "\",";
     *json += "\"isElevated\":" + std::string(SYS_IS_ELEVATED ? "true" : "false");
     *json += "},";
 

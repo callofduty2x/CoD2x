@@ -80,19 +80,30 @@ clean: clean_win clean_linux
 # =========================================
 # Windows targets
 # =========================================
-.PHONY: rebuild_win build_win configure_win clean_win
+.PHONY: rebuild_win build_win build_win_test configure_win clean_win
 
 rebuild_win: clean_win build_win
 
+# Crash-handler self-test build: same as build_win but with the EXCEPTION_TEST capability compiled in.
+# Run the client with "+set exception_test <mode>" to trigger a scenario (see src/mss32/exception.cpp
+# and tools/test/run_crash_tests.ps1).
+build_win_test: WIN_EXTRA_CMAKE = -DEXCEPTION_TEST=ON
+build_win_test: build_win
+
 configure_win:
 	@echo ">> Configuring Windows $(BUILD_TYPE) build...";
-	$(CMAKE) -S . -B $(WIN_BUILD_DIR) -G $(WIN_GENERATOR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
+	$(CMAKE) -S . -B $(WIN_BUILD_DIR) -G $(WIN_GENERATOR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(WIN_EXTRA_CMAKE)
+
+# The MinGW assembler (binutils 2.43.1) randomly rejects valid input ("unknown pseudo-op: `.ascii'")
+# when many instances run at once. A failed build is retried, ninja rebuilds only the failed objects.
+WIN_BUILD_CMD = $(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+WIN_BUILD_RETRY = $(WIN_BUILD_CMD) || $(WIN_BUILD_CMD) || $(WIN_BUILD_CMD)
 
 build_win: prebuild configure_win
-	$(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+	$(WIN_BUILD_RETRY)
 ifeq ($(BUILD_TYPE),Release)
 	@echo Re-building with accurate mss32 symbols...
-	$(CMAKE) --build $(WIN_BUILD_DIR) --target $(WIN_TARGET) --parallel
+	$(WIN_BUILD_RETRY)
 endif
 
 	@echo Renaming mss32.build.dll to mss32.dll + deleting old versions...
@@ -115,17 +126,27 @@ endif
 # =========================================
 # Linux targets
 # =========================================
-.PHONY: rebuild_linux build_linux configure_linux clean_linux
+.PHONY: rebuild_linux build_linux build_linux_test configure_linux clean_linux
 
 rebuild_linux: clean build_linux
 
+# Crash-handler self-test build: same as build_linux but with the EXCEPTION_TEST capability compiled in.
+# Run the server with "COD2X_EXCEPTION_TEST=<mode>" to trigger a scenario (see src/linux/exception.cpp and
+# tools/test/run_crash_tests_linux.sh).
+build_linux_test: LINUX_EXTRA_CMAKE = -DEXCEPTION_TEST=ON
+build_linux_test: build_linux
+
 configure_linux:
 	@echo ">> Configuring Linux $(BUILD_TYPE) build...";
-	$(CMAKE) -S . -B $(LINUX_BUILD_DIR) -G $(LINUX_GENERATOR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE)
+	$(CMAKE) -S . -B $(LINUX_BUILD_DIR) -G $(LINUX_GENERATOR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(LINUX_EXTRA_CMAKE)
 
 build_linux: prebuild configure_linux
 	@echo ">> Building Linux $(BUILD_TYPE)...";
 	$(CMAKE) --build $(LINUX_BUILD_DIR) --target $(LINUX_TARGET) --parallel
+ifeq ($(BUILD_TYPE),Release)
+	@echo Re-building with accurate libCoD2x symbols...
+	$(CMAKE) --build $(LINUX_BUILD_DIR) --target $(LINUX_TARGET) --parallel
+endif
 
 clean_linux:
 ifeq ($(OS),Windows_NT)

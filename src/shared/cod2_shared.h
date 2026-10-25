@@ -124,4 +124,17 @@ enum cs_index_t
 	CS_SHADERS = 1566
 };
 
+
+#if COD2X_WIN32
+// Statically linked MSVC 7.1 CRT of CoD2MP_s.exe.
+// Returns the text of a CRT runtime error ("R6025\r\n- pure virtual function call\r\n"), or NULL if the number is unknown.
+// rterrnum is the runtime error number: 10 = abort() called, 16 = not enough space for thread data, 25 = pure virtual function call, ...
+// 00585dcd    char* _GET_RTERRMSG(int32_t rterrnum)
+inline const char* _GET_RTERRMSG(int rterrnum) {
+    int ret;
+    ASM_CALL(RETURN(ret), 0x00585dcd, 1, PUSH(rterrnum));
+    return (const char*)ret;
+}
+#endif
+
 #endif

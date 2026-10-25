@@ -45,6 +45,8 @@
 HMODULE hModule;
 unsigned int gfx_module_addr;
 bool hook_hotreload_init = false;
+volatile unsigned int hook_comFrameCount = 0;   // number of started frames (crash report)
+volatile bool hook_insideComFrame = false;      // true while a frame is running (crash report)
 
 
 /**
@@ -64,9 +66,11 @@ void hook_CL_Frame()
  * Com_Frame
  * Is called in the main loop every frame.
  */
-void hook_Com_Frame() 
+void hook_Com_Frame()
 {
-    logger_add("Com_Frame starting...");
+    // Not logged with logger_add, two messages per frame would push everything else out of the log ring buffer
+    hook_comFrameCount++;
+    hook_insideComFrame = true;
 
     #if DEBUG
         // First frame from newly loaded DLL, we need to initialize
@@ -83,6 +87,7 @@ void hook_Com_Frame()
             
             // Unloading
             hotreload_unload();
+            exception_unload();
             debug_unload();
             common_unload();
             weapons_unload();
@@ -91,6 +96,7 @@ void hook_Com_Frame()
             text_unload();
 
             hotreload_loadDLL();
+            hook_insideComFrame = false;
             return;
         }
     #endif
@@ -103,6 +109,7 @@ void hook_Com_Frame()
     }
 
     // Shared & Server
+    exception_frame();
     module_detection_frame();
     debug_frame();
     freeze_frame();
@@ -121,7 +128,7 @@ void hook_Com_Frame()
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x00434f70);
 
-    logger_add("Com_Frame finished.");
+    hook_insideComFrame = false;
 }
 
 
@@ -303,6 +310,9 @@ bool hook_patch() {
     patch_call(0x00435282, (unsigned int)hook_Com_Frame);
     patch_call(0x0043506a, (unsigned int)hook_CL_Frame);
     patch_call(0x004102b5, (unsigned int)hook_gfxDll);
+
+    // Crash handler first, so crashes during the rest of the game start are reported
+    exception_patch();
 
     // Patch client side
     error_patch();

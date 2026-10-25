@@ -14,6 +14,7 @@
 #include "../shared/gsc.h"
 #include "../shared/match.h"
 #include "updater.h"
+#include "exception.h"
 
 
 /**
@@ -70,6 +71,7 @@ void __cdecl hook_Com_Init(char* cmdline) {
 
     gsc_init();
     updater_checkForUpdate(); // depends on dedicated and network system
+    exception_init();         // send crash reports queued from earlier runs (network is up now)
     common_printInfo();
 }
 
@@ -82,6 +84,8 @@ bool hook_patch() {
     // allow to write in executable memory
 	mprotect((void *)0x08048000, 0x134000, PROT_READ | PROT_WRITE | PROT_EXEC);
 
+    // Crash handler first, so crashes during the rest of the server start are reported
+    exception_patch();
 
     // Patch function calls
     patch_call(0x0806233d, (unsigned int)hook_Com_Init);

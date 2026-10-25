@@ -114,6 +114,9 @@ if (WIN32)
         -DMG_TLS=MG_TLS_OPENSSL -DMG_ENABLE_POSIX_FS=0
         -fdiagnostics-color=always
         $<$<CONFIG:Debug>:-DDEBUG=1>
+        # EXCEPTION_TEST=ON compiles in the crash-handler self test (triggered at runtime with
+        # "+set exception_test <mode>"). Off for shipping builds. See src/mss32/exception.cpp.
+        $<$<BOOL:${EXCEPTION_TEST}>:-DEXCEPTION_TEST=1>
     >
     $<$<COMPILE_LANGUAGE:ASM_NASM>:
         -f win32
@@ -196,6 +199,9 @@ if (UNIX AND NOT WIN32)
     -DMG_TLS=MG_TLS_OPENSSL
     -fdiagnostics-color=always
     $<$<CONFIG:Debug>:-DDEBUG=1>
+    # EXCEPTION_TEST=ON compiles in the crash-handler self test (triggered at runtime with the
+    # COD2X_EXCEPTION_TEST env var). Off for shipping builds. See src/linux/exception.cpp.
+    $<$<BOOL:${EXCEPTION_TEST}>:-DEXCEPTION_TEST=1>
   )
 
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -m32 -shared -static-libgcc -static-libstdc++")
@@ -205,5 +211,15 @@ if (UNIX AND NOT WIN32)
     /usr/lib/i386-linux-gnu/libcrypto.a
     dl pthread
   )
+
+  # Generate symbols_libcod2x.h from the just-linked .so so the crash handler can resolve our own
+  # (static) functions. One-build-behind pattern, like symbols_mss32.h; Release only (two-pass build).
+  if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_command(TARGET linux POST_BUILD
+      COMMAND bash "${CMAKE_SOURCE_DIR}/src/other/generate_libcod2x_symbols.sh"
+              "$<TARGET_FILE:linux>" "${CMAKE_SOURCE_DIR}/src/linux/symbols_libcod2x.h" "nm"
+      COMMENT "Generating symbols_libcod2x.h"
+      VERBATIM)
+  endif()
 
 endif()

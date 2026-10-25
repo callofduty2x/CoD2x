@@ -122,9 +122,40 @@
                     "PATH": "${workspaceFolder}/tools/mingw/bin;${workspaceFolder}/tools/7zip;${env:PATH}"
                 }
             }
+        },
+
+        {
+            "label": "Build Win TEST (crash self-test)",
+            "icon": { "id": "beaker" },
+            "type": "shell",
+            "command": "${workspaceFolder}/tools/mingw/bin/mingw32-make",
+            "args": [ "build_win_test", "DEBUG=0" ],
+            "group": { "kind": "build", "isDefault": false },
+            "options": { "env": { "PATH": "${workspaceFolder}/tools/mingw/bin;${env:PATH}" } },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Run Crash Tests",
+            "icon": { "id": "beaker" },
+            "type": "process",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/tools/test/run_crash_tests.ps1",
+                "-Modes", "${input:crashTestModes}"
+            ],
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": [],
+            "dependsOn": [ "Build Win TEST (crash self-test)" ]
         }
     ],
     "inputs": [
+        {
+            "id": "crashTestModes",
+            "type": "promptString",
+            "description": "Crash test modes (comma-separated): 1 main, 2 dll, 3 renderer, 4 ddraw, 5 stackoverflow, 6 heap, 7 abort, 8 terminate, 9 secondary",
+            "default": "1,2,3,4,5,6,7,8,9"
+        },
         {
             "id": "dir",
             "type": "pickString",

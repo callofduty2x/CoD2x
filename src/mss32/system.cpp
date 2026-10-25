@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <cpuid.h>
 
 #include "shared.h"
 
@@ -16,7 +17,23 @@ char SYS_VM_NAME[64] = {0};
 char SYS_COMPATIBILITY_FLAGS[64] = {0};
 char SYS_LANGUAGE_CODE[8] = {0};
 char SYS_VIRTUALIZATION[128] = {0};
+char SYS_GPU_INFO[512] = {0};
+char SYS_CPU_BRAND[128] = {0};
 bool SYS_IS_ELEVATED = false;
+
+// CPU brand string from CPUID leaves 0x80000002-0x80000004 (e.g. "Intel(R) Core(TM) i7-9700K ...").
+static void system_getCpuBrand() {
+    unsigned int r[12] = {0};
+    if (__get_cpuid(0x80000002, &r[0], &r[1], &r[2], &r[3]) &&
+        __get_cpuid(0x80000003, &r[4], &r[5], &r[6], &r[7]) &&
+        __get_cpuid(0x80000004, &r[8], &r[9], &r[10], &r[11])) {
+        char brand[49];
+        memcpy(brand, r, 48);
+        brand[48] = '\0';
+        const char* p = brand; while (*p == ' ') p++;   // CPUID often left-pads with spaces
+        snprintf(SYS_CPU_BRAND, sizeof(SYS_CPU_BRAND), "%s", p);
+    }
+}
 
 extern bool admin_isElevated();
 
@@ -180,6 +197,52 @@ void system_getLanguageCode(char *buffer, int bufferSize) {
     }
 }
 
+// Reads the display adapters and their driver versions from the registry.
+// Format: "<adapter> (driver <version>, <date>)", multiple adapters separated by "; ".
+void system_getGpuInfo() {
+    size_t pos = 0;
+    SYS_GPU_INFO[0] = '\0';
+
+    for (DWORD i = 0; i < 16 && pos + 1 < sizeof(SYS_GPU_INFO); i++) {
+        DISPLAY_DEVICEA dd = {};
+        dd.cb = sizeof(dd);
+        if (!EnumDisplayDevicesA(NULL, i, &dd, 0))
+            break;
+        if ((dd.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) || dd.DeviceString[0] == '\0')
+            continue;
+
+        // The same adapter is listed once per output
+        if (strstr(SYS_GPU_INFO, dd.DeviceString))
+            continue;
+
+        // DeviceKey: \Registry\Machine\System\CurrentControlSet\Control\Video\{GUID}\0000
+        char driverVersion[64] = {0};
+        char driverDate[32] = {0};
+        const char* prefix = "\\Registry\\Machine\\";
+        size_t prefixLen = strlen(prefix);
+        HKEY hKey;
+        if (_strnicmp(dd.DeviceKey, prefix, prefixLen) == 0 &&
+            RegOpenKeyExA(HKEY_LOCAL_MACHINE, dd.DeviceKey + prefixLen, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            DWORD size = sizeof(driverVersion) - 1;
+            RegQueryValueExA(hKey, "DriverVersion", NULL, NULL, (LPBYTE)driverVersion, &size);
+            size = sizeof(driverDate) - 1;
+            RegQueryValueExA(hKey, "DriverDate", NULL, NULL, (LPBYTE)driverDate, &size);
+            RegCloseKey(hKey);
+        }
+
+        int wrote = snprintf(SYS_GPU_INFO + pos, sizeof(SYS_GPU_INFO) - pos, "%s%s (driver %s, %s)%s",
+            pos > 0 ? "; " : "", dd.DeviceString,
+            driverVersion[0] ? driverVersion : "?",
+            driverDate[0] ? driverDate : "?",
+            (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) ? " [primary]" : "");
+        if (wrote < 0)
+            break;
+        pos += (size_t)wrote;
+        if (pos >= sizeof(SYS_GPU_INFO))
+            break;
+    }
+}
+
 
 void system_getInfo() {
     // Get Windows version info
@@ -206,6 +269,12 @@ void system_getInfo() {
 
     // Get compatibility flags
     system_getCompatibilityFlags();
+
+    // Get display adapters and driver versions (used in crash and error reports)
+    system_getGpuInfo();
+
+    // Get CPU brand string
+    system_getCpuBrand();
 
     // If running with admin rights, append "admin" to the virtualization string
     bool isElevated = admin_isElevated();

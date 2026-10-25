@@ -14,7 +14,7 @@ HANDLE crash_watchdogThreadHandle = NULL;
 volatile DWORD freeze_lastHeartbeat = 0;   // Updated by the main thread
 volatile bool freeze_exitThread = false;
 
-extern volatile int exception_processCrashed;
+extern volatile long exception_processCrashed;
 extern volatile bool hotreload_requested;
 
 
@@ -33,16 +33,23 @@ DWORD WINAPI freeze_watchdogThreadProc(LPVOID lpParameter) {
                 continue;
             }
 
+            // Save and send the stacks of the main and render thread while the game is still frozen
+            exception_reportFreeze("Main thread did not finish a frame (freeze watchdog)", currentTime - freeze_lastHeartbeat);
+
             // Message box asking if to ignore the freeze or create dump file and exit
-            int result = MessageBox(NULL, 
-                "Call of Duty 2 has frozen.\n\nDo you want to create a diagnostic file and exit the process?", 
+            int result = MessageBox(NULL,
+                "Call of Duty 2 has frozen.\n\nDo you want to create a diagnostic file and exit the process?",
                 "Application frozen", MB_YESNO | MB_ICONERROR | MB_TOPMOST);
-            
+
             if (result == IDYES) {
-                bool ok = exception_createMiniDump(NULL);
+                char dumpPath[MAX_PATH * 2] = {0};
+                bool ok = exception_createMiniDump(NULL, 0, true, "freeze", dumpPath, sizeof(dumpPath));
                 if (ok) {
-                    MessageBox(NULL, "Diagnostic file 'CoD2MP_s.crash.dmp' saved into CoD2 folder.\nPlease send this file to the developers.",
-                        "Application frozen", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+                    char msg[MAX_PATH * 2 + 128];
+                    snprintf(msg, sizeof(msg), "Diagnostic file was saved to:\n%s\n\nPlease send this file to the developers.", dumpPath);
+                    MessageBox(NULL, msg, "Application frozen", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+                } else {
+                    MessageBox(NULL, "Failed to create the diagnostic file.", "Application frozen", MB_OK | MB_ICONERROR | MB_TOPMOST);
                 }
                 ExitProcess(1);
 
@@ -104,7 +111,10 @@ void sub_004624a0()
         return;
 
     if (wait == WAIT_TIMEOUT) {
-        showErrorMessage("Error", "Call of Duty 2 has frozen.\n\nThe main thread did not respond within 5 seconds\n\nCoD2x will try to restart the game.");
+        // Save and send the stacks of the main and render thread while the main thread is still stuck
+        exception_reportFreeze("Render thread timed out waiting for the main thread", 4000);
+
+        showErrorMessage("Error", "Call of Duty 2 has frozen.\n\nThe main thread did not respond within 4 seconds\n\nCoD2x will try to restart the game.");
 
         // call 0040d780    char* vid_restart_cmd()
         ASM_CALL(RETURN_VOID, 0x0040d780, 0);

@@ -2,6 +2,8 @@
 #define HOOK_H
 
 extern unsigned int gfx_module_addr;
+extern volatile unsigned int hook_comFrameCount;
+extern volatile bool hook_insideComFrame;
 
 int hook_gfxDll();
 void hook_CL_Init();

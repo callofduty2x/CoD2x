@@ -11,6 +11,8 @@ extern char SYS_VM_NAME[64];
 extern char SYS_COMPATIBILITY_FLAGS[64];
 extern char SYS_LANGUAGE_CODE[8];
 extern char SYS_VIRTUALIZATION[128];
+extern char SYS_GPU_INFO[512];
+extern char SYS_CPU_BRAND[128];
 extern bool SYS_IS_ELEVATED;
 
 void system_getInfo();
