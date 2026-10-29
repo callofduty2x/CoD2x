@@ -47,7 +47,10 @@ jobs:
               apt-get update
             }
             apt-get install -y --no-install-recommends g++ g++-multilib cmake ninja-build libssl-dev:i386 binutils gawk
-            cmake -S . -B build/linux-Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DEXCEPTION_TEST=OFF
+            # ubuntu:18.04 ships CMake 3.10, which has no -S/-B flags (added in 3.13); configure the
+            # classic way from inside the build dir so it works there. --build is fine on 3.10.
+            mkdir -p build/linux-Release
+            ( cd build/linux-Release && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DEXCEPTION_TEST=OFF /src )
             cmake --build build/linux-Release --target linux --parallel
             cmake --build build/linux-Release --target linux --parallel
           '
