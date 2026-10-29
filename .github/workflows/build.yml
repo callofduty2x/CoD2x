@@ -55,12 +55,11 @@ jobs:
             cmake --build build/linux-Release --target linux
             cmake --build build/linux-Release --target linux
           '
-      - name: Package
-        run: bash .github/scripts/package.sh linux "${{ inputs.version }}"
+      # Upload the raw .so only; the human-install zip is assembled in the publish job (no zip-in-zip).
       - uses: actions/upload-artifact@v4
         with:
           name: CoD2x-${{ inputs.version }}-linux
-          path: out/
+          path: bin/linux/libCoD2x.so
 
   build-windows:
     name: Build Windows (.dll)
@@ -86,12 +85,11 @@ jobs:
           cmake --build build/win-Release --target mss32 --parallel
           cmake --build build/win-Release --target mss32 --parallel
           mv bin/windows/mss32.build.dll bin/windows/mss32.dll
-      - name: Package
-        run: bash .github/scripts/package.sh windows "${{ inputs.version }}"
+      # Upload the raw .dll only; the human-install zip is assembled in the publish job (no zip-in-zip).
       - uses: actions/upload-artifact@v4
         with:
           name: CoD2x-${{ inputs.version }}-windows
-          path: out/
+          path: bin/windows/mss32.dll
 
   publish:
     name: Publish GitHub Release
@@ -112,6 +110,15 @@ jobs:
           set -eux
           MK_VER="$(make -s print-version | tr -d '[:space:]')"
           [ "${{ inputs.version }}" = "$MK_VER" ] || { echo "::error::tag ${{ inputs.version }} does not match makefile version $MK_VER"; exit 1; }
+      - name: Assemble release assets (raw binaries + install zips)
+        # Drop the built binaries from the artifacts next to the committed companion files, then let
+        # package.sh produce out/ = the raw binary + CoD2x_<ver>_<os>.zip for each platform.
+        run: |
+          set -eux
+          cp "dist/CoD2x-${{ inputs.version }}-windows/mss32.dll" bin/windows/mss32.dll
+          cp "dist/CoD2x-${{ inputs.version }}-linux/libCoD2x.so" bin/linux/libCoD2x.so
+          bash .github/scripts/package.sh windows "${{ inputs.version }}"
+          bash .github/scripts/package.sh linux "${{ inputs.version }}"
       - name: Generate release notes
         run: |
           PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
@@ -136,6 +143,6 @@ jobs:
           body_path: notes.md
           prerelease: ${{ steps.pre.outputs.value == 'true' }}
           files: |
-            dist/*/CoD2x_*.zip
-            dist/*/libCoD2x.so
-            dist/*/mss32.dll
+            out/CoD2x_*.zip
+            out/mss32.dll
+            out/libCoD2x.so

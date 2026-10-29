@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Stage the release files for one platform and produce out/CoD2x_<version>_<platform>.zip plus the
-# raw binary in out/ (both uploaded by CI as artifacts / GitHub Release assets). Run from the repo
-# root in CI (bash: the ubuntu-latest host, or the Windows MSYS2 shell). CI is the single source of
-# truth for release archives - the makefile builds locally but does not package.
+# Assemble the release files for one platform: out/CoD2x_<version>_<platform>.zip (binary + its
+# companion + the manual) plus the raw binary copied into out/ - both become GitHub Release assets.
+# Run from the repo root in the release publish job (bash, ubuntu-latest). CI test builds upload the
+# raw binary on its own and do not call this; the makefile builds locally but does not package.
 #
 # Usage: package.sh <windows|linux> <version>
 set -eu
