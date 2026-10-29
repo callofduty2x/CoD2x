@@ -37,9 +37,15 @@ jobs:
           set -eux
           docker run --rm -v "$PWD":/src -w /src ubuntu:18.04 bash -c '
             set -eux
-            sed -i "s|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g" /etc/apt/sources.list
             dpkg --add-architecture i386
-            apt-get update
+            # bionic is still served by archive/security today; only once 18.04 is retired to
+            # old-releases does the stock mirror 404. Use the stock mirror and fall back to
+            # old-releases only if apt-get update fails - keeps working across that migration
+            # without a future edit.
+            apt-get update || {
+              sed -i "s|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g" /etc/apt/sources.list
+              apt-get update
+            }
             apt-get install -y --no-install-recommends g++ g++-multilib cmake ninja-build libssl-dev:i386 binutils gawk
             cmake -S . -B build/linux-Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DEXCEPTION_TEST=OFF
             cmake --build build/linux-Release --target linux --parallel
