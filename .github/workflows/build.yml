@@ -51,8 +51,9 @@ jobs:
             # classic way from inside the build dir so it works there. --build is fine on 3.10.
             mkdir -p build/linux-Release
             ( cd build/linux-Release && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DEXCEPTION_TEST=OFF /src )
-            cmake --build build/linux-Release --target linux --parallel
-            cmake --build build/linux-Release --target linux --parallel
+            # Ninja already builds in parallel; --parallel is a cmake 3.12+ flag (18.04 has 3.10).
+            cmake --build build/linux-Release --target linux
+            cmake --build build/linux-Release --target linux
           '
       - name: Package
         run: bash .github/scripts/package.sh linux "${{ inputs.version }}"
