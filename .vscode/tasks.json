@@ -62,23 +62,6 @@
         },
 
         {
-            "label": "Zip",
-            "icon": { "id": "archive" },
-            "type": "shell",
-            "command": "mingw32-make.exe",
-            "args": ["zip_all"],
-            "group": {
-                "kind": "build"
-            },
-            "problemMatcher": ["$gcc"],
-            "options": {
-                "env": {
-                    "PATH": "${workspaceFolder}/tools/mingw/bin;${workspaceFolder}/tools/7zip;${env:PATH}"
-                }
-            }
-        },
-  
-        {
             "label": "WSL Linux",
             "type": "shell",
             "command": "${workspaceFolder}/tools/wsl/WSL_run.bat",

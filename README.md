@@ -12,6 +12,7 @@ It focuses on fixing bugs and adding new features to the game.
 - This software may be terminated or withdrawn at any time
 
 # Version history
+- 2026-10-18 - 1.4.6.9-test.1 - *current testing*
 - 2026-04-07 - **[1.4.6.8](https://github.com/callofduty2x/CoD2x/releases/tag/v1.4.6.8)** - **current**
 
 <details>
@@ -149,9 +150,8 @@ It focuses on fixing bugs and adding new features to the game.
 - New commands `/increase` and `/decrease` to increase or decrease the value of a cvar
 - Reversed function for third person, added new cvar `cg_thirdPersonMode 1` that rotates directly around player without collision with the world
 - Added possibility to set CPU affinity
-  - `com_affinity -1` (default) - use maximum available CPU cores
-  - `com_affinity 0` - disable automatically setting CPU affinity
-  - `com_affinity <number>` - set specified number of cores (e.g. `com_affinity 3` will use first 3 cores)
+  - `com_autoaffinity 1` (default) - use all available CPU cores
+  - `com_autoaffinity 0` - do not automatically set CPU affinity
 - Fixed sounds of invisible players caused by PVS
 - Changeable LODs (Level of Detail) for models
   - `r_lodScale <value>`
@@ -171,6 +171,7 @@ It focuses on fixing bugs and adding new features to the game.
 - Automatic zPAM updates
 - Smarter IWD handling and configs: always use `main/config_mp.cfg`; improved filtering to prevent sum/name mismatch; for demos only IWDs used at record-time are loaded; for listen servers only the latest zPAM files are loaded; assets in `movie` are included for demo playback; automatic extraction of `iw_CoD2x_01.iwd`.
 - Cvar to disable saving changes to config via cvar `com_writeConfig`
+- Allow scanning 32 LAN servers instead of 4
 
 
 # GSC functions

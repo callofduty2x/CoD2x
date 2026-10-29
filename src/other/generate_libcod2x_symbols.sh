@@ -1,37 +1,38 @@
 #!/usr/bin/env bash
 # Post-build: reads nm output from the just-linked (pre-strip) libCoD2x.so and emits
-# src/linux/symbols_libcod2x.h (RVA-based, one-build-behind pattern, mirrors generate_mss32_symbols_h.ps1).
+# src/linux/symbols_libcod2x.h (RVA-based, one-build-behind pattern; mirrors generate_mss32_symbols_h.ps1).
 #
-# dladdr only resolves exported (.dynsym) symbols, so libCoD2x's own static functions show as <no symbol>
-# in a crash. This table (from .symtab) lets the Linux crash handler resolve them.
+# dladdr only resolves exported (.dynsym) symbols, so libCoD2x's own static functions show as
+# <no symbol> in a crash. This table (from .symtab) lets the Linux crash handler resolve them.
+# ELF load base is 0, so nm's addresses are already RVAs.
 #
 # Usage: generate_libcod2x_symbols.sh <libCoD2x.so> <out-header> [nm]
 set -e
-SO="$1"
-OUT="$2"
-NM="${3:-nm}"
+SO="$1"; OUT="$2"; NM="${3:-nm}"
+[[ -z "$SO" || -z "$OUT" ]] && { echo "usage: $0 <so> <out.h> [nm]"; exit 2; }
 
-if [[ -z "$SO" || -z "$OUT" ]]; then echo "usage: $0 <so> <out.h> [nm]"; exit 2; fi
+tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
 
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
-
-# -n sorted by address, -C demangled, defined text symbols only (t/T local+global, w/W weak).
-# Fields: <hex addr> <type> <name...>. Drop the argument list and anything after it.
+# Defined text symbols (t/T local+global, w/W weak), numeric-sorted, demangled. Reduce each to the
+# bare function name: drop the parameter list, then the return-type prefix, then compiler/STL noise.
 "$NM" --defined-only -n -C "$SO" | awk '
   $2 ~ /^[tTwW]$/ {
-    addr = $1;
-    name = $3;
-    for (i = 4; i <= NF; i++) name = name " " $i;
-    p = index(name, "(");
-    if (p > 0) name = substr(name, 1, p - 1);
-    # Skip section/compiler-internal labels so their address gaps stay unresolved rather than mislabeled.
-    first = substr(name, 1, 1);
-    if (first == "." || first == "$") next;
+    addr = $1; name = $3; for (i = 4; i <= NF; i++) name = name " " $i;
+    # Structural noise, matched on the full demangled form BEFORE trimming (e.g. "typeinfo for X",
+    # "vtable for X", "non-virtual thunk to X" would otherwise survive the return-type strip as "X").
+    if (name ~ /\{lambda/ || name ~ /^vtable / || name ~ /^typeinfo / || name ~ /thunk/) next;
     if (name ~ /^_GLOBAL__/ || name ~ /^_ZGV/) next;
-    gsub(/\\/, "\\\\", name);
-    gsub(/"/, "\\\"", name);
-    if (name != "") print addr "\t" name;
+    first = substr(name, 1, 1); if (first == "." || first == "$") next;   # section/compiler labels
+    p = index(name, "("); if (p > 0) name = substr(name, 1, p - 1);       # cut parameter list
+    depth = 0; lastSpace = 0;                                             # strip return-type prefix: last space at <>/() depth 0
+    for (i = 1; i <= length(name); i++) { c = substr(name, i, 1);
+      if (c == "<" || c == "(") depth++; else if (c == ">" || c == ")") depth--;
+      else if (c == " " && depth == 0) lastSpace = i; }
+    if (lastSpace > 0) name = substr(name, lastSpace + 1);
+    if (name ~ /^std::/ || name ~ /__gnu_cxx/ || name ~ /__cxx/) next;    # STL internals (after return-type strip)
+    if (name == "") next;
+    gsub(/\\/, "\\\\", name); gsub(/"/, "\\\"", name);
+    print addr "\t" name;
   }' > "$tmp"
 
 {
@@ -55,18 +56,15 @@ trap 'rm -f "$tmp"' EXIT
   echo ""
   echo "static const LibCod2xSymbol symbols_libcod2x[] ="
   echo "{"
-
-  # Emit entries; compute len = next_addr - addr for consecutive symbols (portable bash arithmetic).
-  prevAddr=""; prevName=""
-  while IFS=$'\t' read -r a n; do
-    if [[ -n "$prevAddr" ]]; then
-      len=$(( 0x$a - 0x$prevAddr )); (( len < 0 )) && len=0
-      printf '    { 0x%08xu, 0x%xu, "%s" },\n' "$((0x$prevAddr))" "$len" "$prevName"
-    fi
-    prevAddr="$a"; prevName="$n"
+  # Emit entries; len = distance to the next symbol. Dedup consecutive same-address aliases.
+  prevRva=""; prevName=""
+  while IFS=$'\t' read -r a name; do
+    rva=$(( 16#$a ))
+    [[ "$rva" == "$prevRva" ]] && continue
+    if [[ -n "$prevRva" ]]; then printf '    { 0x%08xu, 0x%xu, "%s" },\n' "$prevRva" "$(( rva - prevRva ))" "$prevName"; fi
+    prevRva="$rva"; prevName="$name"
   done < "$tmp"
-  [[ -n "$prevAddr" ]] && printf '    { 0x%08xu, 0x0u, "%s" },\n' "$((0x$prevAddr))" "$prevName"
-
+  [[ -n "$prevRva" ]] && printf '    { 0x%08xu, 0x0u, "%s" },\n' "$prevRva" "$prevName"
   echo "};"
   echo ""
   echo "static const size_t symbols_libcod2x_count = sizeof(symbols_libcod2x) / sizeof(symbols_libcod2x[0]);"
@@ -74,10 +72,8 @@ trap 'rm -f "$tmp"' EXIT
   echo "// Binary search: returns the LibCod2xSymbol whose range contains 'rva', or nullptr."
   echo "static inline const LibCod2xSymbol* symbols_libcod2x_find(uint32_t rva)"
   echo "{"
-  echo "    int lo = 0;"
-  echo "    int hi = (int)symbols_libcod2x_count - 1;"
-  echo "    while (lo <= hi)"
-  echo "    {"
+  echo "    int lo = 0, hi = (int)symbols_libcod2x_count - 1;"
+  echo "    while (lo <= hi) {"
   echo "        int mid = lo + (hi - lo) / 2;"
   echo "        const LibCod2xSymbol& f = symbols_libcod2x[mid];"
   echo "        if (rva < f.rva) hi = mid - 1;"
@@ -90,4 +86,4 @@ trap 'rm -f "$tmp"' EXIT
   echo "#endif // SYMBOLS_LIBCOD2X_H"
 } > "$OUT"
 
-echo "Generated $OUT ($(grep -c '0x' "$OUT") lines)"
+echo "Generated $OUT ($(grep -c '0x' "$OUT") symbols)"

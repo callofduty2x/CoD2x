@@ -2,3 +2,7 @@
 Dockerfile    text eol=lf
 .dockerignore text eol=lf
 compose.yaml  text eol=lf
+
+# Shell scripts run through bash in CI (Linux host + MSYS2); CRLF would break the
+# shebang/commands with a cryptic '\r' error. Keep them LF even on Windows checkouts.
+*.sh          text eol=lf

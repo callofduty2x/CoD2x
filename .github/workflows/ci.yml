@@ -1,0 +1,55 @@
+name: CI
+
+# Builds every PR and every push to main (no release) so changes are compiled/tested and the binaries
+# are downloadable for testing. Uses the shared build.yml, so these are the same builds as a release.
+#   PR #123       -> version 1.4.6.9-pr.123   (rebuilds on each push to the PR)
+#   push to main  -> version 1.4.6.9-dev.<sha>
+# `on: pull_request` runs fork PRs sandboxed (no secrets, read-only token), so contributor code is safe.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One in-flight run per PR / per branch; a new push cancels the previous (saves CI minutes).
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          set -eu
+          BASE="$(make -s print-version | tr -d '[:space:]')"   # e.g. 1.4.6.9 or 1.4.6.9-test.1
+          BASE="${BASE%%-*}"                                     # strip any suffix -> 1.4.6.9
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            SUFFIX="pr.${{ github.event.pull_request.number }}"
+          else
+            SUFFIX="dev.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=${BASE}-${SUFFIX}" >> "$GITHUB_OUTPUT"
+      # Save the PR number so the pr-build-link workflow (runs with write perms, no PR code) can comment.
+      - if: github.event_name == 'pull_request'
+        run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
+      - if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-number
+          path: pr-number.txt
+
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      publish: false

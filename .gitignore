@@ -19,7 +19,6 @@ bin/windows/*
 !bin/windows/gfx_d3d_x86_s.dll
 !bin/windows/localization.txt
 !bin/windows/mss32_original.dll
-!bin/windows/mss32.dll
 !bin/windows/version.inf
 
 # Ignore all folders in CoD2 windows folder except for main, miles, and pb
@@ -41,3 +40,13 @@ bin/windows/main/players/default/config_mp.cfg
 # Large Binary Ninja pseudo-C dumps - keep locally, too big for GitHub
 src/other/*.bndb_pseudo_c.txt
 src/other/*.bndb_disassembly.txt
+# CoD2x build outputs — built by CI and attached to the GitHub Release, not committed to git.
+bin/linux/libCoD2x.so
+src/mss32/symbols_mss32.h
+src/linux/symbols_libcod2x.h
+zip/**/*.zip
+zip/windows/mss32.dll
+zip/linux/libCoD2x.so
+
+# Runtime/test logs (e.g. direct.log, server.log from tools/test)
+*.log

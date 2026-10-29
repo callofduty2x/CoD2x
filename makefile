@@ -29,16 +29,21 @@ VERSION_PROTOCOL = 6
 
 # CoD2x patch version
 # Should be increased when new version is released and the changes are backward compatible
-VERSION_PATCH = 8
+VERSION_PATCH = 9
 
 # CoD2x test version (e.g. -test.1)
-VERSION_TEST =
-VERSION_IS_TEST = 0
+VERSION_TEST = -test.1
+VERSION_IS_TEST = 1
 
 # Full version string
 # Example "1.4.1.1"  or  "1.4.1.1-test.1"
 VERSION = $(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PROTOCOL).$(VERSION_PATCH)$(VERSION_TEST)
 VERSION_COMMA = $(VERSION_MAJOR),$(VERSION_MINOR),$(VERSION_PROTOCOL),$(VERSION_PATCH)
+
+# Print the current version string (CI verifies the release tag matches this). No build.
+.PHONY: print-version
+print-version:
+	@echo $(VERSION)
 
 
 # ========================================================================================================
@@ -237,81 +242,10 @@ $(DIR)/$(CLASSNAME).h $(DIR)/$(CLASSNAME).cpp: src/_template.h.in src/_template.
 # ========================================================================================================
 # Ziping
 # ========================================================================================================
-.PHONY: zip_all
-zip_all: zip_win zip_linux
+# Release archives (CoD2x_<ver>_<os>.zip) are built by CI (.github/scripts/package.sh), not here.
+# This section only builds the embedded IWD asset below.
 
 ZIP_EXEC = 7za.exe
-
-
-# ========================================================================================================
-# Zip windows files
-# ========================================================================================================
-.PHONY: zip_win zip_win_clean
-
-# Define source files and target paths
-ZIP_WIN_DIR = zip/windows
-ZIP_WIN_FILES = bin/windows/mss32.dll bin/windows/mss32_original.dll
-ZIP_WIN_NAME = CoD2x_$(VERSION)_windows.zip
-ZIP_WIN_OUTPUT = $(ZIP_WIN_DIR)/$(ZIP_WIN_NAME)
-
-# Rule to create the zip file
-$(ZIP_WIN_OUTPUT): $(ZIP_WIN_FILES) | $(ZIP_WIN_DIR)
-	@echo "Copying files to $(subst /,\, $(ZIP_WIN_DIR))..."
-	@for %%f in ($(subst /,\, $(ZIP_WIN_FILES))) do copy %%f $(subst /,\, $(ZIP_WIN_DIR)) >nul
-	@echo "Creating zip archive $(subst /,\, $(ZIP_WIN_OUTPUT)) using 7-Zip..."
-	@echo $(ZIP_EXEC) a -tzip "$(subst /,\, $(ZIP_WIN_OUTPUT))" "$(subst /,\, $(ZIP_WIN_DIR))\*"
-	@cd $(subst /,\, $(ZIP_WIN_DIR)) && $(ZIP_EXEC) a -tzip "$(ZIP_WIN_NAME)" *
-	@echo "Zip archive created at $(subst /,\, $(ZIP_WIN_OUTPUT))."
-
-# Rule to ensure the zip directory exists
-$(ZIP_WIN_DIR):
-	@echo "Creating directory $(ZIP_WIN_DIR)..."
-	@mkdir -p $(ZIP_WIN_DIR)
-
-zip_win: zip_win_clean $(ZIP_WIN_OUTPUT)
-
-zip_win_clean:
-	@echo "Cleaning up $(subst /,\, $(ZIP_WIN_DIR)), preserving manual..."
-	@if exist $(subst /,\, $(ZIP_WIN_DIR)) ( \
-	    for %%f in ($(subst /,\, $(ZIP_WIN_DIR))\*) do ( \
-	        if /I not "%%~nxf"=="CoD2x Installation and uninstallation manual.txt" del /Q "%%f" \
-	    ) \
-	)
-
-
-# ========================================================================================================
-# Zip Linux files
-# ========================================================================================================
-.PHONY: zip_linux zip_linux_clean
-
-ZIP_LINUX_DIR = zip/linux
-ZIP_LINUX_FILES = bin/linux/libCoD2x.so bin/linux/cod2_lnxded
-ZIP_LINUX_NAME = CoD2x_$(VERSION)_linux.zip
-ZIP_LINUX_OUTPUT = $(ZIP_LINUX_DIR)/$(ZIP_LINUX_NAME)
-
-# Rule to create the Linux zip file
-$(ZIP_LINUX_OUTPUT): $(ZIP_LINUX_FILES) | $(ZIP_LINUX_DIR)
-	@echo "Copying files to $(subst /,\, $(ZIP_LINUX_DIR))..."
-	@for %%f in ($(subst /,\, $(ZIP_LINUX_FILES))) do copy %%f $(subst /,\, $(ZIP_LINUX_DIR)) >nul
-	@echo "Creating zip archive $(subst /,\, $(ZIP_LINUX_OUTPUT)) using 7-Zip..."
-	@echo $(ZIP_EXEC) a -tzip "$(subst /,\, $(ZIP_LINUX_OUTPUT))" "$(subst /,\, $(ZIP_LINUX_DIR))\*"
-	@cd $(subst /,\, $(ZIP_LINUX_DIR)) && $(ZIP_EXEC) a -tzip "$(ZIP_LINUX_NAME)" *
-	@echo "Zip archive created at $(subst /,\, $(ZIP_LINUX_OUTPUT))."
-
-# Rule to ensure the Linux zip directory exists
-$(ZIP_LINUX_DIR):
-	@echo "Creating directory $(ZIP_LINUX_DIR)..."
-	@mkdir -p $(ZIP_LINUX_DIR)
-
-zip_linux: zip_linux_clean $(ZIP_LINUX_OUTPUT)
-
-zip_linux_clean:
-	@echo "Cleaning up $(subst /,\, $(ZIP_LINUX_DIR)), preserving manual..."
-	@if exist $(subst /,\, $(ZIP_LINUX_DIR)) ( \
-	    for %%f in ($(subst /,\, $(ZIP_LINUX_DIR))\*) do ( \
-	        if /I not "%%~nxf"=="CoD2x Installation and uninstallation manual.txt" del /Q "%%f" \
-	    ) \
-	)
 
 
 # ========================================================================================================

@@ -1,73 +1,31 @@
-name: Create Release
+name: Release
+
+# A release is triggered by pushing a version TAG (never by a commit):
+#     git tag v1.4.6.9         && git push origin v1.4.6.9         # final release
+#     git tag v1.4.6.9-test.1  && git push origin v1.4.6.9-test.1  # pre-release (test)
+# The "Version x" commit is only a marker; it does NOT release. External users can't push tags,
+# so they can't release. Builds come from the shared build.yml (same pipeline as PR/CI builds).
 
 on:
   push:
-    branches:
-      - master
-      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
 
 jobs:
-  create-release:
-    if: startsWith(github.event.head_commit.message, 'Version ')
+  version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.v.outputs.version }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"   # v1.4.6.9 -> 1.4.6.9
 
-      - name: Extract version
-        id: version
-        run: |
-          COMMIT_MSG="${{ github.event.head_commit.message }}"
-          VERSION=$(printf '%s\n' "$COMMIT_MSG" | grep -oP '^Version\s+\K[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(-test\.[0-9]+)?$')
-
-          if [ -z "$VERSION" ]; then
-            echo "Commit message must be exactly: Version {version}"
-            exit 1
-          fi
-
-          if [[ "$VERSION" == *-test.* ]]; then
-            PRERELEASE=true
-          else
-            PRERELEASE=false
-          fi
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
-
-      - name: Verify release files exist
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          WINDOWS_ZIP="zip/windows/CoD2x_${VERSION}_windows.zip"
-          LINUX_ZIP="zip/linux/CoD2x_${VERSION}_linux.zip"
-
-          test -f "$WINDOWS_ZIP" || { echo "Missing $WINDOWS_ZIP"; exit 1; }
-          test -f "$LINUX_ZIP" || { echo "Missing $LINUX_ZIP"; exit 1; }
-
-          ls -lh "$WINDOWS_ZIP" "$LINUX_ZIP"
-
-      - name: Generate release notes
-        run: |
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
-
-          if [ -n "$PREV_TAG" ]; then
-            git log "$PREV_TAG"..HEAD --pretty=format:'- %s' --no-merges > release-notes.md
-          else
-            git log HEAD --pretty=format:'- %s' --no-merges > release-notes.md
-          fi
-
-          cat release-notes.md
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: CoD2x ${{ steps.version.outputs.version }}
-          body_path: release-notes.md
-          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
-          files: |
-            zip/windows/CoD2x_${{ steps.version.outputs.version }}_windows.zip
-            zip/linux/CoD2x_${{ steps.version.outputs.version }}_linux.zip
+  build:
+    needs: version
+    uses: ./.github/workflows/build.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+      publish: true

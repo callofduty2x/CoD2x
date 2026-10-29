@@ -1,0 +1,131 @@
+name: Build
+
+# Reusable build pipeline — called by ci.yml (PRs / main) and release.yml (tags). This is the SINGLE
+# definition of how the binaries are built, so PR/test builds are byte-for-byte the same pipeline as
+# releases; they differ only in the version string and whether a GitHub Release is published.
+#
+# NOTE: the vendored tools/mingw is gitignored, so Windows CI installs its own toolchain via MSYS2.
+# The Windows symbol step runs via PowerShell (present on the runner); Linux uses bash. If anything
+# in the symbol step misbehaves on the first run, add -DGENERATE_SYMBOLS=OFF to that build step to
+# ship placeholder symbols and iterate.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version to stamp, e.g. 1.4.6.9 / 1.4.6.9-test.1 / 1.4.6.9-pr.123
+        required: true
+        type: string
+      publish:
+        description: Publish a GitHub Release with the binaries (tag releases only)
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build-linux:
+    name: Build Linux (.so)
+    runs-on: ubuntu-latest
+    steps:
+      # Node20 actions (checkout/upload) run on the HOST; only the compile runs inside the old-glibc
+      # container (ubuntu:18.04 has glibc 2.27, too old for Node20 actions to run inside it).
+      - uses: actions/checkout@v4
+      - name: Generate version headers
+        run: bash .github/scripts/gen-version.sh "${{ inputs.version }}"
+      - name: Build in ubuntu:18.04 (glibc 2.27 -> runs on old dedicated servers)
+        run: |
+          set -eux
+          docker run --rm -v "$PWD":/src -w /src ubuntu:18.04 bash -c '
+            set -eux
+            sed -i "s|archive.ubuntu.com|old-releases.ubuntu.com|g; s|security.ubuntu.com|old-releases.ubuntu.com|g" /etc/apt/sources.list
+            dpkg --add-architecture i386
+            apt-get update
+            apt-get install -y --no-install-recommends g++ g++-multilib cmake ninja-build libssl-dev:i386 binutils gawk
+            cmake -S . -B build/linux-Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DEXCEPTION_TEST=OFF
+            cmake --build build/linux-Release --target linux --parallel
+            cmake --build build/linux-Release --target linux --parallel
+          '
+      - name: Package
+        run: bash .github/scripts/package.sh linux "${{ inputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoD2x-${{ inputs.version }}-linux
+          path: out/
+
+  build-windows:
+    name: Build Windows (.dll)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32            # 32-bit mingw-w64 (mss32.dll is a 32-bit DLL)
+          update: false
+          install: >-
+            mingw-w64-i686-gcc mingw-w64-i686-cmake mingw-w64-i686-ninja
+            mingw-w64-i686-nasm mingw-w64-i686-binutils zip
+      - name: Generate version headers
+        run: bash .github/scripts/gen-version.sh "${{ inputs.version }}"
+      - name: Build (Release, two-pass for symbols)
+        run: |
+          set -eux
+          cmake -S . -B build/win-Release -G Ninja -DCMAKE_BUILD_TYPE=Release -DEXCEPTION_TEST=OFF
+          cmake --build build/win-Release --target mss32 --parallel
+          cmake --build build/win-Release --target mss32 --parallel
+          mv bin/windows/mss32.build.dll bin/windows/mss32.dll
+      - name: Package
+        run: bash .github/scripts/package.sh windows "${{ inputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoD2x-${{ inputs.version }}-windows
+          path: out/
+
+  publish:
+    name: Publish GitHub Release
+    # Only when the caller asks to publish (release.yml). Permissions come from the caller
+    # (release.yml grants contents: write; ci.yml grants read and skips this job).
+    if: ${{ inputs.publish }}
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Verify tag matches makefile version
+        run: |
+          set -eux
+          MK_VER="$(make -s print-version | tr -d '[:space:]')"
+          [ "${{ inputs.version }}" = "$MK_VER" ] || { echo "::error::tag ${{ inputs.version }} does not match makefile version $MK_VER"; exit 1; }
+      - name: Generate release notes
+        run: |
+          PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            git log "$PREV".."${GITHUB_REF_NAME}" --pretty='- %s' --no-merges > notes.md
+          else
+            git log "${GITHUB_REF_NAME}" --pretty='- %s' --no-merges > notes.md
+          fi
+          cat notes.md
+      - name: Determine prerelease
+        id: pre
+        run: |
+          case "${{ inputs.version }}" in
+            *-*) echo "value=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "value=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: CoD2x ${{ github.ref_name }}
+          body_path: notes.md
+          prerelease: ${{ steps.pre.outputs.value == 'true' }}
+          files: |
+            dist/*/CoD2x_*.zip
+            dist/*/libCoD2x.so
+            dist/*/mss32.dll
