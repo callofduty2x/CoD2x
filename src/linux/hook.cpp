@@ -7,6 +7,7 @@
 #include "../shared/cod2_common.h"
 #include "../shared/common.h"
 #include "../shared/weapons.h"
+#include "../shared/antilag.h"
 #include "../shared/server.h"
 #include "../shared/dvar.h"
 #include "../shared/game.h"
@@ -45,6 +46,7 @@ void hook_SV_Init() {
 
     // Shared & Server
     common_init();
+    antilag_init();
     weapons_init();
     server_init();
     dvar_init();
@@ -93,6 +95,7 @@ bool hook_patch() {
     patch_call(0x0806281a, (unsigned int)hook_Com_Frame);
 
 
+    antilag_patch();
     weapons_patch();
     common_patch();
     server_patch();

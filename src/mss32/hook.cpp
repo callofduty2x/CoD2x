@@ -41,6 +41,7 @@
 #include "../shared/gsc.h"
 #include "../shared/match.h"
 #include "../shared/weapons.h"
+#include "../shared/antilag.h"
 
 HMODULE hModule;
 unsigned int gfx_module_addr;
@@ -90,6 +91,7 @@ void hook_Com_Frame()
             exception_unload();
             debug_unload();
             common_unload();
+            antilag_unload();
             weapons_unload();
             radar_unload();
             demo_unload();
@@ -235,6 +237,7 @@ void hook_SV_Init() {
 
     // Shared & Server 
     freeze_init();
+    antilag_init();
     weapons_init();
     common_init();
     server_init();
@@ -332,6 +335,7 @@ bool hook_patch() {
     demo_patch();
     vmix_patch();
 
+    antilag_patch();
     weapons_patch();
     // Patch server side
     common_patch();
