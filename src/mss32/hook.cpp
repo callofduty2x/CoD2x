@@ -41,6 +41,7 @@
 #include "../shared/gsc.h"
 #include "../shared/match.h"
 #include "../shared/weapons.h"
+#include "../shared/antilag.h"
 
 HMODULE hModule;
 unsigned int gfx_module_addr;
@@ -235,6 +236,7 @@ void hook_SV_Init() {
 
     // Shared & Server 
     freeze_init();
+    antilag_init();
     weapons_init();
     common_init();
     server_init();

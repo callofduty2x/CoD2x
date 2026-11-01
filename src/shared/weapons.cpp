@@ -247,7 +247,6 @@ void weapons_unload()
  */
 void weapons_init()
 {
-    antilag_init();
 	g_shotgun_spread_fix = Dvar_RegisterBool("g_shotgun_spread_fix", true, (enum dvarFlags_e)(DVAR_CHEAT | DVAR_CHANGEABLE_RESET));
 }
 
