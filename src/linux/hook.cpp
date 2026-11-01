@@ -95,6 +95,7 @@ bool hook_patch() {
     patch_call(0x0806281a, (unsigned int)hook_Com_Frame);
 
 
+    antilag_patch();
     weapons_patch();
     common_patch();
     server_patch();

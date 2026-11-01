@@ -91,6 +91,7 @@ void hook_Com_Frame()
             exception_unload();
             debug_unload();
             common_unload();
+            antilag_unload();
             weapons_unload();
             radar_unload();
             demo_unload();
@@ -334,6 +335,7 @@ bool hook_patch() {
     demo_patch();
     vmix_patch();
 
+    antilag_patch();
     weapons_patch();
     // Patch server side
     common_patch();
