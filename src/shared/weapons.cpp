@@ -1,6 +1,7 @@
 ﻿#include "weapons.h"
 
 #include "shared.h"
+#include "antilag.h"
 #include "cod2_common.h"
 #include "cod2_cmd.h"
 #include "cod2_math.h"
@@ -237,7 +238,7 @@ void __cdecl G_BulletFireSpread_Win32(gentity_t* weaponEnt, gentity_t* attacker,
 /** Called once when hot-reloading is activated. */
 void weapons_unload()
 {
-
+    antilag_unload();
 }
 
 
@@ -246,6 +247,7 @@ void weapons_unload()
  */
 void weapons_init()
 {
+    antilag_init();
 	g_shotgun_spread_fix = Dvar_RegisterBool("g_shotgun_spread_fix", true, (enum dvarFlags_e)(DVAR_CHEAT | DVAR_CHANGEABLE_RESET));
 }
 
@@ -255,6 +257,7 @@ void weapons_init()
  */
 void weapons_patch()
 {
+    antilag_patch();
     // Hook G_BulletFireSpread to replace shotgun spread calculation
     patch_call(ADDR(0x00527baf, 0x081204d0), (unsigned int)WL(G_BulletFireSpread_Win32, G_BulletFireSpread));
 }
