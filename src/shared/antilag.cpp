@@ -44,7 +44,7 @@ void antilag_init()
         return;
     }
     // Server-owned, visible in server info, changeable live without cheats/restart.
-    maxRewind = Dvar_RegisterInt("g_antilagMaxMs", 200, 120, 800, DVAR_SERVERINFO);
+    maxRewind = Dvar_RegisterInt("g_antilagMaxMs", 500, 120, 800, DVAR_SERVERINFO);
 }
 
 void antilag_patch()
