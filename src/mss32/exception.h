@@ -11,8 +11,6 @@
 
 bool exception_createMiniDump(EXCEPTION_POINTERS* pExceptionInfo, DWORD threadId, bool fullMemory, const char* kind, char* pathOut, size_t pathOutSize);
 void exception_reportFreeze(const char* reason, DWORD frozenMs);
-size_t exception_describeAddress(unsigned int addr, char* out, size_t outSize);
-size_t exception_captureCallerStack(char* out, size_t outSize, int framesToSkip);
 
 void exception_patch();
 void exception_init();

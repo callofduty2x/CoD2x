@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <functional>
+#include <string>
 
 // Get string field. Caller provides buffer.
 // Returns true if found, false otherwise.
@@ -212,4 +213,28 @@ static inline std::string json_escape_string(const std::string &in) {
         }
     }
     return out;
+}
+
+// Appends a "fieldName":[ "line", ... ] array, splitting text on newlines (empty lines skipped)
+static inline void json_appendLines(std::string& out, const char* fieldName, const char* text) {
+    out += "\"";
+    out += fieldName;
+    out += "\":[";
+
+    const char* p = text ? text : "";
+    bool first = true;
+    while (*p) {
+        const char* lineStart = p;
+        while (*p && *p != '\n' && *p != '\r') ++p;
+        size_t lineLen = (size_t)(p - lineStart);
+        if (lineLen > 0) {
+            if (!first) out += ",";
+            first = false;
+            out += "\"";
+            out += json_escape_string(std::string(lineStart, lineLen));
+            out += "\"";
+        }
+        while (*p == '\n' || *p == '\r') ++p;
+    }
+    out += "]";
 }

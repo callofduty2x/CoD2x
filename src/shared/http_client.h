@@ -55,7 +55,14 @@ class HttpClient {
         auto start_time = mg_millis();
         while (mg_millis() - start_time < (uint64_t)max_time_ms) {
             mg_mgr_poll(&mgr, 10); // Poll with a small wait time to avoid busy-waiting
-            if (mgr.conns == nullptr) {
+
+            // The DNS connection stays open until the manager is freed, it is not a request
+            bool active = false;
+            for (struct mg_connection* c = mgr.conns; c != nullptr; c = c->next) {
+                if (c != mgr.dns4.c && c != mgr.dns6.c)
+                    active = true;
+            }
+            if (!active) {
                 break; // Exit if no active connections
             }
         }
