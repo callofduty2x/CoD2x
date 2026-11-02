@@ -492,6 +492,8 @@ static void updater_processHttpsResult(const UpdaterHttpsResult& result)
     bool applyUpdate = dedicated->value.boolean == 0 || updater_isServerUpdateEnabled();
 
     if (result.ok) {
+        zpam_applyManifest(result.zpam);
+
         if (applyUpdate)
             updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
         return;
@@ -526,8 +528,9 @@ void updater_dialogConfirmed() {
 
 
 
+// zPAM is checked on server start even if no map is running yet
 static bool updater_isServerCheckEnabled() {
-    return updater_isServerUpdateEnabled();
+    return updater_isServerUpdateEnabled() || zpam_isUpdateCheckNeeded();
 }
 
 void updater_checkForUpdate() {

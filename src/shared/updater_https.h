@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include "zpam.h"
+
 // HTTPS update check (JSON over HTTPS), the main source of update checks. The legacy UDP request
 // (getUpdateInfo2/3) is sent by the updater only as a fallback when the HTTPS check fails; the master
 // server logs UDP requests from versions with the HTTPS updater, so HTTPS failures are visible there.
@@ -36,6 +38,7 @@ struct UpdaterHttpsResult {
     int         available = 0;  // 0 = none, 1 = optional update, 2 = forced update
     std::string url;            // URL of the file to download
     std::string version;        // version string of the available update
+    ZpamManifest zpam;          // zPAM files for servers, empty if not sent
 };
 
 // Starts an update check in the background. Returns false if a check is already running.

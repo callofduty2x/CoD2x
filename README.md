@@ -168,7 +168,7 @@ It focuses on fixing bugs and adding new features to the game.
 - URL protocol to launch the game from web links: `cod2x://`
 - Toggle colored player names (double colors) in killfeed and chat (`con_printDoubleColors`);
 - Bullet trace debugging (`cg_debugBullets`);
-- Automatic zPAM updates
+- Automatic zPAM updates on servers that already have zPAM in `main`, run without `fs_game` and have `sv_wwwDownload` and `sv_wwwBaseURL` set - new version is downloaded in background on server start and regularly while the server is running, and loaded on the next map change or full `map_restart` unless a match is running (an empty server restarts the map on its own). Disable with `sv_updateZpam 0`. Versions are tracked in `main/zpam.json`. A folder can be shared by more servers, each one switches on its own.
 - Smarter IWD handling and configs: always use `main/config_mp.cfg`; improved filtering to prevent sum/name mismatch; for demos only IWDs used at record-time are loaded; for listen servers only the latest zPAM files are loaded; assets in `movie` are included for demo playback; automatic extraction of `iw_CoD2x_01.iwd`.
 - Cvar to disable saving changes to config via cvar `com_writeConfig`
 - Allow scanning 32 LAN servers instead of 4

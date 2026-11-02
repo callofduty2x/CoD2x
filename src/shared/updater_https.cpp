@@ -32,6 +32,33 @@ static bool updater_https_hasResult = false;
 static UpdaterHttpsResult updater_https_result;
 
 
+// Parse the zPAM manifest of the response. Returns false if a file entry is incomplete.
+static bool updater_https_parseZpam(const char* body, ZpamManifest* out) {
+    char buf[1024];
+
+    for (int i = 0; ; i++) {
+        std::string path = "$.zpam.files[" + std::to_string(i) + "]";
+        double size = 0;
+        ZpamManifestFile file;
+        if (!json_get_str(body, (path + ".name").c_str(), buf, sizeof(buf)))
+            break;
+        file.name = buf;
+        if (!json_get_str(body, (path + ".url").c_str(), buf, sizeof(buf)))
+            return false;
+        file.url = buf;
+        if (!json_get_str(body, (path + ".sha256").c_str(), buf, sizeof(buf)))
+            return false;
+        file.sha256 = buf;
+        if (!json_get_num(body, (path + ".size").c_str(), &size))
+            return false;
+        file.size = (size_t)size;
+        out->files.push_back(file);
+    }
+    json_get_str_array(body, "$.zpam.block", &out->block);
+
+    return true;
+}
+
 // Parse the JSON response body into 'out'. Returns false if the required field is missing.
 static bool updater_https_parseResponse(const char* body, UpdaterHttpsResult* out) {
     if (!body || !out)
@@ -54,6 +81,10 @@ static bool updater_https_parseResponse(const char* body, UpdaterHttpsResult* ou
     // An update without a download URL can't be applied
     if (out->available != 0 && out->url.empty())
         return false;
+
+    // Optional, a broken manifest must not cost the update itself
+    if (!updater_https_parseZpam(body, &out->zpam))
+        out->zpam = ZpamManifest();
 
     return true;
 }
@@ -93,6 +124,10 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request) {
     if (!request.hwid2Diff.empty())  updater_https_jsonAddString(json, "hwid2Diff", request.hwid2Diff);
     if (request.hasHwid2DiffCnt)     json += ",\"hwid2DiffCnt\":" + std::to_string(request.hwid2DiffCnt);
     if (!request.systemInfo.empty()) updater_https_jsonAddString(json, "systemInfo", request.systemInfo);
+    if (request.type == "server") {
+        std::string zpam = zpam_getInstalled();
+        if (!zpam.empty())           updater_https_jsonAddString(json, "zpam", zpam);
+    }
     json += "}";
 
     // Run the whole round-trip on a background thread so the caller is never blocked.

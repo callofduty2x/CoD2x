@@ -3,6 +3,7 @@
 #include <string.h>
 #include <functional>
 #include <string>
+#include <vector>
 
 // Get string field. Caller provides buffer.
 // Returns true if found, false otherwise.
@@ -40,6 +41,17 @@ static inline bool json_get_str(const char *json, const char *path, char *out, s
 
     // Not found or unsupported type
     return false;
+}
+
+// Appends the items of a string array to 'out', stops at the first item that is missing
+static inline void json_get_str_array(const char *json, const char *path, std::vector<std::string> *out) {
+    char buf[1024];
+    for (int i = 0; ; i++) {
+        std::string itemPath = std::string(path) + "[" + std::to_string(i) + "]";
+        if (!json_get_str(json, itemPath.c_str(), buf, sizeof(buf)))
+            break;
+        out->push_back(buf);
+    }
 }
 
 // Get numeric field
