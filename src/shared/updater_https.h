@@ -15,6 +15,7 @@
 // (update_logs). Identity fields are only filled for a client, a dedicated server leaves them empty.
 struct UpdaterHttpsRequest {
     std::string type;           // "client" or "server"
+    bool        periodic = false;   // started by the timer of a running server, returned in the result
     std::string cdkeyHash;      // MD5 of the CD key
     std::string regid;          // install id
     bool        hasHwid = false;
@@ -30,6 +31,7 @@ struct UpdaterHttpsRequest {
 // Result of a finished update check.
 struct UpdaterHttpsResult {
     bool        ok = false;     // false = request failed / rejected / unparsable (see 'error')
+    bool        periodic = false;
     std::string error;
     int         available = 0;  // 0 = none, 1 = optional update, 2 = forced update
     std::string url;            // URL of the file to download
@@ -41,5 +43,8 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request);
 
 // Main thread: returns true and fills 'out' once when a started check has finished.
 bool updater_https_pollResult(UpdaterHttpsResult* out);
+
+// Main thread: returns true when a running dedicated server should check for updates again.
+bool updater_https_isPeriodicCheckDue();
 
 #endif // UPDATER_HTTPS_H

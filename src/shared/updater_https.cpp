@@ -17,6 +17,11 @@
 // Endpoint that receives the JSON update-check request and returns a JSON response.
 #define UPDATE_HTTPS_URL "https://master.cod2x.me/api/updater/check"
 
+// How often a running dedicated server checks for updates, with a random delay so servers
+// sharing a folder or started at the same time don't check together.
+#define UPDATE_PERIODIC_INTERVAL_MS (30 * 60 * 1000)
+#define UPDATE_PERIODIC_JITTER_MS   (5 * 60 * 1000)
+
 
 // Only allow one in-flight HTTPS check at a time (update checks can be triggered repeatedly).
 static std::atomic<bool> updater_https_inProgress(false);
@@ -91,7 +96,8 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request) {
     json += "}";
 
     // Run the whole round-trip on a background thread so the caller is never blocked.
-    std::thread([json]() {
+    bool periodic = request.periodic;
+    std::thread([json, periodic]() {
 
         UpdaterHttpsResult result;
         result.error = "No response";
@@ -128,6 +134,7 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request) {
         // Drive the client until the request completes (connection closed) or times out.
         client.poll_max(7000);
 
+        result.periodic = periodic;
         updater_https_setResult(result);
         updater_https_inProgress = false;
     }).detach();
@@ -143,4 +150,19 @@ bool updater_https_pollResult(UpdaterHttpsResult* out) {
     *out = updater_https_result;
     updater_https_hasResult = false;
     return true;
+}
+
+
+bool updater_https_isPeriodicCheckDue() {
+    static uint64_t nextCheck = 0;
+    uint64_t now = ticks_ms();
+
+    bool due = nextCheck != 0 && now >= nextCheck;
+    if (nextCheck == 0 || due) {
+        // Not rand(): it has only 15 bits on Windows, is the same for servers started together and the game uses it too
+        uint32_t random = 0;
+        mg_random(&random, sizeof(random));
+        nextCheck = now + UPDATE_PERIODIC_INTERVAL_MS + random % UPDATE_PERIODIC_JITTER_MS;
+    }
+    return due;
 }

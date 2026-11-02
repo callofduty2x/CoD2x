@@ -257,7 +257,7 @@ It focuses on fixing bugs and adding new features to the game.
 6. Run the game with LD_PRELOAD, for example:
     - `LD_PRELOAD=./libCoD2x.so ./cod2_lnxded +set dedicated 2 +exec server.cfg`
     - 🛈 Its not common that server providers support adding this, only server administrators can do that.
-7. Auto-update is enabled by default. Make sure to enable UDP port 20720. If you want to disable auto-update, set `sv_update "0"` or disable UDP port 20720. On server start, the server will check for the latest version of CoD2x and download it if available. File libCoD2x.so will be replaced with the latest version. Process restart is needed to apply the update. 
+7. Auto-update is enabled by default, it needs outgoing HTTPS (TCP port 443) and HTTP (TCP port 80), with UDP port 20720 as a fallback for the update check. If you want to disable auto-update, set `sv_update "0"`. Everything about installing an update is written to `libCoD2x.so.log`. On server start, the server will check for the latest version of CoD2x and download it if available. File libCoD2x.so will be replaced with the latest version. Process restart is needed to apply the update. 
 
 # How to run server in Docker (Linux)
 The image is built from the source in this repository (`libCoD2x.so` + original `cod2_lnxded` 1.3).

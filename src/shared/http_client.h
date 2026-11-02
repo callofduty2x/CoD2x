@@ -36,6 +36,10 @@ class HttpClient {
     // Headers used in every request
     std::vector<std::string> headers = {};
 
+    // downloadFile: called with the Location header instead of onDone if the response is a redirect.
+    // Without it a redirect is reported as an error.
+    std::function<void(const std::string& location)> onRedirect;
+
 
     HttpClient() {
         mg_log_set(MG_LL_NONE);
@@ -141,6 +145,7 @@ class HttpClient {
         ctx->onDone = std::move(onDone);
         ctx->onDownload = std::move(onDownload);
         ctx->onError = std::move(onError);
+        ctx->onRedirect = onRedirect;
 
         if (timeout_ms <= 0)
             connect_timeout_ms = 0;
@@ -373,13 +378,12 @@ class HttpClient {
 
         // Download-specific fields
         DownloadCallback onDownload;
+        std::function<void(const std::string& location)> onRedirect;
         bool isDownload = false;
         size_t downloaded = 0;
         size_t total_size = 0;
         bool headers_received = false;
         int http_status = 0;
-        size_t header_offset = 0;    // Track where headers end in the first buffer
-        size_t last_buffer_size = 0; // Track last processed buffer size
 
         // Upload-specific fields
         bool isUpload = false;
@@ -411,6 +415,16 @@ class HttpClient {
                 ctx->onError(msg);
         }
         if (c) c->is_closing = 1;
+    }
+
+
+    static void finish_download(RequestContext* ctx) {
+        ctx->finished = true;
+
+        Response res;
+        res.status = ctx->http_status;
+        if (ctx->onDone)
+            ctx->onDone(res);
     }
 
 
@@ -663,9 +677,27 @@ class HttpClient {
                 // Extract HTTP status
                 ctx->http_status = mg_http_status(hm);
 
+                // Redirect, the caller makes a new request
+                if (ctx->onRedirect && ctx->http_status >= 300 && ctx->http_status < 400) {
+                    struct mg_str* location = mg_http_get_header(hm, "Location");
+                    if (location && location->len > 0) {
+                        ctx->onRedirect(std::string(location->buf, location->len));
+                        ctx->finished = true;
+                        c->is_closing = 1;
+                        return;
+                    }
+                }
+
                 // Check for HTTP errors
                 if (ctx->http_status != 200) {
                     report_error(c, ctx, std::string("HTTP error ") + std::to_string(ctx->http_status));
+                    return;
+                }
+
+                // The body is written to the callback as it comes, chunk markers would end up in the file
+                struct mg_str* encoding = mg_http_get_header(hm, "Transfer-Encoding");
+                if (encoding && mg_strcasecmp(*encoding, mg_str("chunked")) == 0) {
+                    report_error(c, ctx, "Chunked download is not supported");
                     return;
                 }
 
@@ -679,33 +711,32 @@ class HttpClient {
                     }
                 }
 
-                // Calculate header offset: headers + double CRLF
-                ctx->header_offset = hm->head.len;
+                // Removing the headers detaches the HTTP parser of mongoose, the body is handled
+                // only in MG_EV_READ. The parser would need the whole file in memory to end the message.
                 ctx->headers_received = true;
+                mg_iobuf_del(&c->recv, 0, hm->head.len);
             }
         }
 
         // Data received (raw socket level) - for streaming downloads
         else if (ev == MG_EV_READ) {
-            if (ctx->isDownload && ctx->headers_received) {
+            if (ctx->isDownload && ctx->headers_received && !ctx->finished) {
                 struct mg_iobuf* io = &c->recv;
-                if (io->len > ctx->header_offset) {
-                    // Calculate body data (everything after headers)
-                    const char* body_start = (const char*)io->buf + ctx->header_offset;
-                    size_t body_size = io->len - ctx->header_offset;
+                if (io->len > 0) {
+                    // Update total downloaded with this chunk
+                    ctx->downloaded += io->len;
 
-                    if (body_size > 0) {
-                        // Update total downloaded with this chunk
-                        ctx->downloaded += body_size;
-
-                        // Call streaming callback with body data
-                        if (ctx->onDownload) {
-                            ctx->onDownload(body_start, body_size, ctx->downloaded, ctx->total_size);
-                        }
-
-                        // Clear only the body portion, keep headers intact
-                        mg_iobuf_del(io, ctx->header_offset, body_size);
+                    // Call streaming callback with body data
+                    if (ctx->onDownload) {
+                        ctx->onDownload((const char*)io->buf, io->len, ctx->downloaded, ctx->total_size);
                     }
+
+                    mg_iobuf_del(io, 0, io->len);
+                }
+
+                if (ctx->total_size > 0 && ctx->downloaded >= ctx->total_size) {
+                    finish_download(ctx);
+                    c->is_closing = 1;
                 }
             }
         }
@@ -722,34 +753,25 @@ class HttpClient {
         // HTTP response received
         else if (ev == MG_EV_HTTP_MSG) {
             // Don't process HTTP message if an error has already occurred
-            if (ctx->error_occurred) {
+            if (ctx->error_occurred || ctx->finished) {
                 return;
             }
 
             auto* hm = (struct mg_http_message*)ev_data;
 
-            if (ctx->isDownload) {
-                Response res;
-                res.status = mg_http_status(hm);
-                res.body = "";
-                if (ctx->onDone)
-                    ctx->onDone(res);
+            // Create response with body and headers
+            Response res;
+            res.status = mg_http_status(hm);
+            res.body.assign(hm->body.buf, hm->body.len);
 
-            } else {
-                // For regular requests: create response with body and headers
-                Response res;
-                res.status = mg_http_status(hm);
-                res.body.assign(hm->body.buf, hm->body.len);
-
-                // parse headers
-                for (int i = 0; i < MG_MAX_HTTP_HEADERS && hm->headers[i].name.len > 0; i++) {
-                    res.headers[std::string(hm->headers[i].name.buf, hm->headers[i].name.len)] =
-                        std::string(hm->headers[i].value.buf, hm->headers[i].value.len);
-                }
-
-                if (ctx->onDone)
-                    ctx->onDone(res);
+            // parse headers
+            for (int i = 0; i < MG_MAX_HTTP_HEADERS && hm->headers[i].name.len > 0; i++) {
+                res.headers[std::string(hm->headers[i].name.buf, hm->headers[i].name.len)] =
+                    std::string(hm->headers[i].value.buf, hm->headers[i].value.len);
             }
+
+            if (ctx->onDone)
+                ctx->onDone(res);
             c->is_closing = 1;
 
             ctx->finished = true;
@@ -771,6 +793,9 @@ class HttpClient {
                     res.status = 200;
                     if (ctx->onDone)
                         ctx->onDone(res);
+                } else if (ctx->isDownload && ctx->headers_received && ctx->total_size == 0) {
+                    // Without Content-Length the end of the connection is the end of the file
+                    finish_download(ctx);
                 } else {
                     // Truly unexpected closure
                     report_error(c, ctx, "Connection closed unexpectedly");

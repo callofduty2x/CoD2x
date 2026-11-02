@@ -87,6 +87,7 @@ void hook_Com_Frame()
             
             // Unloading
             hotreload_unload();
+            updater_unload();
             exception_unload();
             debug_unload();
             common_unload();
