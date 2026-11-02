@@ -14,6 +14,15 @@
 
 #define com_playerProfile (*(dvar_t **)(0x00c23f1c))
 
+#define cl_downloadName               ((char*)0x00966db0) // www download: the URL (256 bytes)
+#define cl_downloadTempName           ((char*)0x00966eb0) // www download: full path of the .tmp file (256 bytes)
+#define cl_downloadLocalName          ((char*)0x00966fb0) // www download: "main/file.iwd" after the rename (64 bytes)
+#define cl_wwwDlFlags                 (*((int*)0x00966ff4)) // flags of the redirect from the server
+#define cl_downloadingWWW             (*((int*)0x00966ff8)) // the running download is a www download
+#define clc_realTime                  (*((int*)0x0068a520))
+#define legacyHacks                   (*((legacyHacks_t**)0x005cf444))
+#define cl_wwwDlDisconnected          (*((int*)0x00966dac)) // the server disconnected the client for the www download
+
 
 // https://github.com/id-Software/Enemy-Territory/blob/40342a9e3690cb5b627a433d4d5cbf30e3c57698/src/game/q_shared.h#L1621
 enum clientState_e{
@@ -41,6 +50,33 @@ inline const char* get_client_state_name(int state) {
         case CLIENT_STATE_ACTIVE: return "ACTIVE";
         default: return "UNKNOWN";
     }
+}
+
+// Download state shown on the loading screen
+struct legacyHacks_t {
+    int  pad[4];
+    int  downloadSize;      // 0x10, 0 if not known
+    int  downloadCount;     // 0x14, bytes received
+    int  downloadTime;      // 0x18, clc_realTime when the download started
+    char downloadName[64];  // 0x1c
+};
+
+// Adds a command that is sent to the server reliably.
+// 0040c000    void CL_AddReliableCommand(char* cmd)
+inline void CL_AddReliableCommand(const char* cmd) {
+    ASM_CALL(RETURN_VOID, 0x0040c000, 1, PUSH(cmd));
+}
+
+// Downloads the next file of the list, or finishes with CL_DownloadsComplete if the list is empty.
+// 0040de70    char* CL_NextDownload()
+inline void CL_NextDownload() {
+    ASM_CALL(RETURN_VOID, 0x0040de70);
+}
+
+// Clears all the download state and cancels the running www download.
+// 0040cc70    int32_t CL_ClearStaticDownload()
+inline void CL_ClearStaticDownload() {
+    ASM_CALL(RETURN_VOID, 0x0040cc70);
 }
 
 typedef struct {
