@@ -1,6 +1,7 @@
 #ifndef COD2_ENTITY_H
 #define COD2_ENTITY_H
 
+#include "assembly.h"
 #include "cod2_math.h"
 
 #define GENTITYNUM_BITS     10
@@ -186,6 +187,12 @@ typedef struct gentity_s
 	gentity_s *nextFree;
 } gentity_t;
 static_assert((sizeof(gentity_t) == 560));
+
+// Calculates the world pose of all bones of the entity's model for the current server frame. Does nothing if already calculated in this frame.
+// 0050f2d0    void G_DObjCalcPose(struct gentity_s* ent @ eax)
+inline void G_DObjCalcPose(gentity_t* ent) {
+	ASM_CALL(RETURN_VOID, ADDR(0x0050f2d0, 0x0811e3c0), WL(0, 1), WL(EAX, PUSH)(ent));
+}
 
 
 #endif

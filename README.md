@@ -123,10 +123,21 @@ It focuses on fixing bugs and adding new features to the game.
   - It can be disabled by setting `/com_freezeWatch 0`
 - Tickrate
   - ![alt text](images/cod2-tick-wireshark.png)
-  - Server FPS maximum increased from 30 to 40 (`sv_fps 40`)
-  - Client max snaps increased from 30 to 40 (`snaps 40`)
+  - Server FPS tested up to 125 (`sv_fps 125`)
+  - Client max snaps increased from 30 to 125 (`snaps 125`)
+  - Client max rate increased from 25000 to 100000 (`rate 100000`), server `sv_maxRate` limit increased the same way
+  - New server cvars `sv_minSnaps` and `sv_minRate` (default 0): raise the settings of clients that ask for less, no client update needed
+  - New server cvar `sv_realtimeWait` (default 0): script `wait` lasts its real time at any `sv_fps`. Leave it off for mods that correct for this on their own, like zPAM
+  - Dropped items move correctly at any `sv_fps`
+  - New client cvar `cl_interpDelay` (default 30, 0 = original behavior): above 40 snaps, keeps other players this many ms behind the newest snapshot and adjusts the client's clock as gently as at 20 snaps
   - Client max packet value increased from 100 to 125 (`cl_maxpackets 125`)
     - This allows to send exactly 125 packets at 250FPS (instead of ~83.3)
+- Capsule hitboxes
+  - New server cvar `sv_capsuleHitboxes` (default 0): player hits use capsules attached to the skeleton instead of the stock per-bone boxes. 1 = the same capsules for all players, 2 = capsules fitted to the body, head and headgear model of each player, gear on the model does not count as a hit. Models the game does not ship with use the capsules of 1
+  - New server cvar `sv_capsuleHitboxScale` (default 1, range 0.5 - 2): scales the capsule radius
+  - Server side only, clients need no update
+  - New cvar `sv_capsuleHitboxesDebug` (cheat protected, listen server only, needs `developer 1`): draws the capsules as colored wireframes. 1 = other players, 2 = all players
+  - New cvars `sv_debugBotStance` (0 = free, 1 = crouch, 2 = prone, 3 = stand; 1 - 3 also give the bot its weapon back) and `sv_debugBotPitch` (cheat protected, listen server only): pose all bots to compare them with the capsules
 - HWID
   - An unique hardware ID is generated for each computer
   - The HWID is used to ban cheaters on the server via commands `/banClient <clientId>` and `/unbanAll` (bans are saved in file `main\ban.txt`)

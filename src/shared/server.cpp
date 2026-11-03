@@ -2,6 +2,7 @@
 
 #include "shared.h"
 #include "animation.h"
+#include "capsule_hitboxes.h"
 #include "cod2_common.h"
 #include "cod2_dvars.h"
 #include "cod2_cmd.h"
@@ -16,6 +17,10 @@
 #include "gsc_http.h"
 #include "gsc_websocket.h"
 #include "match.h"
+#include "tickrate.h"
+
+extern dvar_t* sv_minSnaps;
+extern dvar_t* sv_minRate;
 #if COD2X_WIN32
 #include "../mss32/updater.h"
 #endif
@@ -309,16 +314,25 @@ void SV_UserinfoChanged( client_t *cl )
 			{
 				cl->rate = 1000;
 			}
-			else if (cl->rate > 90000)
+			// CoD2x: from 90000 to 100000
+			else if (cl->rate > 100000)
 			{
-				cl->rate = 90000;
+				cl->rate = 100000;
 			}
+			// CoD2x: End
 		}
 		else
 		{
 			cl->rate = 5000;
 		}
 	}
+
+	// CoD2x: server can raise the rate of clients with settings from slower servers
+	if (sv_minRate && cl->rate < sv_minRate->value.integer)
+	{
+		cl->rate = sv_minRate->value.integer;
+	}
+	// CoD2x: End
 
 	// snaps command
 	val = Info_ValueForKey (cl->userinfo, "snaps");
@@ -329,12 +343,18 @@ void SV_UserinfoChanged( client_t *cl )
 		{
 			i = 1;
 		}
-		// CoD2x: from 30 to 40
-		else if ( i > 40 )
+		// CoD2x: from 30 to 125
+		else if ( i > 125 )
 		{
-			i = 40;
+			i = 125;
 		}
 		// CoD2x: end
+		// CoD2x: server can raise the snaps of clients with settings from slower servers
+		if (sv_minSnaps && i < sv_minSnaps->value.integer)
+		{
+			i = sv_minSnaps->value.integer;
+		}
+		// CoD2x: End
 		cl->snapshotMsec = 1000/i;
 	}
 	else
@@ -1237,6 +1257,10 @@ void SV_Shutdown(const char* error) {
 
 
 void G_RunFrame(int time) {
+	// CoD2x: game values that depend on sv_fps
+	tickrate_frame();
+	// CoD2x: End
+
     // Call the original function
     ASM_CALL(RETURN_VOID, ADDR(0x004fd1b0, 0x0810a13a), WL(0, 1), WL(EAX, PUSH)(time));
 
@@ -1276,6 +1300,8 @@ void G_RunFrame(int time) {
 			}
 		}
 	}
+
+	capsule_hitboxes_frame();
 }
 
 void G_RunFrame_Win32() {
@@ -1296,6 +1322,8 @@ void server_init()
 
 	sv_cracked = Dvar_RegisterBool("sv_cracked", false, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
 
+	capsule_hitboxes_init();
+
 	sv_rateLimiter = Dvar_RegisterBool("sv_rateLimiter", true, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
 	sv_rateLimiterRequestCount = Dvar_RegisterInt("sv_rateLimiterRequestCount", 0, 0, INT_MAX, (dvarFlags_e)(DVAR_ROM));
 	sv_rateLimiterUniqueIPCount = Dvar_RegisterInt("sv_rateLimiterUniqueIPCount", 0, 0, INT_MAX, (dvarFlags_e)(DVAR_ROM));
@@ -1315,6 +1343,8 @@ void server_init()
 	g_competitive = Dvar_RegisterBool("g_competitive", false, (enum dvarFlags_e)(noWriteForClientFlag | DVAR_SYSTEMINFO | DVAR_CHANGEABLE_RESET));
 
 
+	tickrate_init();
+
     Cmd_AddCommand("unbanAll", server_unbanAll_command);
 
 	// CoD2x: Command to get IP and port of this server
@@ -1328,6 +1358,10 @@ void server_init()
 // The hooked functions are the same for both Windows and Linux
 void server_patch()
 {
+	tickrate_patch();
+
+    capsule_hitboxes_patch();
+
     // Patch the protocol version check - now its being done in SV_DirectConnect
     patch_byte(ADDR(0x00453ce3, 0x0808e34d), 0xeb); // from '7467 je' to 'eb67 jmp'
 

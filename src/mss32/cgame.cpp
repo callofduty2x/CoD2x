@@ -11,6 +11,9 @@
 
 
 #define clientState                   (*((clientState_e*)0x00609fe0))
+#define cl_snapServerTime             (*((int*)0x0096b670))
+#define cl_serverTimeDelta            (*((int*)0x0096dd4c))
+#define cl_oldServerTime              (*((int*)0x0096dd50))
 #define sv_cheats                     (*((dvar_t**)0x00c5c5cc))
 #define cg_thirdperson                (*((dvar_t**)0x014b5bdc))
 #define cg_thirdPersonAngle           (*((dvar_t**)0x0166e024))
@@ -55,8 +58,55 @@ void Cmd_Increase_Decrease() {
     }
 }
 
+dvar_t* cl_interpDelay;
+
+// Adjusts the client's clock after a new snapshot. It aims one snapshot interval + 5 ms behind the newest snapshot and moves
+// by 1 or 2 ms per snapshot. Both are too tight at a high snapshot rate: at 125 snaps it is only 13 ms behind, so a little jitter
+// runs out of snapshots to interpolate between, and the clock is pulled by up to 25% of its speed.
+// 00402d70    void CL_AdjustTimeDelta()
+static void CL_AdjustTimeDelta()
+{
+    // CoD2x: keep a minimum delay behind the newest snapshot, 0 is the original behavior
+    static int lastOffset = 5;
+    static int lastSlowAdjustTime = 0;
+
+    const int interval = cl_snapServerTime - cl_oldServerTime;
+    const int minDelay = cl_interpDelay->value.integer;
+
+    int offset = 5;
+    if (minDelay > 0 && interval > 0 && minDelay - interval > offset)
+        offset = minDelay - interval;
+    if (offset != lastOffset)
+    {
+        // 00402daa  83ee05             sub     esi, 5
+        patch_byte(0x00402daa + 2, (uint8_t)offset);
+        lastOffset = offset;
+    }
+
+    const int deltaBefore = cl_serverTimeDelta;
+    // CoD2x: End
+
+    // Call the original function
+    ASM_CALL(RETURN_VOID, 0x00402d70, 0);
+
+    // CoD2x: above 40 snaps, adjust slowly no more often than at 20 snaps. Big corrections stay immediate.
+    const int change = cl_serverTimeDelta - deltaBefore;
+    if (minDelay > 0 && change != 0 && change >= -2 && change <= 2 && interval > 0 && interval < 25)
+    {
+        const int sinceLast = cl_snapServerTime - lastSlowAdjustTime;
+        if (sinceLast >= 0 && sinceLast < 50)
+            cl_serverTimeDelta = deltaBefore;
+        else
+            lastSlowAdjustTime = cl_snapServerTime;
+    }
+    // CoD2x: End
+}
+
 /** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
 void cgame_init() {
+
+    // How far behind the newest snapshot other players are drawn, in ms. Changes nothing up to 40 snaps. 0 = original behavior
+    cl_interpDelay = Dvar_RegisterInt("cl_interpDelay", 30, 0, 100, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
 
     // Register USERINFO cvar that is automatically appended to the client's userinfo string sent to the server
     Dvar_RegisterInt("protocol_cod2x", APP_VERSION_PROTOCOL, APP_VERSION_PROTOCOL, APP_VERSION_PROTOCOL, (enum dvarFlags_e)(DVAR_USERINFO | DVAR_ROM));
@@ -237,9 +287,14 @@ void cgame_patch() {
 
     patch_call(0x004cfb27, (unsigned int)CG_OffsetThirdPersonView);
 
+    patch_call(0x004031dc, (unsigned int)CL_AdjustTimeDelta); // CL_SetCGameTime
 
-    // Cvar "snaps" max value change from 30 to 40
-    patch_int32(0x00411067 + 1, 40); // 00411067  bb1e000000         mov     ebx, 30
+
+    // Cvar "snaps" max value change from 30 to 125
+    patch_int32(0x00411067 + 1, 125); // 00411067  bb1e000000         mov     ebx, 30
+
+    // Cvar "rate" max value change from 25000 to 100000
+    patch_int32(0x00411025 + 1, 100000); // 00411025  bba8610000         mov     ebx, 25000
 
     // Cvar cl_maxpackets max value change from 100 to 125
     patch_int32(0x00410c64 + 1, 125); // 00410c64  bb64000000         mov     ebx, 100
