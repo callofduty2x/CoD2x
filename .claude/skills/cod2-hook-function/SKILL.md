@@ -158,6 +158,7 @@ a module `.cpp`:
 | --- | --- |
 | `src/shared/cod2_file.h` | `FS_*` |
 | `src/shared/cod2_server.h`, `cod2_script.h` | `SV_*`, `Scr_*` |
+| `src/shared/cod2_entity.h` | `G_*` game entity functions (`G_Damage`, `G_TempEntity`), `level_*` globals |
 | `src/shared/cod2_dvars.h`, `cod2_cmd.h`, `cod2_net.h`, `cod2_player.h` | dvars, commands, network, player |
 | `src/shared/cod2_shared.h` | `Info_*`, `Q_*` and other shared utilities |
 | `src/shared/cod2_client.h` | `CL_*`, `CG_*`, `Con_*` of the Windows client |

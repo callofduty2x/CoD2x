@@ -178,12 +178,20 @@ static_assert(offsetof(cg_t, padding1) == 0x02ccd8);
 
 
 
-inline void CL_AddDebugString(float const* xyz, float const* color, float scale, char const* text, int duration) {
-    ASM_CALL(RETURN_VOID, 0x00412230, 3, EBX(xyz), EDI(color), PUSH(scale), PUSH(text), PUSH(duration));
+// Adds a debug text drawn in the world by the local client (does nothing when the renderer is not initialized - dedicated server).
+// The text has no duration - it is removed by the next CL_FlushDebugData of the same side: the next server frame
+// (CL_FlushDebugData(1) in SV_Frame) when fromServer is 1, the next client frame when fromServer is 0. Max 256 texts.
+// 00412230    void CL_AddDebugString(float const* xyz @ ebx, float const* color @ edi, float scale, char const* text, int32_t fromServer)
+inline void CL_AddDebugString(float const* xyz, float const* color, float scale, char const* text, int fromServer) {
+    ASM_CALL(RETURN_VOID, 0x00412230, 3, EBX(xyz), EDI(color), PUSH(scale), PUSH(text), PUSH(fromServer));
 }
 
-inline void CL_AddDebugLine(float const* xyz_start, float const* xyz_end, float const* color, int duration, int depthTest, int pernament) {
-    ASM_CALL(RETURN_VOID, 0x00412300, 3, EBX(xyz_start), EDI(xyz_end), ESI(color), PUSH(depthTest), PUSH(duration), PUSH(pernament));
+// Adds a 1 pixel wide debug line drawn by the local client (does nothing when the renderer is not initialized - dedicated server).
+// duration is the number of frames the line stays: server frames (CL_FlushDebugData(1) in SV_Frame) when fromServer is 1,
+// client frames when fromServer is 0. The line is drawn at least once, duration 0 = one frame.
+// 00412300    void CL_AddDebugLine(float const* start @ ebx, float const* end @ edi, float const* color @ esi, int32_t depthTest, int32_t duration, int32_t fromServer)
+inline void CL_AddDebugLine(float const* xyz_start, float const* xyz_end, float const* color, int duration, int depthTest, int fromServer) {
+    ASM_CALL(RETURN_VOID, 0x00412300, 3, EBX(xyz_start), EDI(xyz_end), ESI(color), PUSH(depthTest), PUSH(duration), PUSH(fromServer));
 }
 
 inline void CL_AddDebugCrossPoint(float const* center, float size, float const* color, int duration, int depthTest, int pernament) {

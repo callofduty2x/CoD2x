@@ -93,6 +93,13 @@ It focuses on fixing bugs and adding new features to the game.
 - Shogun consistent pellet spread
   - ![alt text](images/pellet_spread.png)
   - changeable via new cvar `g_shotgun_spread_fix`
+- Bullet penetration through walls (wallbang), off by default - `sv_wallbang 1`
+  - only rifle bullets (weapons with `MOD_RIFLE_BULLET`: rifles, BAR, Bren, MP44, FG42, MG turrets)
+  - each wall uses `thickness / max thickness` of the bullet's penetration power, the bullet stops when it is used up; damage behind the wall is `sv_wallbang_damage * remaining power` (falls linearly to 0)
+  - `sv_wallbang_depth` (24) - max wall thickness in units, multiplied by `sv_wallbang_surface_<type>` per surface type, defaults are relative to wood by real-world bullet protection of the material (`cloth`/`paper`/`foliage` 4, `wood` 1, `plaster` 0.8, `dirt` 0.6, `sand` 0.4, `brick` 0.25, `concrete` 0.15, `metal`/`rock` 0.1, ...), `none` 10 (caulk / nodraw faces without material - as if not there), weapon clip and sky are never penetrable
+  - `sv_wallbang_damage` (0.6), `sv_wallbang_maxWalls` (2), `sv_wallbang_debug` (prints the results to the shooter)
+  - bullet impact effect is spawned on both sides of the wall
+  - damage of a penetrated bullet has flag `64` in `iDFlags` of `CodeCallback_PlayerDamage` (e.g. to skip the hit indicator)
 
 #### Improvements
 - Added windowed and borderless window mode:

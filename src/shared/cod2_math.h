@@ -43,6 +43,8 @@
 #define DEG2RAD(x) ((x) * (M_PI / 180.0f))
 #define RAD2DEG(x) ((x) * (180.0f / M_PI))
 
+static const vec3_t vec3_origin = { 0, 0, 0 };
+
 #define DEGINRAD  57.29577951308232 // degrees in one radian
 #define RADINDEG  0.0174532925199433 // radian in one degree
 
@@ -184,7 +186,6 @@ inline void AngleVectors( const vec3_t angles, vec3_t forward, vec3_t right, vec
 inline void AnglesToAxis( const vec3_t angles, vec3_t axis[3] )
 {
 	vec3_t right;
-	vec3_t vec3_origin = {0, 0, 0};
 
 	AngleVectors( angles, axis[0], right, axis[2] );
 	VectorSubtract(vec3_origin, right, axis[1] );
@@ -222,6 +223,13 @@ inline float Vec3ToYaw( const vec3_t vec )
 	}
 
 	return yaw + 360;
+}
+
+inline void Vec3Lerp( const vec3_t start, const vec3_t end, float fraction, vec3_t endpos )
+{
+	endpos[0] = (end[0] - start[0]) * fraction + start[0];
+	endpos[1] = (end[1] - start[1]) * fraction + start[1];
+	endpos[2] = (end[2] - start[2]) * fraction + start[2];
 }
 
 inline vec_t Vec3NormalizeTo( const vec3_t v, vec3_t out )

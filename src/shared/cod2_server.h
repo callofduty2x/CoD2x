@@ -122,6 +122,62 @@ static_assert((sizeof(client_t) == 0xb1064));
 
 
 
+// Brush contents (trace_t::contents, trace contentmask)
+#define CONTENTS_SOLID		0x1
+#define CONTENTS_GLASS		0x10
+#define CONTENTS_WATER		0x20
+#define CONTENTS_SKY		0x800
+#define CONTENTS_CLIPSHOT	0x2000
+#define CONTENTS_UNKNOWN	0x800000
+#define CONTENTS_BODY		0x2000000	// players
+#define MASK_SHOT			(CONTENTS_SOLID | CONTENTS_GLASS | CONTENTS_WATER | CONTENTS_SKY | CONTENTS_CLIPSHOT | CONTENTS_UNKNOWN | CONTENTS_BODY) // 0x2802831, what bullets hit
+
+// Surface flags (trace_t::surfaceFlags)
+#define SURF_SKY			0x4
+#define SURF_TYPEINDEX(x)	(((x) >> 20) & 0x1f)	// surface type, index to surfaceTypes / SURF_TYPE_*
+
+// Surface types (material names of the bullet impact effects)
+enum surfaceType_e
+{
+	SURF_TYPE_NONE,
+	SURF_TYPE_BARK,
+	SURF_TYPE_BRICK,
+	SURF_TYPE_CARPET,
+	SURF_TYPE_CLOTH,
+	SURF_TYPE_CONCRETE,
+	SURF_TYPE_DIRT,
+	SURF_TYPE_FLESH,
+	SURF_TYPE_FOLIAGE,
+	SURF_TYPE_GLASS,
+	SURF_TYPE_GRASS,
+	SURF_TYPE_GRAVEL,
+	SURF_TYPE_ICE,
+	SURF_TYPE_METAL,
+	SURF_TYPE_MUD,
+	SURF_TYPE_PAPER,
+	SURF_TYPE_PLASTER,
+	SURF_TYPE_ROCK,
+	SURF_TYPE_SAND,
+	SURF_TYPE_SNOW,
+	SURF_TYPE_WATER,
+	SURF_TYPE_WOOD,
+	SURF_TYPE_ASPHALT,
+	SURF_TYPECOUNT
+};
+
+// Traces a line (mins = maxs = origin) or a box from start to end against the world, static models (staticmodels = 1)
+// and linked entities except passEntityNum. Only brushes / entities with contents in contentmask are hit.
+// locational = 1 traces players against their hitboxes (sets partGroup), priorityMap picks the part that wins when more are hit.
+// results->entityNum is ENTITYNUM_WORLD when the world or a static model is hit, ENTITYNUM_NONE when nothing is hit.
+// A trace that starts inside a brush does not hit that brush - only startsolid is set (+ allsolid and fraction 0 when it also ends inside).
+// 00461910    void SV_Trace(struct trace_t* results @ esi, float const* start @ ebx, float const* mins, float const* maxs, float const* end @ edi, int32_t passEntityNum, int32_t contentmask, int32_t locational, uint8_t* priorityMap, int32_t staticmodels)
+inline void SV_Trace(trace_t* results, const float* start, const float* mins, const float* maxs, const float* end, int passEntityNum, int contentmask, int locational, unsigned char* priorityMap, int staticmodels) {
+    WL(
+        ASM_CALL(RETURN_VOID, 0x00461910, 7, ESI(results), EBX(start), PUSH(mins), PUSH(maxs), EDI(end), PUSH(passEntityNum), PUSH(contentmask), PUSH(locational), PUSH(priorityMap), PUSH(staticmodels)),
+        ASM_CALL(RETURN_VOID, 0x0809d884, 10, PUSH(results), PUSH(start), PUSH(mins), PUSH(maxs), PUSH(end), PUSH(passEntityNum), PUSH(contentmask), PUSH(locational), PUSH(priorityMap), PUSH(staticmodels))
+    )
+}
+
 #define SV_CMD_CAN_IGNORE 0
 #define SV_CMD_RELIABLE 1
 
