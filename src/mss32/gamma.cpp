@@ -47,11 +47,8 @@ static void gamma_updateRequestedGamma()
         return;
     }
 
-    if (gammaCvar->modified)
-    {
-        gammaCvar->modified = false;
-    }
-
+    // Do not clear r_gamma->modified here, the renderer checks it in RB_EndFrame to apply
+    // the hardware gamma ramp in fullscreen mode. Changes are detected via gamma_previous.
     float gamma = gammaCvar->value.decimal;
     if (gamma != gamma_previous)
     {
