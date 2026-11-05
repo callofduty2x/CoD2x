@@ -177,6 +177,8 @@ It focuses on fixing bugs and adding new features to the game.
 # GSC functions
 ### Level
 ```markdown
+- `kick(<entity number>, <reason>)` - Original function extended with optional reason. With reason, the reason is shown in the kicked player's disconnect dialog and to all players as "<name> <reason>", and no temporary ban (sv_kickBanTime) is applied. Without reason it works as before. Older CoD2x versions ignore the reason.
+
 - `http_fetch` - Fetches data from an HTTP endpoint asynchronously. Allows specifying HTTP method, data, headers, and callbacks for success or error handling.
 
 - `websocket_connect` - Establishes a WebSocket connection to a specified URL with optional headers and callbacks for connection, message, close, and error events.
