@@ -30,22 +30,35 @@ typedef LONG (NTAPI *NtSetTimerResolution_t)(ULONG DesiredResolution, BOOLEAN Se
 typedef BOOL (WINAPI *SetProcessInformation_t)(HANDLE hProcess, int ProcessInformationClass, LPVOID ProcessInformation, DWORD ProcessInformationSize);
 
 
+static ULONG timer_requestedResolution = 0;  // 0 = no resolution is requested by us
+static bool timer_firstFrame = true;
+
+
 /**
  * Windows 11 may ignore timer resolution requests of a process when it decides to power-throttle it.
- * Opt out of it (and of EcoQoS), so the timer resolution requested below is always honored.
+ * When disabled, opt out of it (and of EcoQoS), so the requested timer resolution is always honored.
+ * When enabled, let the system decide again (default behavior).
  */
-static void timer_disablePowerThrottling() {
+static void timer_setPowerThrottling(bool disable) {
     // Available since Windows 8
-    SetProcessInformation_t pSetProcessInformation = (SetProcessInformation_t)GetProcAddress(GetModuleHandleA("kernel32.dll"), "SetProcessInformation");
+    SetProcessInformation_t pSetProcessInformation = (SetProcessInformation_t)(void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "SetProcessInformation");
     if (pSetProcessInformation == NULL) {
         return;
     }
 
     timer_powerThrottlingState_t state;
     state.Version = TIMER_POWER_THROTTLING_CURRENT_VERSION;
-    state.ControlMask = TIMER_POWER_THROTTLING_EXECUTION_SPEED | TIMER_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
-    state.StateMask = 0; // 0 = throttling is disabled for the flags in ControlMask
+    state.ControlMask = 0; // 0 = system manages throttling
+    state.StateMask = 0;   // 0 = throttling is disabled for the flags in ControlMask
 
+    if (!disable) {
+        if (!pSetProcessInformation(GetCurrentProcess(), TIMER_PROCESS_POWER_THROTTLING, &state, sizeof(state))) {
+            Com_Printf("Timer: error resetting power throttling: %lu\n", GetLastError());
+        }
+        return;
+    }
+
+    state.ControlMask = TIMER_POWER_THROTTLING_EXECUTION_SPEED | TIMER_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION;
     if (pSetProcessInformation(GetCurrentProcess(), TIMER_PROCESS_POWER_THROTTLING, &state, sizeof(state))) {
         Com_Printf("Timer: power throttling disabled.\n");
         return;
@@ -61,16 +74,16 @@ static void timer_disablePowerThrottling() {
 }
 
 /**
- * Request the finest timer resolution supported by the system, but not finer than 0.5ms.
- * The game itself requests only 1ms via timeBeginPeriod(1).
+ * Request the finest timer resolution supported by the system, but not finer than 0.5ms, or release our request.
+ * The game itself requests only 1ms via timeBeginPeriod(1), so after release the resolution falls back to it.
  */
-static void timer_setResolution() {
+static void timer_setResolution(bool enable) {
     HMODULE ntdll = GetModuleHandleA("ntdll.dll");
     if (ntdll == NULL) {
         return;
     }
-    NtQueryTimerResolution_t pNtQueryTimerResolution = (NtQueryTimerResolution_t)GetProcAddress(ntdll, "NtQueryTimerResolution");
-    NtSetTimerResolution_t pNtSetTimerResolution = (NtSetTimerResolution_t)GetProcAddress(ntdll, "NtSetTimerResolution");
+    NtQueryTimerResolution_t pNtQueryTimerResolution = (NtQueryTimerResolution_t)(void*)GetProcAddress(ntdll, "NtQueryTimerResolution");
+    NtSetTimerResolution_t pNtSetTimerResolution = (NtSetTimerResolution_t)(void*)GetProcAddress(ntdll, "NtSetTimerResolution");
     if (pNtQueryTimerResolution == NULL || pNtSetTimerResolution == NULL) {
         return;
     }
@@ -81,6 +94,20 @@ static void timer_setResolution() {
         return;
     }
 
+    if (!enable) {
+        if (timer_requestedResolution != 0) {
+            pNtSetTimerResolution(timer_requestedResolution, FALSE, &current);
+            timer_requestedResolution = 0;
+        }
+        Com_Printf("Timer: resolution released, current %.4fms.\n", current / 10000.0);
+        return;
+    }
+
+    if (timer_requestedResolution != 0) {
+        Com_Printf("Timer: resolution is %.4fms (supported %.4fms - %.4fms).\n", current / 10000.0, maximum / 10000.0, minimum / 10000.0);
+        return; // already requested
+    }
+
     // 'maximum' is the finest (smallest) resolution
     ULONG desired = maximum < TIMER_RESOLUTION_LIMIT ? TIMER_RESOLUTION_LIMIT : maximum;
 
@@ -88,8 +115,27 @@ static void timer_setResolution() {
         Com_Printf("Timer: error setting timer resolution to %.4fms\n", desired / 10000.0);
         return;
     }
+    timer_requestedResolution = desired;
 
     Com_Printf("Timer: resolution set to %.4fms (supported %.4fms - %.4fms).\n", current / 10000.0, maximum / 10000.0, minimum / 10000.0);
+}
+
+static void timer_apply() {
+    bool enable = com_timerResolution->value.boolean;
+    timer_setPowerThrottling(enable);
+    timer_setResolution(enable);
+}
+
+
+/** Called every frame on frame start. */
+void timer_frame() {
+    // Messages printed in timer_init() are not visible in the console, apply again so the status is printed
+    // The cvar can be also changed by config or in game
+    if (timer_firstFrame || com_timerResolution->modified) {
+        timer_firstFrame = false;
+        com_timerResolution->modified = false;
+        timer_apply();
+    }
 }
 
 /** Called only once on game start before common initialization. Used to initialize variables, cvars, etc. */
@@ -97,7 +143,6 @@ void timer_init() {
     com_timerResolution = Dvar_RegisterBool("com_timerResolution", true, (dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
 
     if (com_timerResolution->value.boolean) {
-        timer_disablePowerThrottling();
-        timer_setResolution();
+        timer_apply();
     }
 }

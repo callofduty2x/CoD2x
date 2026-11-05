@@ -117,6 +117,7 @@ void hook_Com_Frame()
     radar_frame();
     demo_frame();
     vmix_frame();
+    timer_frame();
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x00434f70);
