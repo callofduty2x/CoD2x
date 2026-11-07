@@ -165,6 +165,14 @@ It focuses on fixing bugs and adding new features to the game.
     - `r_lodScale 1` (default) - original LODs
     - `r_lodScale 0.5` - better model detail in distance
     - `r_lodScale 0` - best model detail in distance
+- Color adjustment of the 3D scene (film tweaks, like in CoD4), the same in DX7 and DX9, HUD and menus are not changed
+  - all values are saved and applied immediately, the defaults change nothing
+  - `r_filmTweakEnable 1` (default) - master switch
+  - `r_filmTweakContrast 1` (0 - 4), `r_filmTweakBrightness 0` (-1 - 1), `r_filmTweakGamma 1` (0.5 - 2)
+  - `r_filmTweakSaturation 1` and `r_filmTweakSkySaturation 1` (0 - 2) - separate saturation of the world and the sky
+  - `r_filmTweakColor "1 1 1"` - red, green and blue multipliers (0 - 2)
+  - `r_filmTweakDarkTint "1 1 1"` and `r_filmTweakLightTint "1 1 1"` - color of the dark and bright parts (0 - 2)
+- `r_gamma` works in windowed and borderless mode too - applied to the whole frame by the game itself, the monitor gamma is not changed anymore (no wrong colors on the desktop after alt-tab or a crash)
 - Disabled VirtualStore folder redirection by checking for privileges
 - New GSC functions - list in [GSC functions](#gsc-functions)
 - Match system

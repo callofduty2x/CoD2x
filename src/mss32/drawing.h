@@ -165,6 +165,14 @@ inline void RB_EndSurface() {
     ASM_CALL(RETURN_VOID, (gfx_module_addr + 0x0003ad30), 0);
 }
 
+/**
+ * Renderer frontend: waits until the render thread (r_smp_backend) has finished the frame it is drawing, once per frame
+ * (the engine's wait function, cod2_funcs, at most 4 s). Does nothing before the renderer is initialized.
+ */
+// 10020fc0 (gfx)    void R_SyncRenderThread()
+inline void R_SyncRenderThread() {
+    ASM_CALL(RETURN_VOID, (gfx_module_addr + 0x00020fc0), 0);
+}
 
 void drawing_frame();
 void drawing_init();

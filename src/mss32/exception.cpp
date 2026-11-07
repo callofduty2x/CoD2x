@@ -15,7 +15,6 @@
 #include <exception>
 
 #include "shared.h"
-#include "gamma.h"
 #include "main.h"
 #include "../shared/cod2_shared.h"
 #include "../shared/logger.h"
@@ -602,9 +601,6 @@ static LONG exception_handleCrash(EXCEPTION_POINTERS* pExceptionInfo, DWORD cras
     exception_buildFilePath(exception_reportPath, sizeof(exception_reportPath), "crash", exception_crashTime, ".txt");
     char pendingPath[MAX_PATH * 2];
     exception_buildFilePath(pendingPath, sizeof(pendingPath), "crash", exception_crashTime, EXCEPTION_PENDING_SUFFIX);
-
-    exception_stage = "restore gamma";
-    gamma_restore();
 
     // Stage 1: the essentials, without heap allocations, in case the rest of the handler fails
     exception_stage = "minimal report";

@@ -13,6 +13,13 @@ dvar_t* com_freezeWatch = NULL;
 HANDLE crash_watchdogThreadHandle = NULL;
 volatile DWORD freeze_lastHeartbeat = 0;   // Updated by the main thread
 volatile bool freeze_exitThread = false;
+volatile bool freeze_errorDialog = false;   // A fatal error message box is open (the game exits after it), the game is not frozen
+
+
+/** Called before a fatal error message box is shown (the game exits after it). The threads wait for the user, it is not a freeze. */
+void freeze_errorDialogShown() {
+    freeze_errorDialog = true;
+}
 
 extern volatile long exception_processCrashed;
 extern volatile bool hotreload_requested;
@@ -24,6 +31,10 @@ DWORD WINAPI freeze_watchdogThreadProc(LPVOID lpParameter) {
     while (!freeze_exitThread && !exception_processCrashed && !hotreload_requested && !com_errorEntered) {
 
         Sleep(1000);
+
+        // The user reads a fatal error message box (DirectX error), the game exits after it
+        if (freeze_errorDialog)
+            continue;
 
         DWORD currentTime = GetTickCount();
         if (currentTime - freeze_lastHeartbeat > DEBUG_RELEASE(20000, 12000)) {
@@ -78,8 +89,10 @@ void Sys_LoadingKeepAlive() {
 }
 
 
-// This function is called from GFX renderer to synchronize with the main thread 
-// Sometimes for some reason the main thread does not respond and the game freezes
+// This function is called from GFX renderer on the main thread (R_EndFrame_Internal, when the frame is not passed to the render
+// thread - r_smp_backend off or the device is lost) to take the device over from the render thread: it signals the render thread
+// and waits until it finishes its frame.
+// Sometimes for some reason the render thread does not respond and the game freezes
 void sub_004624a0()
 {
     #define data_d528a4_event (*(HANDLE*)0x00d528a4)
@@ -107,14 +120,18 @@ void sub_004624a0()
     // Wait for the third event, but with finite timeout
     DWORD wait = WaitForSingleObject(data_d528ec, 4000);
 
+    // The render thread is not frozen while it shows a fatal error message box (DirectX error, the game exits after it) - keep waiting
+    while (wait == WAIT_TIMEOUT && freeze_errorDialog)
+        wait = WaitForSingleObject(data_d528ec, 1000);
+
     if (wait == WAIT_OBJECT_0)
         return;
 
     if (wait == WAIT_TIMEOUT) {
         // Save and send the stacks of the main and render thread while the main thread is still stuck
-        exception_reportFreeze("Render thread timed out waiting for the main thread", 4000);
+        exception_reportFreeze("Main thread timed out waiting for the render thread", 4000);
 
-        showErrorMessage("Error", "Call of Duty 2 has frozen.\n\nThe main thread did not respond within 4 seconds\n\nCoD2x will try to restart the game.");
+        showErrorMessage("Error", "Call of Duty 2 has frozen.\n\nThe render thread did not respond within 4 seconds\n\nCoD2x will try to restart the game.");
 
         // call 0040d780    char* vid_restart_cmd()
         ASM_CALL(RETURN_VOID, 0x0040d780, 0);

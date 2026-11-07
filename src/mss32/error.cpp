@@ -6,6 +6,7 @@
 
 #include "shared.h"
 #include "console.h"
+#include "freeze.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/error.h"
 
@@ -32,20 +33,26 @@ ErrorPlatformInfo error_getPlatformInfo() {
     return info;
 }
 
-/** Called when a fatal error occurs. */
-int Sys_Error_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
+/**
+ * Message box of a fatal error, the game exits after it: reports the error and stops the freeze detection,
+ * the threads wait for the user, they are not frozen.
+ */
+int error_fatalMessageBox(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
 
+    freeze_errorDialogShown();
     error_reportFatal(lpText);
 
     return MessageBoxA(hWnd, lpText, lpCaption, uType);
 }
 
-/** Called when a DirectX fatal error occurs. */
-int Sys_DirectXFatalError_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
+/** Called when a fatal error occurs. Replaces a call of MessageBoxA (stdcall, the callee pops the arguments). */
+int WINAPI Sys_Error_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
+    return error_fatalMessageBox(hWnd, lpText, lpCaption, uType);
+}
 
-    error_reportFatal(lpText);
-
-    return MessageBoxA(hWnd, lpText, lpCaption, uType);
+/** Called when a DirectX fatal error occurs. Replaces a call of MessageBoxA (stdcall, the callee pops the arguments). */
+int WINAPI Sys_DirectXFatalError_MessageBoxA(HWND hWnd, LPCSTR lpText, LPCSTR lpCaption, UINT uType) {
+    return error_fatalMessageBox(hWnd, lpText, lpCaption, uType);
 }
 
 

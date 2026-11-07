@@ -5,7 +5,6 @@
 #include <cstdint>
 
 #include "shared.h"
-#include "gamma.h"
 #include "rinput.h"
 #include "demo.h"
 #include "../shared/cod2_dvars.h"
@@ -304,8 +303,6 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             
             rinput_on_main_window_destory();
 
-            gamma_restore();
-
             win_hwnd = NULL;
 
             callOriginal = false;
@@ -362,8 +359,6 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
                 if (win_isActivated)
                     mouse_windowIsActive = 1;
-
-                gamma_requestSync();
             }
 
             // Original function also contained logic to handle hiding the cursor, thats removed now
@@ -388,14 +383,10 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 ((void (*)())0x0042c600)(); // Com_TouchMemory();
 
                 logger_add("Window activated");
-
-                gamma_requestSync();
             } else {
                 win_isActivated = 0;
 
                 logger_add("Window deactivated / minimized");
-
-                gamma_restore();
             }
 
             mouse_windowIsActive = win_isActivated;
@@ -560,8 +551,6 @@ int R_CreateWindow()
 /** Called every frame at the start of the frame. */
 void window_frame() {
 
-    gamma_onFrameStart();
-
     // Player disconnected from the server
     if (clientState != window_clientStateLast && clientState == CLIENT_STATE_CONNECTED) {
         Dvar_SetBool(m_enable, true); // enable mouse movement
@@ -646,6 +635,24 @@ static void* hook_R_UsedCachedStaticModelSurface()
 #undef SMC_ENTRY_SIZE
 
 
+// 10013960 (gfx)    bool R_RecoverLostDevice()
+static bool R_RecoverLostDevice()
+{
+    // CoD2x: IDirect3DDevice9::Reset returns D3DERR_INVALIDCALL when it is called from another thread than the one of the game window,
+    // so a device lost in the middle of a frame on the render thread (r_smp_backend) could never be recovered ("DirectX encountered
+    // an unrecoverable error"). The render thread skips the frame like when the device is still lost: d3d_device_lost stays set,
+    // so R_EndFrame_Internal runs the next frame on the main thread, which resets the device.
+    if (thread_isNotMain())
+        return false;
+    // CoD2x: End
+
+    // Call the original function
+    int ret;
+    ASM_CALL(RETURN(ret), (gfx_module_addr + 0x00013960), 0);
+    return (ret & 0xff) != 0;
+}
+
+
 // Called when the game loaded the renderer DLL
 void window_rendered() {
 
@@ -655,6 +662,10 @@ void window_rendered() {
     // Fix crash in R_UsedCachedStaticModelSurface when node->next/prev is NULL
     // (ACCESS_VIOLATION at gfx+0x0002bd23, call site at gfx+0x0001f53f, since 1.4.3.2)
     patch_call(gfx_module_addr + 0x0001f53f, (unsigned int)hook_R_UsedCachedStaticModelSurface);
+
+    // Recover a lost device only on the main thread, Reset fails on the render thread
+    // 10034140  e81bf8fdff  call R_RecoverLostDevice   (in RB_ExecuteRenderCommands, the only call)
+    patch_call(gfx_module_addr + 0x00034140, (unsigned int)R_RecoverLostDevice);
 
     // Change flags of r_fullscreen cvar - removed original DVAR_ROM flag - now user can change the value
     patch_int32(gfx_module_addr + 0x000ba43 + 1, (DVAR_ARCHIVE | DVAR_LATCH | DVAR_CHANGEABLE_RESET | DVAR_RENDERER));

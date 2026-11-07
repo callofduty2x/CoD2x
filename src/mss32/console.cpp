@@ -17,29 +17,30 @@
 static char g_consoleMirror[CONSOLE_MIRROR_CAPACITY];
 static size_t g_consoleMirrorLen = 0;
 static volatile LONG g_consoleMirrorSeq = 0;
+static volatile LONG g_consoleMirrorWriter = 0;	// 1 while a thread writes (the main and the render thread both print)
 
 static void console_mirror_append(const char* text, size_t textLen) {
 	if (!text || textLen == 0) {
 		return;
 	}
 
+	// One writer at a time, the sequence lock below supports only one. Short spin, nothing inside waits for another thread.
+	while (InterlockedCompareExchange(&g_consoleMirrorWriter, 1, 0) != 0) {
+		YieldProcessor();
+	}
+
 	// Begin write section (odd seq means writer active).
 	InterlockedIncrement(&g_consoleMirrorSeq);
 
 	// Keep only the newest chunk if input itself is larger than capacity.
+	size_t freeBytes = (CONSOLE_MIRROR_CAPACITY - 1) - g_consoleMirrorLen;
 	if (textLen >= CONSOLE_MIRROR_CAPACITY - 1) {
 		text += textLen - (CONSOLE_MIRROR_CAPACITY - 1);
 		textLen = CONSOLE_MIRROR_CAPACITY - 1;
-		memcpy(g_consoleMirror, text, textLen);
-		g_consoleMirrorLen = textLen;
-		g_consoleMirror[g_consoleMirrorLen] = '\0';
-		InterlockedIncrement(&g_consoleMirrorSeq);
-		return;
+		g_consoleMirrorLen = 0;
 	}
-
 	// If needed, drop oldest bytes from the front.
-	size_t freeBytes = (CONSOLE_MIRROR_CAPACITY - 1) - g_consoleMirrorLen;
-	if (textLen > freeBytes) {
+	else if (textLen > freeBytes) {
 		size_t drop = textLen - freeBytes;
 		if (drop >= g_consoleMirrorLen) {
 			g_consoleMirrorLen = 0;
@@ -55,6 +56,7 @@ static void console_mirror_append(const char* text, size_t textLen) {
 
 	// End write section (even seq means stable snapshot available).
 	InterlockedIncrement(&g_consoleMirrorSeq);
+	InterlockedExchange(&g_consoleMirrorWriter, 0);
 }
 
 static size_t console_mirror_snapshot(char* out, size_t outSize) {
@@ -102,6 +104,33 @@ static size_t console_mirror_snapshot(char* out, size_t outSize) {
 }
 
 
+/**
+ * Appends a message printed by another thread than the main thread to the mirror, converted like in Conbuf_AppendText
+ * (no color codes, CRLF). In chunks on the stack - the static buffer of Conbuf_AppendText belongs to the main thread.
+ */
+static void console_mirror_appendText(const char* msg) {
+	char chunk[512];
+	size_t n = 0;
+	for (const char* m = msg; *m; m++) {
+		if (n + 2 >= sizeof(chunk)) {
+			console_mirror_append(chunk, n);
+			n = 0;
+		}
+		if (m[0] == '\n' && m[1] == '\r') {
+			chunk[n++] = '\r'; chunk[n++] = '\n';
+			m++;
+		} else if (m[0] == '\r' || m[0] == '\n') {
+			chunk[n++] = '\r'; chunk[n++] = '\n';
+		} else if (Q_IsColorString(m)) {
+			m++;
+		} else {
+			chunk[n++] = *m;
+		}
+	}
+	console_mirror_append(chunk, n);
+}
+
+
 // 00468b10    uint32_t Conbuf_AppendText(char* msg @ ecx)
 void Conbuf_AppendText() {
     const char* pMsg;
@@ -110,8 +139,18 @@ void Conbuf_AppendText() {
     //#define CONSOLE_BUFFER_SIZE     16384 //
     #define CONSOLE_BUFFER_SIZE     32767 // CoD2x - bigger console buffer
 
+	// Only the main thread writes into the console window (original check). Other threads (the render thread prints
+	// e.g. "Recovering lost device...") would wait in SendMessage for the main thread - a deadlock when the main
+	// thread waits for the render thread (R_EndFrame).
+	if (thread_isNotMain()) {
+		// CoD2x: keep the line in the crash-safe mirror (crash and freeze reports)
+		console_mirror_appendText(pMsg);
+		// CoD2x: End
+		return;
+	}
+
 	// Static to avoid a ~64 KB stack allocation on every call.
-	// Safe because Conbuf_AppendText is only ever called from the main thread.
+	// Safe because only the main thread gets here (check above).
 	static char buffer[CONSOLE_BUFFER_SIZE * 2];
 	char *b = buffer;
 	const char *msg;

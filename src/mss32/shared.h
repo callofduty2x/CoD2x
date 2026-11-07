@@ -20,6 +20,13 @@ static inline void thread_setName(HANDLE h, const wchar_t* name) {
     if (pfn) pfn(h, name);
 }
 
+// True on a thread other than the main thread of the game (it owns the game window), like !Sys_IsMainThread (00462580), but false
+// before the engine has stored the main thread id (00d528d8 threadId, 0 until then), when only the main thread runs.
+static inline bool thread_isNotMain() {
+    DWORD mainThreadId = *(volatile DWORD*)0x00d528d8;
+    return mainThreadId != 0 && GetCurrentThreadId() != mainThreadId;
+}
+
 void getErrorMessage(DWORD errorCode, char* buffer, size_t bufferSize);
 void showErrorBox(const char *file, const char *function, int line, const char *format, ...);
 void showErrorBoxWithLastError(const char *file, const char *function, int line, const char *format, ...);

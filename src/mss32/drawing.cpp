@@ -5,6 +5,7 @@
 #include "../shared/cod2_client.h"
 #include "../shared/cod2_dvars.h"
 #include "demo.h"
+#include "error.h"
 #include "radar.h"
 #include "text.h"
 #include "xray.h"
@@ -758,7 +759,9 @@ void CG_BulletHitEvent() {
 
 // Help web page removed, fixed crash when getting translations
 void Sys_DirectXFatalError() {
-    MessageBoxA(NULL, "DirectX(R) encountered an unrecoverable error.", "DirectX Error", MB_OK | MB_ICONERROR);
+    // CoD2x: reported, freeze detection stopped while the box is shown
+    error_fatalMessageBox(NULL, "DirectX(R) encountered an unrecoverable error.", "DirectX Error", MB_OK | MB_ICONERROR);
+    // CoD2x: End
     ExitProcess(-1);
 }
 

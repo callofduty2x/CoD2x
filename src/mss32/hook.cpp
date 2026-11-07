@@ -24,6 +24,7 @@
 #include "radar.h"
 #include "drawing.h"
 #include "text.h"
+#include "filmtweak.h"
 #include "master_server.h"
 #include "error.h"
 #include "downloading.h"
@@ -98,6 +99,7 @@ void hook_Com_Frame()
             demo_unload();
             text_unload();
             xray_unload();
+            filmtweak_unload();
 
             hotreload_loadDLL();
             hook_insideComFrame = false;
@@ -108,6 +110,7 @@ void hook_Com_Frame()
     // Only for client
     if (dedicated->value.integer == 0) {
         text_frame();
+        filmtweak_frame();
         competitive_frame();
         cgame_frame();
         xray_frame();
@@ -211,6 +214,7 @@ void hook_CL_Init() {
     match_init_client();
     drawing_init();
     text_init();
+    filmtweak_init();
     radar_init();
     demo_init();
     vmix_init();

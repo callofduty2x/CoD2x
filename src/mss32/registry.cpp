@@ -9,9 +9,6 @@
 #include "../shared/version.h"
 
 static const char* REGISTRY_COD2_PATH = "SOFTWARE\\Activision\\Call of Duty 2";
-static const char* REGISTRY_GAMMA_VALUE_PREFIX = "COD2X_GAMMA_";
-static const char* REGISTRY_GAMMA_DEVICE_SUFFIX = "_DEVICE";
-static const char* REGISTRY_GAMMA_RAMP_SUFFIX = "_RAMP";
 
 // Flag to indicate if the version has changed
 bool registry_version_changed = false;
@@ -31,7 +28,7 @@ extern bool admin_isElevated();
  * This function will copy all values from the VirtualStore to the real registry location and delete the VirtualStore key.
  */
 bool registry_migrateVirtualStore() {
-    
+
     // Not running as admin, so we cannot migrate the registry
     if (!admin_isElevated()) {
         return false;
@@ -98,195 +95,23 @@ bool registry_migrateVirtualStore() {
 }
 
 
+/**
+ * Deletes the COD2X_GAMMA_* values (the monitor gamma ramp backup of the removed per-monitor gamma, main builds since 721ada2,
+ * never released). r_gamma does not change the monitor ramp any more, nothing reads them.
+ * Can be removed once the test builds with the backup are not used.
+ */
+static void registry_deleteOldGammaValues(HKEY hKey) {
+    static const char REGISTRY_OLD_GAMMA_PREFIX[] = "COD2X_GAMMA_";
+    char name[256];
+    DWORD nameLen = sizeof(name);
 
-
-
-
-
-
-static void registry_gamma_encodeDeviceName(const char* deviceName, char* encodedName, size_t encodedNameSize) {
-    size_t written = 0;
-    static const char hex[] = "0123456789ABCDEF";
-    for (const unsigned char* ptr = (const unsigned char*)deviceName; *ptr != '\0' && written + 2 < encodedNameSize; ++ptr) {
-        encodedName[written++] = hex[*ptr >> 4];
-        encodedName[written++] = hex[*ptr & 0x0F];
-    }
-
-    if (encodedNameSize > 0) {
-        encodedName[written < encodedNameSize ? written : encodedNameSize - 1] = '\0';
-    }
-}
-
-
-static void registry_gamma_buildValueNames(const char* deviceName, char* deviceValueName, size_t deviceValueNameSize, char* rampValueName, size_t rampValueNameSize) {
-    char encodedName[128] = {0};
-    registry_gamma_encodeDeviceName(deviceName, encodedName, sizeof(encodedName));
-
-    snprintf(deviceValueName, deviceValueNameSize, "%s%s%s", REGISTRY_GAMMA_VALUE_PREFIX, encodedName, REGISTRY_GAMMA_DEVICE_SUFFIX);
-    snprintf(rampValueName, rampValueNameSize, "%s%s%s", REGISTRY_GAMMA_VALUE_PREFIX, encodedName, REGISTRY_GAMMA_RAMP_SUFFIX);
-}
-
-
-static bool registry_gamma_readValues(HKEY hKey, const char* deviceValueName, const char* rampValueName, const char* expectedDeviceName, WORD ramp[3][256], char* outDeviceName, size_t outDeviceNameSize) {
-    char deviceName[32] = {0};
-    DWORD deviceNameSize = sizeof(deviceName);
-    DWORD deviceType = 0;
-    LONG result = RegQueryValueExA(hKey, deviceValueName, NULL, &deviceType,
-        (LPBYTE)deviceName, &deviceNameSize);
-    if (result != ERROR_SUCCESS || deviceType != REG_SZ) {
-        return false;
-    }
-
-    if (expectedDeviceName != NULL && strcmp(deviceName, expectedDeviceName) != 0) {
-        return false;
-    }
-
-    DWORD rampType = 0;
-    DWORD rampSize = sizeof(WORD) * 3 * 256;
-    result = RegQueryValueExA(hKey, rampValueName, NULL, &rampType,
-        (LPBYTE)ramp, &rampSize);
-    if (result != ERROR_SUCCESS || rampType != REG_BINARY || rampSize != sizeof(WORD) * 3 * 256) {
-        return false;
-    }
-
-    if (outDeviceName != NULL && outDeviceNameSize > 0) {
-        strncpy(outDeviceName, deviceName, outDeviceNameSize - 1);
-        outDeviceName[outDeviceNameSize - 1] = '\0';
-    }
-
-    return true;
-}
-
-
-static bool registry_gamma_isPrefixedValue(const char* valueName, const char* suffix) {
-    size_t prefixLength = strlen(REGISTRY_GAMMA_VALUE_PREFIX);
-    size_t suffixLength = strlen(suffix);
-    size_t valueNameLength = strlen(valueName);
-
-    if (valueNameLength <= prefixLength + suffixLength) {
-        return false;
-    }
-
-    if (strncmp(valueName, REGISTRY_GAMMA_VALUE_PREFIX, prefixLength) != 0) {
-        return false;
-    }
-
-    return strcmp(valueName + valueNameLength - suffixLength, suffix) == 0;
-}
-
-
-bool registry_gamma_getSaved(const char* deviceName, WORD ramp[3][256]) {
-    if (deviceName == NULL || ramp == NULL) {
-        return false;
-    }
-
-    HKEY hKey;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        char deviceValueName[160] = {0};
-        char rampValueName[160] = {0};
-        registry_gamma_buildValueNames(deviceName, deviceValueName, sizeof(deviceValueName), rampValueName, sizeof(rampValueName));
-
-        bool ok = registry_gamma_readValues(hKey, deviceValueName, rampValueName, deviceName, ramp, NULL, 0);
-        RegCloseKey(hKey);
-        if (ok) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-
-bool registry_gamma_save(const char* deviceName, const WORD ramp[3][256]) {
-    if (deviceName == NULL || ramp == NULL) {
-        return false;
-    }
-
-    HKEY hKey;
-    LONG result = RegCreateKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, NULL,
-        REG_OPTION_NON_VOLATILE, KEY_READ | KEY_WRITE, NULL, &hKey, NULL);
-    if (result != ERROR_SUCCESS) {
-        return false;
-    }
-
-    char deviceValueName[160] = {0};
-    char rampValueName[160] = {0};
-    registry_gamma_buildValueNames(deviceName, deviceValueName, sizeof(deviceValueName), rampValueName, sizeof(rampValueName));
-
-    result = RegSetValueExA(hKey, deviceValueName, 0, REG_SZ,
-        (const BYTE*)deviceName, (DWORD)strlen(deviceName) + 1);
-    if (result == ERROR_SUCCESS) {
-        result = RegSetValueExA(hKey, rampValueName, 0, REG_BINARY,
-            (const BYTE*)ramp, sizeof(WORD) * 3 * 256);
-    }
-
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS;
-}
-
-
-void registry_gamma_clear(const char* deviceName) {
-    if (deviceName == NULL) {
-        return;
-    }
-
-    HKEY hKey;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_SET_VALUE, &hKey) == ERROR_SUCCESS) {
-        char deviceValueName[160] = {0};
-        char rampValueName[160] = {0};
-        registry_gamma_buildValueNames(deviceName, deviceValueName, sizeof(deviceValueName), rampValueName, sizeof(rampValueName));
-        RegDeleteValueA(hKey, deviceValueName);
-        RegDeleteValueA(hKey, rampValueName);
-        RegCloseKey(hKey);
+    // A deleted value shifts the next one to the same index
+    for (DWORD i = 0; RegEnumValueA(hKey, i, name, &nameLen, NULL, NULL, NULL, NULL) == ERROR_SUCCESS; nameLen = sizeof(name)) {
+        if (strncmp(name, REGISTRY_OLD_GAMMA_PREFIX, sizeof(REGISTRY_OLD_GAMMA_PREFIX) - 1) == 0 && RegDeleteValueA(hKey, name) == ERROR_SUCCESS)
+            continue;
+        i++;
     }
 }
-
-
-void registry_gamma_forEachSaved(registry_gamma_enum_callback_t callback, void* context) {
-    if (callback == NULL) {
-        return;
-    }
-
-    HKEY hKey;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, REGISTRY_COD2_PATH, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        char valueName[256];
-        DWORD index = 0;
-        while (true) {
-            DWORD valueNameSize = sizeof(valueName);
-            LONG enumResult = RegEnumValueA(hKey, index++, valueName, &valueNameSize, NULL, NULL, NULL, NULL);
-            if (enumResult != ERROR_SUCCESS) {
-                break;
-            }
-
-            if (!registry_gamma_isPrefixedValue(valueName, REGISTRY_GAMMA_DEVICE_SUFFIX)) {
-                continue;
-            }
-
-            char rampValueName[256] = {0};
-            size_t baseLength = strlen(valueName) - strlen(REGISTRY_GAMMA_DEVICE_SUFFIX);
-            memcpy(rampValueName, valueName, baseLength);
-            strcpy(rampValueName + baseLength, REGISTRY_GAMMA_RAMP_SUFFIX);
-
-            WORD ramp[3][256] = { 0 };
-            char deviceName[32] = { 0 };
-            bool ok = registry_gamma_readValues(hKey, valueName, rampValueName, NULL, ramp, deviceName, sizeof(deviceName));
-            if (!ok) {
-                continue;
-            }
-
-            if (!callback(deviceName, ramp, context)) {
-                break;
-            }
-        }
-
-        RegCloseKey(hKey);
-    }
-}
-
-
-
-
-
 
 
 void registry_init() {
@@ -307,6 +132,8 @@ void registry_init() {
             exit(1);
         }
     }
+
+    registry_deleteOldGammaValues(hKey);
 
 
     // Compare the current version with the one stored in the registry
