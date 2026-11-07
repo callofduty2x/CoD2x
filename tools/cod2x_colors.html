@@ -145,8 +145,6 @@ textarea.input { height: auto; padding: 8px 12px; }
 .out::after { content: "Copy"; position: absolute; top: 50%; right: 10px; transform: translateY(-50%); height: 28px; padding: 0 12px; border-radius: 7px;
   background: var(--accent); color: var(--accent-ink); font: 600 .8rem/28px var(--font-body); }
 .out.copied::after { content: "Copied"; }
-.opts { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
-.opts .seg button small { font-size: .72rem; font-weight: 400; color: var(--muted); }
 .out .c { color: var(--accent); font-weight: 600; }
 .out .e { color: var(--muted); text-decoration: underline dotted; }
 .stats .over { color: var(--danger); font-weight: 600; }
@@ -182,6 +180,7 @@ textarea.input { height: auto; padding: 8px 12px; }
 .kf svg { width: 2.2em; height: .9em; flex: none; }
 .game .ammo { position: absolute; right: 2.5%; bottom: 4%; font: 600 1.4em/1 var(--font-game); text-shadow: 1px 1px 0 #000; opacity: .9; }
 .game .ammo small { font-size: .65em; opacity: .7; }
+.game .center { position: absolute; left: 0; right: 0; bottom: 32%; text-align: center; font-size: 1.1em; text-shadow: 1px 1px 0 #000; }
 .game-note { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: .8rem; color: var(--muted); }
 .game-note b { color: var(--fg); font-weight: 600; }
 
@@ -240,7 +239,6 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
       <span title="Animation"><em>Rainbow</em><b>$*</b> on <b>$-</b> off</span>
       <span title="Font"><em>Font</em><b>@+</b> bold <b>@=</b> mono <b>@-</b> off</span>
       <span title="The current color becomes a background under the characters, the text goes back to the color it had before"><em>Background</em><b>#_</b> on <b>#-</b> off</span>
-      <span title="Double codes also style killfeed and chat names"><em>Everywhere</em><b>$$11</b> <b>$$**</b> <b>@@++</b> <b>##__</b></span>
       <span title="A code between the characters shows them as text"><em>As text</em><b>$^75</b> = $5</span>
     </div>
   </header>
@@ -316,13 +314,6 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
         </div>
         <div id="out" class="out" role="button" tabindex="0" aria-live="polite" title="Click to copy the code"></div>
         <p class="warn" id="warn" hidden></p>
-        <div class="opts">
-          <span class="label">Show colors in</span>
-          <div class="seg" role="group" aria-label="Where the name is styled">
-            <button id="dblOff" aria-pressed="true" title="Single codes ($1): the killfeed and chat show the name in the team color">Scoreboard <small>single colors</small></button>
-            <button id="dblOn" aria-pressed="false" title="Double codes ($$11): also the killfeed and chat names; each code takes twice the characters">Everywhere <small>double colors</small></button>
-          </div>
-        </div>
         <p class="toast" id="toast" role="status"></p>
         <textarea id="copyFallback" class="input mono" rows="2" hidden aria-label="Text to copy"></textarea>
       </section>
@@ -343,7 +334,7 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
 
 
   <footer>
-    <p><code>Ca$h</code> and <code>$niper</code> stay text, a code needs a digit · <code>%</code> becomes a dot in game · Killfeed and chat names show only double codes · Fonts change the typeface, not the size; <code>^7</code> ends rainbow, font and background · ^8 and ^9 are sample team colors here; the server sets them</p>
+    <p><code>Ca$h</code> and <code>$niper</code> stay text, a code needs a digit · <code>%</code> becomes a dot in game · Player names are colored only on the scoreboard, the killfeed, chat and other texts show them without codes · Fonts change the typeface, not the size; <code>^7</code> ends rainbow, font and background · ^8 and ^9 are sample team colors here; the server sets them</p>
   </footer>
 </div>
 
@@ -418,8 +409,27 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     else if (m.id === "7") { st.color = st.prev = colorOf("7"); st.rb = false; st.font = ""; st.bg = ""; }
     else { st.prev = st.color; st.color = colorOf(m.id); }
   }
-  // CoD2x Text_ResolveDoubleColors: on the HUD a double code is the same color as a single one
+  // CoD2x Text_ResolveDoubleColors: on the scoreboard an old double code is the same color as a single one
   const resolveDoubles = s => s.replace(/\^\^(\d)(\d)/g, "^$2");
+  // CoD2x strip_text_codes: player names outside the scoreboard (killfeed, chat, name under the crosshair,
+  // "You killed ...") lose all codes - "^1", "^^11", "$1", "$$11", "$*", "@+", "#_", ...
+  function stripCodes(s) {
+    let out = "";
+    for (let i = 0; i < s.length;) {
+      if (s[i] === "^") {
+        let carets = 0;
+        while (s[i + carets] === "^") carets++;
+        let digits = 0;
+        while (digits < carets && isDigit(s[i + carets + digits])) digits++;
+        if (digits) { i += carets + digits; continue; }
+      } else if (isPrefix(s[i])) {
+        const m = parseMarkup(s, i, true);
+        if (m.len) { i += m.len; continue; }
+      }
+      out += s[i]; i++;
+    }
+    return out;
+  }
 
   // Code string -> editor model (as a CoD2x player sees it on the HUD).
   function codeToModel(code) {
@@ -437,17 +447,15 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
 
   // Editor model -> code string. A literal $ # @ that would join the next characters into a code
   // gets the current font code inserted after it ("$5" -> "$@-5"), which changes nothing and shows it as text.
-  // Single codes color the scoreboard; double codes color it too and also the killfeed and chat.
-  function colorCode(id, double) {
-    if (isVanilla(id)) return double ? "^^" + id + id : "^" + id;
-    return double ? id[0] + id[0] + id[1] + id[1] : id;
+  function colorCode(id) {
+    return isVanilla(id) ? "^" + id : id;
   }
-  function modelToCode(chars, opts) {
+  function modelToCode(chars) {
     const parts = []; // {s, lit, font}
     const st = { color: "7", rb: false, font: "", bg: "" };
     const emit = (code, m) => { parts.push({ s: code, lit: false }); applyCode(st, m, id => id); };
-    const color = id => emit(colorCode(id, opts.double), { kind: "color", id });
-    const style = key => emit(opts.double ? key[0] + key[0] + key[1] + key[1] : key, STYLES[key]);
+    const color = id => emit(colorCode(id), { kind: "color", id });
+    const style = key => emit(key, STYLES[key]);
     const fontKey = f => f === "b" ? "@+" : f === "m" ? "@=" : "@-";
     for (const c of chars) {
       const want = { color: c.color, rb: c.rainbow, font: c.font || "", bg: c.bg || "" };
@@ -487,27 +495,20 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     }
     return segs;
   }
-  // Killfeed, like CL_AddConsoleText + R_DrawConsoleText: single codes are stripped, so the name keeps the
-  // team color; double CoD2x codes ("$$11", "##__") become control cells; a vanilla double ("^^11") leaves
-  // "^1" in the characters, which the renderer applies ("^7" = team color).
+  // Killfeed name. CoD2x (CL_AddDeathMessageText): all codes are stripped, the name has the team color.
+  // Vanilla: single "^1" codes are stripped, a double "^^11" leaves "^1" in the characters, which the
+  // renderer applies ("^7" = team color); CoD2x codes stay as text.
   function renderKillfeed(code, cod2x, teamRgb = TEAM_RGB) {
-    const cells = []; // {ch} or {m}
-    for (let i = 0; i < code.length;) {
-      if (cod2x && code[i] !== "^") {
-        const m = parseMarkup(code, i, true);
-        if (m.len) { if (m.double) cells.push({ m }); i += m.len; continue; }
-      }
-      if (code[i] === "^" && code[i + 1] !== undefined && code[i + 1] !== "^" && isDigit(code[i + 1])) { i += 2; continue; }
-      cells.push({ ch: code[i] }); i++;
-    }
     const segs = []; const st = { color: teamRgb, rb: false, font: "", bg: "" };
+    if (cod2x) {
+      for (const ch of stripCodes(code)) if (ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) < 127) push(segs, ch, st);
+      return segs;
+    }
+    const cells = vanillaClean(code);
     const colorOf = id => id === "7" ? teamRgb : ALL.get(id).rgb;
     for (let k = 0; k < cells.length; k++) {
-      const cell = cells[k];
-      if (cell.m) { applyCode(st, cell.m, colorOf); continue; }
-      const next = cells[k + 1];
-      if (cell.ch === "^" && next && next.ch !== undefined && isDigit(next.ch)) { applyCode(st, { kind: "color", id: next.ch }, colorOf); k++; continue; }
-      if (cell.ch.charCodeAt(0) >= 32 && cell.ch.charCodeAt(0) < 127) push(segs, cell.ch, st);
+      if (cells[k] === "^" && isDigit(cells[k + 1])) { applyCode(st, { kind: "color", id: cells[k + 1] }, colorOf); k++; continue; }
+      if (cells.charCodeAt(k) >= 32 && cells.charCodeAt(k) < 127) push(segs, cells[k], st);
     }
     return segs;
   }
@@ -563,24 +564,11 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     const rgb = m.kind === "color" ? ALL.get(m.id).rgb : [1, 1, 1];
     return `rgba(${rgb.map(v => Math.round(v * 255 * .25)).join(",")},.6)`;
   }
-  // G_Say cleans the name (CoD2x G_Say_CleanName): single codes are removed, so the name shows in the
-  // team color; double codes turn into single ones ("^^11" -> "^1", "$$11" -> "$1") and color it.
-  // The message itself is not cleaned.
+  // The CoD2x server removes all codes from player names it puts into texts - chat (G_Say), iprintln,
+  // disconnect messages - so every player sees them in the team or default color. The message is not cleaned.
   function cleanName(s) {
-    let ext = "";
-    for (let i = 0; i < s.length;) {
-      const a = s[i], b = s[i + 1];
-      if (isPrefix(a) && b === a && isDigit(s[i + 2]) && isDigit(s[i + 3])) { ext += a + s[i + 3]; i += 4; continue; }
-      if (isPrefix(a) && b === a && STYLES[a + s[i + 2]] && s[i + 3] === s[i + 2]) { ext += a + s[i + 3]; i += 4; continue; }
-      if (isPrefix(a) && isDigit(b)) { i += 2; continue; }
-      if (isPrefix(a) && STYLES[a + b]) { i += 2; continue; }
-      ext += a; i++;
-    }
     let out = "";
-    for (let i = 0; i < ext.length; i++) {
-      if (ext[i] === "^" && ext[i + 1] !== undefined && ext[i + 1] !== "^" && isDigit(ext[i + 1])) { i++; continue; }
-      if (ext.charCodeAt(i) >= 32 && ext.charCodeAt(i) < 127) out += ext[i];
-    }
+    for (const ch of stripCodes(s)) if (ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) < 127) out += ch;
     return out;
   }
 
@@ -589,7 +577,6 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
   let chars = [];
   let sel = new Set();
   let anchor = -1, caret = -1;
-  let opts = { double: false };
   let view = "x";
   let pendingPrefix = null;
   const undoStack = [], redoStack = [];
@@ -637,9 +624,6 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     { group: "Combined", title: "Crimson and cream", code: "@1#_@+#3[CoD2x]^7 #3EYZA" },
     { group: "Combined", title: "Terminal", code: "@2#_@=[CoD2x]^7 @=#2EYZA" },
     { group: "Combined", title: "Violet and rainbow", code: "@9#_@+[CoD2x]^7 $*EYZA" },
-    { group: "Everywhere", title: "Background", code: "@@44##__[CoD2x]##-- EYZA" },
-    { group: "Everywhere", title: "Bold gold", code: "@@++@@33[CoD2x]^^77 EYZA" },
-    { group: "Everywhere", title: "Rainbow", code: "$$**[CoD2x]$$-- EYZA" },
     { group: "Chat", title: "Callout", code: "Meet at @3#_$0B site^7 now" },
     { group: "Chat", title: "Good game", code: "@2gg $*@+wp^7 all" },
     { group: "Chat", title: "Warning", code: "@1#_@+ CAMPER ^7 near @3house" },
@@ -730,7 +714,7 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     renderSelInfo();
     $("undo").disabled = !undoStack.length;
     $("redo").disabled = !redoStack.length;
-    store.set(KEY_DRAFT, modelToCode(chars, { vanilla: false, double: false }));
+    store.set(KEY_DRAFT, modelToCode(chars));
   }
 
   function renderStrip() {
@@ -763,7 +747,7 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     $("selInfo").textContent = text;
   }
 
-  function currentCode() { return modelToCode(chars, opts); }
+  function currentCode() { return modelToCode(chars); }
 
   function renderOutput() {
     const code = currentCode();
@@ -842,15 +826,15 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
         <div class="g kf">${kill(code, allies)} ${gun} ${kill("Kowalski_88", axis)}</div>
         <div class="g kf">${kill("Wolfgang", axis)} ${gun} ${kill(code, allies)}</div>
       </div>
+      <div class="g center">You killed ${plain(cod2x ? stripCodes(code) : code)}</div>
       <div class="ammo">30 <small>/ 120</small></div>`;
     syncRainbow($("scene"));
 
-    // Single codes color everything but the killfeed; double codes also color the killfeed.
+    // Names are colored only on the scoreboard
     const colored = chars.some(c => c.color !== "7" || c.rainbow || c.font || c.bg);
     const note = $("gameNote");
     if (!colored) note.innerHTML = "";
-    else if (opts.double) note.innerHTML = `<span><b>Everywhere</b>: styled on the scoreboard, in the killfeed and in chat.</span>`;
-    else note.innerHTML = `<span><b>Scoreboard</b>: killfeed and chat names keep the team color. Choose <b>Everywhere</b> in Code to style them too.</span>`;
+    else note.innerHTML = `<span><b>Scoreboard</b> only: the killfeed, chat, name under the crosshair and "You killed" show the name in the team or default color.</span>`;
   }
   // The game cycles all rainbow text with one clock, so keep every rainbow element in phase.
   function syncRainbow(root) {
@@ -990,8 +974,6 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
     pushUndo();
     chars = codeToModel(code);
     sel = new Set(); anchor = caret = -1;
-    opts.double = /\^\^\d\d|([$#@])\1(\d\d|([*+=_-])\3)/.test(code);
-    updateDoubleUi();
     syncText(); render();
   }
   document.addEventListener("click", e => {
@@ -1017,7 +999,7 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
   });
   $("saveForm").addEventListener("submit", e => {
     e.preventDefault();
-    const code = modelToCode(chars, opts);
+    const code = modelToCode(chars);
     if (!code) { toast("Type some text first."); return; }
     const title = $("saveTitle").value.trim() || chars.map(c => c.ch).join("").slice(0, 24);
     const saved = store.get(KEY_SAVED, []);
@@ -1064,12 +1046,6 @@ footer { font-size: .8rem; color: var(--muted); padding-top: 4px; display: grid;
   $("undo").addEventListener("click", doUndo);
   $("redo").addEventListener("click", doRedo);
   $("randomBtn").addEventListener("click", randomColors);
-  function updateDoubleUi() {
-    $("dblOff").setAttribute("aria-pressed", String(!opts.double));
-    $("dblOn").setAttribute("aria-pressed", String(opts.double));
-  }
-  $("dblOff").addEventListener("click", () => { opts.double = false; updateDoubleUi(); render(); });
-  $("dblOn").addEventListener("click", () => { opts.double = true; updateDoubleUi(); render(); });
   $("viewX").addEventListener("click", () => { view = "x"; $("viewX").setAttribute("aria-pressed", "true"); $("viewV").setAttribute("aria-pressed", "false"); renderScene(); });
   $("viewV").addEventListener("click", () => { view = "v"; $("viewV").setAttribute("aria-pressed", "true"); $("viewX").setAttribute("aria-pressed", "false"); renderScene(); });
 

@@ -173,7 +173,7 @@ It focuses on fixing bugs and adding new features to the game.
 - Radar
 - vMIX support
 - URL protocol to launch the game from web links: `cod2x://`
-- Toggle colored player names (double colors) in killfeed and chat (`con_printDoubleColors`);
+- Player names are colored only on the scoreboard - everywhere else (killfeed, chat, name under the crosshair, "You killed ...", "Following ...", "Fragged by ...", rename, disconnect and `iprintln` messages) the name is shown without color codes, double colors (`^^11`) included. For HUD texts made by mods use the new GSC function `stripColorCodes`.
 - Bullet trace debugging (`cg_debugBullets`);
 - Automatic zPAM updates on servers that already have zPAM in `main`, run without `fs_game` and have `sv_wwwDownload` and `sv_wwwBaseURL` set - new version is downloaded in background on server start and regularly while the server is running, and loaded on the next map change or full `map_restart` unless a match is running (an empty server restarts the map on its own). Disable with `sv_updateZpam 0`. Versions are tracked in `main/zpam.json`. A folder can be shared by more servers, each one switches on its own.
 - Added support for `https://` in `sv_wwwBaseURL` (certificates are not verified), `http://` works the same as before.
@@ -186,6 +186,8 @@ It focuses on fixing bugs and adding new features to the game.
 # GSC functions
 ### Level
 ```markdown
+- `stripColorCodes` - Returns the text without color and style codes (`^1`, `^^11`, `$1`, `$$11`, `$*`, `@+`, `#_`, ...), e.g. `stripColorCodes(player.name)`.
+
 - `http_fetch` - Fetches data from an HTTP endpoint asynchronously. Allows specifying HTTP method, data, headers, and callbacks for success or error handling.
 
 - `websocket_connect` - Establishes a WebSocket connection to a specified URL with optional headers and callbacks for connection, message, close, and error events.

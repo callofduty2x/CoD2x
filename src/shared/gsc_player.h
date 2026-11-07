@@ -10,6 +10,7 @@ void gsc_player_playerGetAuthorizationStatus(scr_entref_t ref);
 void gsc_player_getViewOrigin(scr_entref_t ref);
 void gsc_player_getStance(scr_entref_t ref);
 void gsc_player_isUsingTurret(scr_entref_t ref);
+void gsc_player_stripColorCodes();
 
 void gsc_player_frame();
 void gsc_player_init();

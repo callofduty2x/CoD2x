@@ -60,6 +60,8 @@ scr_function_t scriptFunctions[] = {
 	{"test_allOk", gsc_test_allOk, 0},
 	#endif
 
+	{"stripColorCodes", gsc_player_stripColorCodes, 0},
+
 	{"http_fetch", gsc_http_fetch, 0},
 
 	{"websocket_connect", gsc_websocket_connect, 0},

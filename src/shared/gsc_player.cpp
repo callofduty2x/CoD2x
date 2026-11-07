@@ -166,3 +166,18 @@ void gsc_player_isUsingTurret(scr_entref_t ref) {
 	else
 		Scr_AddBool(false);
 }
+
+
+/**
+ * Returns the text without color and style codes, e.g. a player name shown outside the scoreboard.
+ * Removes "^1", "^^11", "$1", "#1", "@1", "$$11", "$*", "@+", "#_", ... (see strip_text_codes)
+ *   name = stripColorCodes(player.name); // "^1Eyza$$22!" -> "Eyza!"
+ */
+void gsc_player_stripColorCodes() {
+	const char* text = Scr_GetString(0);
+
+	char clean[1024];
+	strip_text_codes(text, clean, sizeof(clean));
+
+	Scr_AddString(clean);
+}
