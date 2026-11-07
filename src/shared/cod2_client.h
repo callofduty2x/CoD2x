@@ -284,4 +284,42 @@ inline int32_t SEH_PrintStrlen(const char* string) {
     ASM_CALL_RETURN(int32_t, 0x004abeb0, 0, EDX(string));
 }
 
+// Returns white with the alpha of a fade out: 1 until the last fadeMsec of totalMsec after startMsec, then down to 0.
+// Returns NULL when totalMsec is over or startMsec is 0. The color is a static buffer.
+// 004c2860    float* CG_FadeColor(int32_t startMsec @ edx, int32_t totalMsec @ ecx, int32_t fadeMsec)
+inline float* CG_FadeColor(int32_t startMsec, int32_t totalMsec, int32_t fadeMsec) {
+    float* ret;
+    ASM_CALL(RETURN(ret), 0x004c2860, 1, EDX(startMsec), ECX(totalMsec), PUSH(fadeMsec));
+    return ret;
+}
+
+// Allocates the console buffers and message windows, called by the first print when the console is not initialized yet.
+// 004044a0    int32_t Con_OneTimeInit()
+inline void Con_OneTimeInit() {
+    ASM_CALL(RETURN_VOID, 0x004044a0, 0);
+}
+
+// Writes 3 cells with the red, green and blue of color (0..255) into the console buffer, on the control
+// channels channel, channel + 1 and channel + 2 (10 = color of the following killfeed name, 13 = killfeed icon color).
+// 004052d0    void CL_AddConsoleInfoColor(int32_t channel @ eax, float const* color @ esi)
+inline void CL_AddConsoleInfoColor(int32_t channel, const float* color) {
+    ASM_CALL(RETURN_VOID, 0x004052d0, 0, EAX(channel), ESI(color));
+}
+
+// Adds a material name to the killfeed icons hudMsgIconMaterials (a copy of the name, nothing is loaded) if it is not
+// there yet. The killfeed icon cell (channel 18) holds the index into this table, the renderer draws the material of it.
+// The table is not bounds checked, the cells hold 8 bits.
+// 00403810    char* CL_RegisterHudMsgIconMaterial(char const* name)
+inline void CL_RegisterHudMsgIconMaterial(const char* name) {
+    ASM_CALL(RETURN_VOID, 0x00403810, 1, PUSH(name));
+}
+
+// Draws a message window of the console (game messages, bold game messages, subtitles, mini console) at x, y in
+// virtual 640x480 coordinates. mode: 0 / 1 = lines from old to new going down / up, 2 = from new to old going up
+// (game messages), 3 = subtitles. charHeight is the line height (and the font size), scale multiplies the font size.
+// 00406a20    void Con_DrawMessageWindow(struct notifyBufferItem* msgwnd, int32_t x, int32_t y @ eax, int32_t mode @ ecx, int32_t charHeight, enum horizontalAlign_e horzAlign, enum verticalAlign_e vertAlign, float alpha, float scale)
+inline void Con_DrawMessageWindow(void* msgwnd, int32_t x, int32_t y, int32_t mode, int32_t charHeight, int32_t horzAlign, int32_t vertAlign, float alpha, float scale) {
+    ASM_CALL(RETURN_VOID, 0x00406a20, 7, PUSH(msgwnd), PUSH(x), EAX(y), ECX(mode), PUSH(charHeight), PUSH(horzAlign), PUSH(vertAlign), PUSH(alpha), PUSH(scale));
+}
+
 #endif

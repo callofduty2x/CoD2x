@@ -250,6 +250,25 @@ inline void G_CheckHitTriggerDamage(gentity_t* pActivator, const float* start, c
     )
 }
 
+// Returns the index of the weapon (1 ..), 0 if there is no weapon of that name. While the level is
+// initializing the weapon is loaded and registered if it is not yet.
+// 005282b0    int32_t G_GetWeaponIndexForName(char const* name @ eax)
+inline int G_GetWeaponIndexForName(const char* name) {
+    int ret;
+    ASM_CALL(RETURN(ret), ADDR(0x005282b0, 0x08120dd0), WL(0, 1), WL(EAX, PUSH)(name));
+    return ret;
+}
+
+// Returns the index of the shader (material) in the configstrings CS_SHADERS (1 .. 127), the name is lowercased.
+// While the level is initializing a new shader is added (precacheShader), later a shader that is not there
+// is a script error "shader ... not precached" and 0 is returned.
+// 0050e2a0    int32_t G_ShaderIndex(char const* name @ eax)
+inline int G_ShaderIndex(const char* name) {
+    int ret;
+    ASM_CALL(RETURN(ret), ADDR(0x0050e2a0, 0x0811d44a), WL(0, 1), WL(EAX, PUSH)(name));
+    return ret;
+}
+
 // Returns 1 if both entities are players in the same team (team none is never the same team)
 // 00520b10    int32_t OnSameTeam(struct gentity_s* ent1 @ eax, struct gentity_s* ent2 @ ecx)
 inline int OnSameTeam(gentity_t* ent1, gentity_t* ent2) {

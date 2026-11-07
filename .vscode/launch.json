@@ -24,6 +24,28 @@
             "internalConsoleOptions": "neverOpen"
         },
         {
+            "name": "Win tests",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bin/windows/CoD2MP_s.exe",
+            "args": ["+set fs_game mods/test +exec test.cfg"],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/bin/windows",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "miDebuggerPath": "${workspaceFolder}/tools/mingw/bin/gdb.exe",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Build Win + select test mod",
+            "internalConsoleOptions": "neverOpen"
+        },
+        {
             "name": "Win client+server",
             "type": "cppdbg",
             "request": "launch",

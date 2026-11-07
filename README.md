@@ -174,6 +174,10 @@ It focuses on fixing bugs and adding new features to the game.
 - vMIX support
 - URL protocol to launch the game from web links: `cod2x://`
 - Player names are colored only on the scoreboard - everywhere else (killfeed, chat, name under the crosshair, "You killed ...", "Following ...", "Fragged by ...", rename, disconnect and `iprintln` messages) the name is shown without color codes, double colors (`^^11`) included. For HUD texts made by mods use the new GSC function `stripColorCodes`.
+- Game messages and killfeed
+  - position and size of the game messages (`iprintln` and the killfeed) via `cg_gameMessageOffsetX`, `cg_gameMessageOffsetY` (offset in 640x480 units, default 0) and `cg_gameMessageScale` (0.5 - 3, default 1)
+  - the killfeed line is wrapped by the vanilla cvar `cg_gameMessageWidth` (characters, default 70) like other game messages
+  - extra killfeed icons after the weapon icon (wallbang, no-scope, headshot, ...) - only when the mod turns them on via the extended GSC function `obituary` (see [GSC functions](#gsc-functions)), mods that do not use it have the vanilla killfeed
 - Bullet trace debugging (`cg_debugBullets`);
 - Automatic zPAM updates on servers that already have zPAM in `main`, run without `fs_game` and have `sv_wwwDownload` and `sv_wwwBaseURL` set - new version is downloaded in background on server start and regularly while the server is running, and loaded on the next map change or full `map_restart` unless a match is running (an empty server restarts the map on its own). Disable with `sv_updateZpam 0`. Versions are tracked in `main/zpam.json`. A folder can be shared by more servers, each one switches on its own.
 - Added support for `https://` in `sv_wwwBaseURL` (certificates are not verified), `http://` works the same as before.
@@ -187,6 +191,8 @@ It focuses on fixing bugs and adding new features to the game.
 ### Level
 ```markdown
 - `stripColorCodes` - Returns the text without color and style codes (`^1`, `^^11`, `$1`, `$$11`, `$*`, `@+`, `#_`, ...), e.g. `stripColorCodes(player.name)`.
+
+- `obituary` - Extended original function, up to 4 extra killfeed icons can be added after the weapon icon: `obituary(victim, attacker, sWeapon, sMeansOfDeath [, icon1, icon2, icon3, icon4])`. Icons are shaders precached by `precacheShader`, `undefined` and `""` are skipped, e.g. `obituary(self, attacker, sWeapon, sMeansOfDeath, "killiconheadshot", "killiconwallbang")`. With at least one icon the CoD2x client shows the weapon icon followed by the icons - also for `MOD_HEAD_SHOT` and `MOD_MELEE`, where vanilla shows only the headshot / melee icon (pass `"killiconheadshot"` / `"killiconmelee"` to keep it). Without icons the killfeed stays vanilla. Vanilla clients always see the vanilla killfeed.
 
 - `http_fetch` - Fetches data from an HTTP endpoint asynchronously. Allows specifying HTTP method, data, headers, and callbacks for success or error handling.
 
@@ -379,6 +385,8 @@ In registry, when the game runs with administrator rights, we are moving old val
     - 📁 **mss32** - *code related for Windows, mimicking mss32.dll*
     - 📁 **shared** - *code shared for both Linux server and Windows version*
     - 📁 **other** - *reversed / testing code*
+- 📁 **tests**
+    - 📁 **mods** - *test mods for testing features in the game, see [tests/mods/README.md](tests/mods/README.md)*
 - 📁 **tools** - *contains external tools for coding, compiling, etc..*
 - 📁 **zip** - *zip files are generated here*
 

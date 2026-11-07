@@ -201,6 +201,15 @@ inline void* Scr_GetParamFunction(int param)
 	ASM_CALL(RETURN(ret), ADDR(0x004831f0, 0x08084dd0), WL(0, 1), WL(EAX, PUSH)(param));
 	return ret;
 }
+// Get type of passed parameter at index: 0 = undefined, 1 = object (entity, array, ...), 2 = string, 3 = localized string,
+// 4 = vector, 5 = float, 6 = int, ...
+// 00483400    int32_t Scr_GetType(uint32_t index @ eax)
+inline int Scr_GetType(unsigned int param)
+{
+	int ret;
+	ASM_CALL(RETURN(ret), ADDR(0x00483400, 0x08084ff0), WL(0, 1), WL(EAX, PUSH)(param));
+	return ret;
+}
 // Get type name of passed parameter at index, e.g "undefined", "int", "float", "string", ""localized string", "vector", "array", etc
 inline char* Scr_GetTypeName(int param)
 {

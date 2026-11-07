@@ -25,7 +25,9 @@
  *   - renderer      R_TextWidth, R_DrawText, R_AddCmdDrawTextWithCursor, R_ConsoleTextWidth and
  *                   R_DrawConsoleText are replaced in the renderer function table gfx_funcs
  *   - console       CL_ConsolePrint_AddLine stores the codes as the color byte of each character
- *   - names        CL_AddDeathMessageText (killfeed), CG_AddToTeamChat (chat), CG_DrawCrosshairNames,
+ *   - killfeed      CL_DeathMessagePrint adds the weapon icon and the extra icons the mod passed to obituary(),
+ *                   CG_DrawGameMessages moves and scales the game messages (cg_gameMessage*)
+ *   - names         CL_AddDeathMessageText (killfeed), CG_AddToTeamChat (chat), CG_DrawCrosshairNames,
  *                   CG_Obituary, CG_DrawFollow and the rename message strip the codes from the name
  *   - chat          CG_AddToTeamChat keeps the codes of the message, CG_DrawChatMessages colors the background
  *   - server        G_Say, Scr_ConstructMessageString (iprintln, ...) and SV_DropClient strip the codes
@@ -40,10 +42,14 @@
 
 #include "../shared/cod2_client.h"
 #include "../shared/cod2_dvars.h"
+#include "../shared/cod2_shared.h"
 #include "drawing.h"
 #include "shared.h"
 
 
+dvar_t* cg_gameMessageOffsetX = NULL;
+dvar_t* cg_gameMessageOffsetY = NULL;
+dvar_t* cg_gameMessageScale = NULL;
 extern bool cgame_hideServerIp;
 
 
@@ -58,6 +64,32 @@ extern bool cgame_hideServerIp;
 #define cl_consoleActiveType           (*((int32_t*)0x00601790))
 #define cl_consoleBufferSize           (*((uint32_t*)0x00601794))
 #define cl_consoleTotalBuffers         (*((int32_t*)0x00601798))
+#define cl_noprint                     (*((dvar_t**)0x0096b628))
+#define con_initialized                (*((int32_t*)0x005e1780))
+#define con_gamemessagetime            (*((dvar_t**)0x005e1334))
+#define notify_buffer                  (*((void**)0x006017b0)) // message windows, the first one is the game messages
+
+// Killfeed icons, see CL_RegisterHudMsgIconMaterial
+#define hudMsgIconMaterials            ((const char**)0x005e1340)
+#define registeredIconMaterialCount    (*((int32_t*)0x005e1328))
+#define HUD_MSG_ICON_MATERIALS_MAX     256 // the icon cell holds 8 bits
+
+// Kill icon of a weapon definition (bg_weaponDefs)
+struct killIconWeaponDef_t {
+    char padding[0x34c];
+    const char* killIcon;
+    int32_t killIconRatio;  // 0 = 1:1, else 2:1 (twice as wide)
+    int32_t flipKillIcon;   // horizontally flipped
+};
+#define bg_weaponDefs                  ((killIconWeaponDef_t**)0x01728200)
+#define bg_numWeapons                  (*((int32_t*)0x019a1c74)) // weapons 1 .. bg_numWeapons
+
+#define cg_gameMessageWidth            (*((dvar_t**)0x0166ba9c))
+#define cg_hudCompassSize              (*((dvar_t**)0x0166bb34))
+#define menu_hud_compass_y             (*((float*)0x014eba90))
+#define menu_hud_compass_h             (*((float*)0x014eba8c))
+#define cg_showScores                  (*((int32_t*)0x015195b4))
+#define cg_scoreFadeTime               (*((int32_t*)0x015195b8))
 
 #define cg_chatHeightDvar              (*((dvar_t**)0x014c3684))
 #define cg_hudChatPositionDvar         (*((dvar_t**)0x014c362c))
@@ -1291,6 +1323,234 @@ void CL_AddDeathMessageText_Win32(int32_t color)
     CL_AddDeathMessageText(str, color);
 }
 
+// Entity state of the obituary CG_Obituary is printing, read by CL_DeathMessagePrint
+static const entityState_t* text_obituaryState = NULL;
+
+// Index of a killfeed icon in hudMsgIconMaterials. The weapon icons are added when the weapon is loaded,
+// the extra icons of obituary() are added here (the renderer loads the material by the name when drawing).
+// 0 when the table is full, like vanilla for an unknown icon.
+static int Text_KillfeedIconIndex(const char* name)
+{
+    for (int i = 0; i < registeredIconMaterialCount; i++) {
+        if (!strcmp(hudMsgIconMaterials[i], name))
+            return i;
+    }
+    if (registeredIconMaterialCount >= HUD_MSG_ICON_MATERIALS_MAX)
+        return 0;
+
+    CL_RegisterHudMsgIconMaterial(name);
+    return registeredIconMaterialCount - 1;
+}
+
+// Writes a killfeed icon into the console buffer like CL_DeathMessagePrint: color (13-15), width (16, or 19 when
+// flipped), height (17) - in 1/32 of the font height - and the icon index (18, ends the icon).
+static void Text_AddKillfeedIcon(const char* iconName, float iconWidth, float iconHeight, const float* iconColor, bool horzFlipIcon)
+{
+    CL_AddConsoleInfoColor(13, iconColor);
+
+    int32_t frame = cl_consoleFrameCounter % cl_consoleTotalBuffers;
+    uint16_t* line = cl_consoleBufferBase + frame * cl_consoleBufferSize;
+    line[cl_consoleBufferPos++] = (uint16_t)((int32_t)(iconWidth * 32.0f) | (horzFlipIcon ? 0x1300 : 0x1000));
+    line[cl_consoleBufferPos++] = (uint16_t)((int32_t)(iconHeight * 32.0f) | 0x1100);
+    line[cl_consoleBufferPos++] = (uint16_t)(Text_KillfeedIconIndex(iconName) | 0x1200);
+}
+
+#define KILLFEED_ICON_CELLS 6 // cells of one icon, see Text_AddKillfeedIcon
+
+// The icons between the names (see Obituary_SetExtendedIcons in gsc.cpp). Only when the mod passed extra icons
+// to obituary(): the weapon icon - also with a headshot or melee, where vanilla shows the icon of the means of
+// death - and the extra icons behind it. Otherwise (old mods, servers without CoD2x) only the vanilla icon.
+static void Text_AddKillfeedIcons(const char* iconName, float iconWidth, float iconHeight, const float* iconColor, bool horzFlipIcon, int32_t lineLimit)
+{
+    const entityState_t* es = text_obituaryState;
+
+    if (!es || !es->dmgFlags) {
+        Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
+        return;
+    }
+
+    // The weapon icon, the vanilla icon if the weapon has none (falling, trigger hurt, ...)
+    if (es->weapon > 0 && es->weapon <= bg_numWeapons) {
+        const killIconWeaponDef_t* weaponDef = bg_weaponDefs[es->weapon];
+        if (weaponDef && weaponDef->killIcon && weaponDef->killIcon[0]) {
+            iconName = weaponDef->killIcon;
+            iconWidth = weaponDef->killIconRatio ? iconHeight * 2.0f : iconHeight;
+            horzFlipIcon = weaponDef->flipKillIcon != 0;
+        }
+    }
+    Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
+
+    for (int i = 0; i < 4; i++) {
+        int shaderIndex = (es->dmgFlags >> (8 * i)) & 0xff;
+        if (!shaderIndex)
+            continue;
+        const char* shader = CL_GetConfigString(CS_SHADERS + shaderIndex);
+        if (!shader[0] || !strcmp(shader, iconName))
+            continue;
+        // Keep room for the space and the victim color behind the icons
+        if ((int32_t)cl_consoleBufferPos + KILLFEED_ICON_CELLS + 4 >= lineLimit)
+            break;
+        Text_AddKillfeedIcon(shader, iconHeight, iconHeight, iconColor, false);
+    }
+}
+
+// Number of characters the current console line takes on screen, an icon as wide as its characters
+// (a character is about half of the font height, the icon width is in 1/32 of the font height)
+static int Text_KillfeedLineWidth()
+{
+    int32_t frame = cl_consoleFrameCounter % cl_consoleTotalBuffers;
+    const uint16_t* line = cl_consoleBufferBase + frame * cl_consoleBufferSize;
+
+    int width = 0;
+    for (uint32_t i = 0; i < cl_consoleBufferPos; i++) {
+        int hi = (line[i] >> 8) & 0xff;
+        int lo = line[i] & 0xff;
+        if (hi < 10 || hi >= CON_COLOR_EXT_BASE)
+            width++;
+        else if (hi == 16 || hi == 19)
+            width += (lo + 15) / 16;
+    }
+    return width;
+}
+
+/**
+ * Adds a killfeed line to the game messages: attacker name in the attacker color, the icon, victim name in the
+ * victim color. The victim name goes to the next line if it does not fit.
+ */
+void CL_DeathMessagePrint(const char* attackerName, const float* attackerColor, const char* victimName, const float* victimColor, const char* iconName, float iconWidth, float iconHeight, const float* iconColor, bool horzFlipIcon)
+{
+    int32_t lineLimit = cl_consoleBufferSize;
+
+    // CoD2x: a line of the game messages keeps only 78 cells (like CL_ConsolePrint_AddLine), the victim name goes to
+    // the next line instead of being cut off when the extra icons make the line longer
+    if (lineLimit > 78)
+        lineLimit = 78;
+    // CoD2x: End
+
+    if (cl_noprint && cl_noprint->value.boolean)
+        return;
+
+    if (!con_initialized)
+        Con_OneTimeInit();
+
+    int32_t duration = (int32_t)floorf(con_gamemessagetime->value.decimal * 1000.0f + 0.5f);
+    if (duration < 0)
+        duration = 0;
+
+    if ((int32_t)cl_consoleBufferPos > 0)
+        Con_Linefeed(cl_consoleActiveType, duration);
+
+    if (*attackerName) {
+        CL_AddConsoleInfoColor(10, attackerColor);
+        CL_AddDeathMessageText(attackerName, ColorIndex('7'));
+        CL_AddDeathMessageText(" ", ColorIndex('7'));
+    }
+
+    // CoD2x: the weapon icon and the extra icons when the mod passed them to obituary()
+    /*
+    CL_AddConsoleInfoColor(13, iconColor);
+    ...width, height and icon index cells
+    */
+    Text_AddKillfeedIcons(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon, lineLimit);
+    // CoD2x: End
+
+    CL_AddDeathMessageText(" ", ColorIndex('7'));
+    CL_AddConsoleInfoColor(10, victimColor);
+
+    // CoD2x: the name is measured without codes (CL_AddDeathMessageText removes them), it also goes to the next
+    // line when the line would be wider than cg_gameMessageWidth
+    /*
+    if ((int32_t)(strlen(victimName) + cl_consoleBufferPos + 3) >= lineLimit) {
+    */
+    char cleanVictimName[256];
+    strip_text_codes(victimName, cleanVictimName, sizeof(cleanVictimName));
+    int32_t victimLen = (int32_t)strlen(cleanVictimName);
+    if (victimLen + (int32_t)cl_consoleBufferPos + 3 >= lineLimit ||
+        Text_KillfeedLineWidth() + victimLen > cg_gameMessageWidth->value.integer) {
+    // CoD2x: End
+        Con_Linefeed(1, duration);
+        CL_AddConsoleInfoColor(10, victimColor);
+    }
+
+    CL_AddDeathMessageText(cleanVictimName, ColorIndex('7'));
+    Con_Linefeed(1, duration);
+    cl_consoleActiveType = 1;
+}
+
+// 00405530    void CL_DeathMessagePrint(char const* attackerName @ eax, float const* attackerColor, char const* victimName, float const* victimColor @ ebx, char const* iconName, float iconWidth, float iconHeight, float const* iconColor, bool horzFlipIcon)
+// horzFlipIcon is taken as int: GCC narrows a bool parameter into a local through eax before the registers are read
+void CL_DeathMessagePrint_Win32(const float* attackerColor, const char* victimName, const char* iconName, float iconWidth, float iconHeight, const float* iconColor, int32_t horzFlipIcon)
+{
+    const char* attackerName;
+    const float* victimColor;
+    ASM( movr, attackerName, "eax" );
+    ASM( movr, victimColor, "ebx" );
+
+    CL_DeathMessagePrint(attackerName, attackerColor, victimName, victimColor, iconName, iconWidth, iconHeight, iconColor, (horzFlipIcon & 0xff) != 0);
+}
+
+// 004e03f0    void CG_Obituary(struct entityState_s* ent @ eax)
+// Hooked in CG_EntityEvent, the entity state is kept for CL_DeathMessagePrint (weapon and extra killfeed icons).
+void CG_Obituary(const entityState_t* ent)
+{
+    // CoD2x: the entity state for CL_DeathMessagePrint
+    text_obituaryState = ent;
+    // CoD2x: End
+
+    // Call the original function
+    ASM_CALL(RETURN_VOID, 0x004e03f0, 0, EAX(ent));
+
+    // CoD2x: the entity state for CL_DeathMessagePrint
+    text_obituaryState = NULL;
+    // CoD2x: End
+}
+
+void CG_Obituary_Win32()
+{
+    const entityState_t* ent;
+    ASM( movr, ent, "eax" );
+
+    CG_Obituary(ent);
+}
+
+
+
+// ======================================================================================================
+// Game messages
+// ======================================================================================================
+
+/**
+ * Draws the game messages (iprintln) and the killfeed above the compass in the bottom left corner, called by
+ * CG_Draw2D with cg_drawGameMessages. The messages fade out with the scoreboard.
+ */
+void CG_DrawGameMessages()
+{
+    int32_t y = (int32_t)floorf(menu_hud_compass_y - (cg_hudCompassSize->value.decimal - 1.0f) * menu_hud_compass_h + 12.0f + 0.5f);
+
+    float alpha = 1.0f;
+    if (cg_showScores) {
+        const float* color = CG_FadeColor(cg_scoreFadeTime, 100, 100);
+        if (!color)
+            return;
+        alpha = color[3];
+    }
+
+    // CoD2x: position and size by cg_gameMessageOffsetX, cg_gameMessageOffsetY and cg_gameMessageScale. The line height
+    // is a whole number (it also picks the font), the font scale corrects the rest.
+    /*
+    Con_DrawMessageWindow(notify_buffer, 6, y, 2, 12, HORIZONTAL_ALIGN_LEFT, VERTICAL_ALIGN_BOTTOM, alpha, 1.0f);
+    */
+    float height = 12.0f * cg_gameMessageScale->value.decimal;
+    int32_t charHeight = (int32_t)(height + 0.5f);
+    if (charHeight < 1)
+        charHeight = 1;
+    int32_t x = 6 + (int32_t)floorf(cg_gameMessageOffsetX->value.decimal + 0.5f);
+    y += (int32_t)floorf(cg_gameMessageOffsetY->value.decimal + 0.5f);
+
+    Con_DrawMessageWindow(notify_buffer, x, y, 2, charHeight, HORIZONTAL_ALIGN_LEFT, VERTICAL_ALIGN_BOTTOM, alpha, height / (float)charHeight);
+    // CoD2x: End
+}
+
 
 
 // ======================================================================================================
@@ -1721,8 +1981,12 @@ void text_unload() {
     gfx_funcs_R_AddCmdDrawTextWithCursor = text_gfx.R_AddCmdDrawTextWithCursor;
 }
 
-/** Called only once on game start after common initialization. */
+/** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
 void text_init() {
+    // Position and size of the game messages and killfeed, the offsets in 640x480 units
+    cg_gameMessageOffsetX = Dvar_RegisterFloat("cg_gameMessageOffsetX", 0.0f, -640.0f, 640.0f, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
+    cg_gameMessageOffsetY = Dvar_RegisterFloat("cg_gameMessageOffsetY", 0.0f, -480.0f, 480.0f, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
+    cg_gameMessageScale = Dvar_RegisterFloat("cg_gameMessageScale", 1.0f, 0.5f, 3.0f, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
 }
 
 /** Called before the entry point is called. Used to patch the memory. */
@@ -1744,6 +2008,11 @@ void text_patch() {
     patch_call(0x004055da, (unsigned int)CL_AddDeathMessageText_Win32); // CL_DeathMessagePrint
     patch_call(0x004056d4, (unsigned int)CL_AddDeathMessageText_Win32); // CL_DeathMessagePrint
     patch_call(0x00405726, (unsigned int)CL_AddDeathMessageText_Win32); // CL_DeathMessagePrint
+
+    // Killfeed icons, game messages position and size
+    patch_call(0x004e1919, (unsigned int)CG_Obituary_Win32); // CG_EntityEvent
+    patch_call(0x004e0778, (unsigned int)CL_DeathMessagePrint_Win32); // CG_Obituary
+    patch_call(0x004cbe01, (unsigned int)CG_DrawGameMessages); // CG_Draw2D
 
     // Chat
     patch_jump(0x004d0e10, (unsigned int)CG_AddToTeamChat_Win32);

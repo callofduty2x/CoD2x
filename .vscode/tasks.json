@@ -118,6 +118,25 @@
             "problemMatcher": ["$gcc"]
         },
         {
+            "label": "Select test mod",
+            "icon": { "id": "beaker" },
+            "type": "process",
+            "command": "powershell.exe",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/tools/test/select_test_mod.ps1"
+            ],
+            "presentation": { "focus": true, "panel": "dedicated", "clear": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Win + select test mod",
+            "icon": { "id": "beaker" },
+            "dependsOn": [ "Build Win", "Select test mod" ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
             "label": "Run Crash Tests",
             "icon": { "id": "beaker" },
             "type": "process",
