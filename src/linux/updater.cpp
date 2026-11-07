@@ -291,8 +291,6 @@ static void updater_processResponse(int updateAvailable, const char* updateFile,
     }
 
     Com_Printf("-----------------------------------\n");
-
-    return;
 }
 
 static bool updater_isUpdateEnabled() {
@@ -305,9 +303,10 @@ static void updater_processHttpsResult(const UpdaterHttpsResult& result)
     bool applyUpdate = updater_isUpdateEnabled();
 
     if (result.ok) {
-        zpam_applyManifest(result.zpam);
+        // A CoD2x downgrade must not be installed before the zPAM versions it can't run are blocked
+        bool zpamSafe = zpam_applyManifest(result.zpam);
 
-        if (applyUpdate)
+        if (applyUpdate && zpamSafe)
             updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
         return;
     }
@@ -328,7 +327,6 @@ static bool updater_isCheckEnabled() {
 }
 
 void updater_checkForUpdate() {
-    // Send the request to the Auto-Update server
     if (updater_isCheckEnabled()) {
         updater_sendHttpsRequest(false);
     }

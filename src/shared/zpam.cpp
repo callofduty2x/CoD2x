@@ -10,6 +10,7 @@
 #endif
 #include <dirent.h>
 #include <sys/stat.h>
+#include <algorithm>
 #include <climits>
 #include <cstdio>
 #include <ctime>
@@ -292,16 +293,19 @@ static bool zpam_moveDownloaded(const std::string& mainDir, const std::vector<co
 }
 
 // Writes the state of the manifest. The file (and its time) is kept if nothing changed.
+// The block list is written by zpam_saveBlock() before the install, it is only taken from the manifest
+// when the file is created. A slow install of an older manifest must not overwrite a newer block list.
 static bool zpam_saveState(const std::string& mainDir, const ZpamManifest& manifest, ZpamState* state, std::string* error) {
     for (const ZpamManifestFile& file : manifest.files) {
         if (zpam_parseVersion(file.name.c_str(), ZPAM_PREFIX) >= 0)      state->zpam = file.name;
         if (zpam_parseVersion(file.name.c_str(), ZPAM_MAPS_PREFIX) >= 0) state->maps = file.name;
     }
-    state->block = manifest.block;
 
     ZpamState current;
     bool hasCurrent = zpam_readState(mainDir, &current);
-    if (hasCurrent && current.zpam == state->zpam && current.maps == state->maps && current.block == state->block) {
+    state->block = hasCurrent ? current.block : manifest.block;
+
+    if (hasCurrent && current.zpam == state->zpam && current.maps == state->maps) {
         state->updated = current.updated;
         return true;
     }
@@ -334,6 +338,49 @@ static void zpam_install(const std::string& mainDir, const ZpamManifest& manifes
         zpam_cleanup(mainDir, state, loaded, loadedMaps);
 
     file_unlockFolder(lock);
+}
+
+static std::vector<std::string> zpam_sorted(std::vector<std::string> names) {
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+// Writes the block list to zpam.json right away on the main thread, before the CoD2x update from the same
+// response is processed. A CoD2x downgrade takes effect on restart and the newer zPAM it can't run must be
+// blocked by then, even if the install of the older zPAM fails. Returns false if the list could not be written.
+// Sets 'changed' if the list was written.
+static bool zpam_saveBlock(const std::string& mainDir, const std::vector<std::string>& block, bool* changed) {
+    *changed = false;
+
+    ZpamState state;
+    if (!zpam_readState(mainDir, &state))
+        return true; // zPAM in main is not managed yet, the first install creates the file with this list
+
+    // The order of the list is not stable, rewriting the file would postpone the cleanup
+    std::vector<std::string> sorted = zpam_sorted(block);
+    if (zpam_sorted(state.block) == sorted)
+        return true;
+
+    FileLock lock = file_lockFolder(mainDir, "zpam");
+    if (lock == FILE_LOCK_NONE)
+        return false; // install is running (in this or other server instance), tried again on the next check
+
+    // Read again under the lock, the other instance could have changed it in the meantime
+    zpam_readState(mainDir, &state);
+    state.block = sorted;
+    state.updated = time(NULL);
+    *changed = zpam_writeState(mainDir, state);
+
+    file_unlockFolder(lock);
+
+    if (*changed) {
+        std::string list;
+        for (const std::string& name : sorted) {
+            list += (list.empty() ? "" : ", ") + name;
+        }
+        Com_Printf("zPAM: Blocked versions: %s\n", list.empty() ? "none" : list.c_str());
+    }
+    return *changed;
 }
 
 
@@ -375,20 +422,44 @@ bool zpam_isUpdateCheckNeeded() {
 }
 
 
-void zpam_applyManifest(const ZpamManifest& manifest) {
-    if (Dvar_GetInt("dedicated") == 0 || manifest.files.empty())
+// Checks if this process loads the newest not blocked versions, otherwise it switches when possible
+static void zpam_updateSwitchPending(const std::string& mainDir) {
+    ZpamState state;
+    if (!zpam_readState(mainDir, &state))
         return;
+
+    std::vector<std::string> names = zpam_listDirectory(mainDir);
+    std::string newest = zpam_findNewest(ZPAM_PREFIX, names, state.block);
+    std::string newestMaps = zpam_findNewest(ZPAM_MAPS_PREFIX, names, state.block);
+    // Empty if all versions are blocked, zpam_filterIwds() then keeps the files and there is nothing to switch to
+    zpam_switchPending = (!newest.empty() && !zpam_isSameName(newest, zpam_loaded))
+        || (!newestMaps.empty() && !zpam_isSameName(newestMaps, zpam_loadedMaps));
+}
+
+bool zpam_applyManifest(const ZpamManifest& manifest) {
+    // A response without the manifest (or with a broken one) must not clear the block list
+    if (Dvar_GetInt("dedicated") == 0 || manifest.files.empty())
+        return true;
 
     // Only servers that already use zPAM are updated
     std::string mainDir = zpam_getMainDir();
     if (mainDir.empty() || !zpam_isUpdateCheckNeeded())
-        return;
+        return true;
+
+    // Also without www download, the server can have a version from an earlier automatic update
+    bool blockChanged;
+    if (!zpam_saveBlock(mainDir, manifest.block, &blockChanged)) {
+        Com_Printf("zPAM: Failed to save blocked versions to " ZPAM_STATE_FILE ", CoD2x update postponed\n");
+        return false;
+    }
+    if (blockChanged)
+        zpam_updateSwitchPending(mainDir);
 
     // The name from the response is used as a file name
     for (const ZpamManifestFile& file : manifest.files) {
         if (!zpam_isIwdName(file.name.c_str())) {
             Com_Printf("zPAM: Invalid file name in update info: %s\n", file.name.c_str());
-            return;
+            return true;
         }
     }
 
@@ -398,12 +469,12 @@ void zpam_applyManifest(const ZpamManifest& manifest) {
             printed = true;
             Com_Printf("zPAM: Automatic update needs sv_wwwDownload 1 and sv_wwwBaseURL, update skipped\n");
         }
-        return;
+        return true;
     }
 
     int expected = ZPAM_WORKER_IDLE;
     if (!zpam_workerState.compare_exchange_strong(expected, ZPAM_WORKER_RUNNING))
-        return;
+        return true;
 
     std::string loaded = zpam_loaded;
     std::string loadedMaps = zpam_loadedMaps;
@@ -416,6 +487,8 @@ void zpam_applyManifest(const ZpamManifest& manifest) {
         zpam_workerInstalled = installed;
         zpam_workerState = ZPAM_WORKER_DONE;
     }).detach();
+
+    return true;
 }
 
 
@@ -536,17 +609,9 @@ void zpam_frame() {
             Com_Printf("zPAM: Installed %s\n", zpam_workerInstalled.c_str());
         zpam_workerState = ZPAM_WORKER_IDLE;
 
-        // Check if this process runs the newest version (also when other instance installed it)
-        std::string mainDir = zpam_getMainDir();
-        ZpamState state;
-        if (error.empty() && zpam_readState(mainDir, &state)) {
-            std::vector<std::string> names = zpam_listDirectory(mainDir);
-            std::string newest = zpam_findNewest(ZPAM_PREFIX, names, state.block);
-            std::string newestMaps = zpam_findNewest(ZPAM_MAPS_PREFIX, names, state.block);
-            // Empty if all versions are blocked, zpam_filterIwds() then keeps the files and there is nothing to switch to
-            zpam_switchPending = (!newest.empty() && !zpam_isSameName(newest, zpam_loaded))
-                || (!newestMaps.empty() && !zpam_isSameName(newestMaps, zpam_loadedMaps));
-        }
+        // Also when other server instance installed it
+        if (error.empty())
+            zpam_updateSwitchPending(zpam_getMainDir());
     }
 
     if (!zpam_switchPending || !sv_running->value.boolean || !zpam_isServerIdle() || !zpam_canAutoUpdate()) {

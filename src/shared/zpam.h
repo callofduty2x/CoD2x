@@ -20,6 +20,10 @@
 // main/zpam.json holds the version installed from the manifest and the blocked versions:
 //   {"zpam":"zpam409.iwd","maps":"zpam_maps_v7.iwd","block":["zpam410.iwd"],"updated":1793000000}
 // Without this file zPAM iwds are not touched at all.
+//
+// Rollback of CoD2x: the master answers with the older CoD2x and blocks the zPAM versions it can't run.
+// The block list is written right away, before the CoD2x update of the same response is processed,
+// so the restarted older CoD2x never loads the blocked version (no update check is needed for that).
 
 struct ZpamManifestFile {
     std::string name;       // "zpam409.iwd" or "zpam_maps_v7.iwd"
@@ -38,8 +42,9 @@ bool zpam_isUpdateCheckNeeded();
 // Installed version for the update check ("zpam409.iwd"), empty if this server does not use zPAM
 std::string zpam_getInstalled();
 
-// Main thread: installs the manifest in the background
-void zpam_applyManifest(const ZpamManifest& manifest);
+// Main thread: saves the block list right away and installs the manifest in the background.
+// Returns false if the block list could not be saved, the CoD2x update of the same response must wait then.
+bool zpam_applyManifest(const ZpamManifest& manifest);
 
 // Client: if remoteName is a zPAM iwd from the download list ("main/zpam409.iwd"), returns the URL
 // to download it from ("https://cod2x.me/zpam/main/zpam409.iwd"), empty for all other files.

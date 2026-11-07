@@ -492,9 +492,10 @@ static void updater_processHttpsResult(const UpdaterHttpsResult& result)
     bool applyUpdate = dedicated->value.boolean == 0 || updater_isServerUpdateEnabled();
 
     if (result.ok) {
-        zpam_applyManifest(result.zpam);
+        // A CoD2x downgrade must not be installed before the zPAM versions it can't run are blocked
+        bool zpamSafe = zpam_applyManifest(result.zpam);
 
-        if (applyUpdate)
+        if (applyUpdate && zpamSafe)
             updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
         return;
     }
@@ -507,8 +508,6 @@ static void updater_processHttpsResult(const UpdaterHttpsResult& result)
         updater_sendRequest();
     }
 }
-
-
 
 
 // This function is called when the user confirms the update dialog
