@@ -343,16 +343,9 @@ LRESULT CALLBACK CoD2WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
         // Called when the window is moved
         case WM_MOVE: {
-            if (r_fullscreen->value.boolean == 0) // Windowed mode
+            // Windowed mode, ignore minimized window - Windows moves it to (-32000, -32000) which must not be saved into vid_xpos / vid_ypos
+            if (r_fullscreen->value.boolean == 0 && !IsIconic(hwnd))
             {
-                RECT lpRect;
-                lpRect.left = 0;
-                lpRect.top = 0;
-                lpRect.right = 1;
-                lpRect.bottom = 1;
-                // Get window X and Y - lpRect.left and lpRect.top will contain negative values representing the size of the window borders and title bar.
-                AdjustWindowRect(&lpRect, GetWindowLongA(hwnd, GWL_STYLE), 0);
-
                 int xPos = (int)(short)LOWORD(lParam); // X-coordinate
                 int yPos = (int)(short)HIWORD(lParam); // Y-coordinate
                 RECT rect;
@@ -526,6 +519,26 @@ int R_CreateWindow()
     rect.top = 0;
     rect.bottom = windowInfo->renderHeight;
     AdjustWindowRectEx(&rect, wsStyle, 0, wsExStyle); // we provide required size, it returns the size of the full window rectangle including borders
+
+    // Make sure the window is visible on some monitor
+    // The saved position might be invalid (e.g. (-32000, -32000) saved from minimized window or a disconnected monitor)
+    // Creating the window there results in window with wrong size and stretched image
+    if (!windowInfo->fullscreen) {
+        RECT windowRect = {windowInfo->x, windowInfo->y, windowInfo->x + (rect.right - rect.left), windowInfo->y + (rect.bottom - rect.top)};
+        if (MonitorFromRect(&windowRect, MONITOR_DEFAULTTONULL) == NULL) {
+            MONITORINFO monitorInfo;
+            ZeroMemory(&monitorInfo, sizeof(MONITORINFO));
+            monitorInfo.cbSize = sizeof(MONITORINFO);
+            if (GetMonitorInfoA(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY), &monitorInfo)) {
+                windowInfo->x = monitorInfo.rcWork.left;
+                windowInfo->y = monitorInfo.rcWork.top;
+            } else {
+                windowInfo->x = 0;
+                windowInfo->y = 0;
+            }
+            Com_Printf("Window position is outside of all monitors, moving to (%i, %i)\n", windowInfo->x, windowInfo->y);
+        }
+    }
 
     windowInfo->hwnd = CreateWindowExA(wsExStyle, "CoD2", "Call of Duty 2x Multiplayer", wsStyle, windowInfo->x, windowInfo->y,
                            rect.right - rect.left, rect.bottom - rect.top, 0, 0, GetModuleHandleA(nullptr), 0);
