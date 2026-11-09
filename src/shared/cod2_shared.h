@@ -35,6 +35,17 @@ inline int I_strnicmp(const char *s0, const char *s1, int n) {
     #endif
 }
 
+// Compresses a normalized direction to a byte - index of the closest of 162 predefined directions (0 for NULL dir)
+// 00426850    uint8_t DirToByte(float const* dir @ esi)
+inline int DirToByte(const float* dir) {
+    int ret;
+    WL(
+        ASM_CALL(RETURN(ret), 0x00426850, 0, ESI(dir)),
+        ASM_CALL(RETURN(ret), 0x080a3f8e, 1, PUSH(dir))
+    )
+    return ret & 0xff;
+}
+
 inline void Q_strncpyz( char *dest, const char *src, int destsize )
 {
 	strncpy( dest, src, destsize-1 );

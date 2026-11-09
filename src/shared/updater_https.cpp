@@ -17,6 +17,11 @@
 // Endpoint that receives the JSON update-check request and returns a JSON response.
 #define UPDATE_HTTPS_URL "https://master.cod2x.me/api/updater/check"
 
+// How often a running dedicated server checks for updates, with a random delay so servers
+// sharing a folder or started at the same time don't check together.
+#define UPDATE_PERIODIC_INTERVAL_MS (30 * 60 * 1000)
+#define UPDATE_PERIODIC_JITTER_MS   (5 * 60 * 1000)
+
 
 // Only allow one in-flight HTTPS check at a time (update checks can be triggered repeatedly).
 static std::atomic<bool> updater_https_inProgress(false);
@@ -26,6 +31,33 @@ static std::mutex updater_https_resultMutex;
 static bool updater_https_hasResult = false;
 static UpdaterHttpsResult updater_https_result;
 
+
+// Parse the zPAM manifest of the response. Returns false if a file entry is incomplete.
+static bool updater_https_parseZpam(const char* body, ZpamManifest* out) {
+    char buf[1024];
+
+    for (int i = 0; ; i++) {
+        std::string path = "$.zpam.files[" + std::to_string(i) + "]";
+        double size = 0;
+        ZpamManifestFile file;
+        if (!json_get_str(body, (path + ".name").c_str(), buf, sizeof(buf)))
+            break;
+        file.name = buf;
+        if (!json_get_str(body, (path + ".url").c_str(), buf, sizeof(buf)))
+            return false;
+        file.url = buf;
+        if (!json_get_str(body, (path + ".sha256").c_str(), buf, sizeof(buf)))
+            return false;
+        file.sha256 = buf;
+        if (!json_get_num(body, (path + ".size").c_str(), &size))
+            return false;
+        file.size = (size_t)size;
+        out->files.push_back(file);
+    }
+    json_get_str_array(body, "$.zpam.block", &out->block);
+
+    return true;
+}
 
 // Parse the JSON response body into 'out'. Returns false if the required field is missing.
 static bool updater_https_parseResponse(const char* body, UpdaterHttpsResult* out) {
@@ -49,6 +81,10 @@ static bool updater_https_parseResponse(const char* body, UpdaterHttpsResult* ou
     // An update without a download URL can't be applied
     if (out->available != 0 && out->url.empty())
         return false;
+
+    // Optional, a broken manifest must not cost the update itself
+    if (!updater_https_parseZpam(body, &out->zpam))
+        out->zpam = ZpamManifest();
 
     return true;
 }
@@ -88,10 +124,15 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request) {
     if (!request.hwid2Diff.empty())  updater_https_jsonAddString(json, "hwid2Diff", request.hwid2Diff);
     if (request.hasHwid2DiffCnt)     json += ",\"hwid2DiffCnt\":" + std::to_string(request.hwid2DiffCnt);
     if (!request.systemInfo.empty()) updater_https_jsonAddString(json, "systemInfo", request.systemInfo);
+    if (request.type == "server") {
+        std::string zpam = zpam_getInstalled();
+        if (!zpam.empty())           updater_https_jsonAddString(json, "zpam", zpam);
+    }
     json += "}";
 
     // Run the whole round-trip on a background thread so the caller is never blocked.
-    std::thread([json]() {
+    bool periodic = request.periodic;
+    std::thread([json, periodic]() {
 
         UpdaterHttpsResult result;
         result.error = "No response";
@@ -128,6 +169,7 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request) {
         // Drive the client until the request completes (connection closed) or times out.
         client.poll_max(7000);
 
+        result.periodic = periodic;
         updater_https_setResult(result);
         updater_https_inProgress = false;
     }).detach();
@@ -143,4 +185,19 @@ bool updater_https_pollResult(UpdaterHttpsResult* out) {
     *out = updater_https_result;
     updater_https_hasResult = false;
     return true;
+}
+
+
+bool updater_https_isPeriodicCheckDue() {
+    static uint64_t nextCheck = 0;
+    uint64_t now = ticks_ms();
+
+    bool due = nextCheck != 0 && now >= nextCheck;
+    if (nextCheck == 0 || due) {
+        // Not rand(): it has only 15 bits on Windows, is the same for servers started together and the game uses it too
+        uint32_t random = 0;
+        mg_random(&random, sizeof(random));
+        nextCheck = now + UPDATE_PERIODIC_INTERVAL_MS + random % UPDATE_PERIODIC_JITTER_MS;
+    }
+    return due;
 }

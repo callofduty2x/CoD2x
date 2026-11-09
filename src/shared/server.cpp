@@ -363,44 +363,12 @@ void SV_UserinfoChanged_Win32() {
 
 // 0044a8d0    void I_CleanStr(char* string @ eax)
 // Hooked only in G_Say, for the player name in front of a chat message. Vanilla I_CleanStr removes
-// single "^1" codes, so the name shows in the team color, and only double "^^11" codes (which turn
-// into "^1") color it - the same as in the killfeed.
+// single "^1" codes, but a double "^^11" turns into "^1" and colors the name.
 void I_CleanStr(char* name)
 {
-    // CoD2x: the same for extended colors and styles - single "$1" "#1" "@1" "$*" "@+" "#_" ... are
-    // removed, double "$$11" "##11" "@@11" "$$**" "@@++" "##__" ... become single ones
-    // (styles: "$*" "$-" rainbow, "@+" "@=" "@-" font, "#_" "#-" background, see text.cpp in mss32)
-    auto isStyle = [](char prefix, char c) {
-        return (prefix == '$' && (c == '*' || c == '-')) ||
-               (prefix == '@' && (c == '+' || c == '=' || c == '-')) ||
-               (prefix == '#' && (c == '_' || c == '-'));
-    };
-    char* out = name;
-    for (const char* p = name; *p; ) {
-        bool prefix = p[0] == '$' || p[0] == '#' || p[0] == '@';
-        if (prefix && p[1] == p[0] && p[2] >= '0' && p[2] <= '9' && p[3] >= '0' && p[3] <= '9') {
-            *out++ = p[0];
-            *out++ = p[3];
-            p += 4;
-            continue;
-        }
-        if (prefix && p[1] == p[0] && isStyle(p[0], p[2]) && p[3] == p[2]) {
-            *out++ = p[0];
-            *out++ = p[3];
-            p += 4;
-            continue;
-        }
-        if (prefix && p[1] >= '0' && p[1] <= '9') {
-            p += 2;
-            continue;
-        }
-        if (prefix && isStyle(p[0], p[1])) {
-            p += 2;
-            continue;
-        }
-        *out++ = *p++;
-    }
-    *out = '\0';
+    // CoD2x: player names are colored only on the scoreboard - all codes are removed, also the double
+    // ones and the extended colors and styles, so the name shows in the team color for every player
+    strip_text_codes(name, name, strlen(name) + 1);
     // CoD2x: End
 
     // Call the original function
@@ -412,6 +380,40 @@ void I_CleanStr_Win32() {
     char* name;
     ASM( movr, name, "eax" );
     I_CleanStr(name);
+}
+
+
+// The player name of a player entity in the arguments of iprintln, iprintlnbold, setText, ... in Scr_ConstructMessageString:
+// va("%s^7", name)
+char* Scr_ConstructMessageString_va(const char* format, const char* name)
+{
+    // CoD2x: player names are colored only on the scoreboard
+    char cleanName[64];
+    strip_text_codes(name, cleanName, sizeof(cleanName));
+    // CoD2x: End
+
+    return va(format, cleanName);
+}
+
+
+// The message about a dropped player (timed out, kicked, ...) sent to all players in SV_DropClient:
+// SV_SendServerCommand(NULL, SV_CMD_CAN_IGNORE, "%c \"\x15%s^7 %s%s\"", 'e', name, "\x14" or "", reason)
+void SV_DropClient_SendServerCommand(client_t* cl, int type, const char* format, int cmd, const char* name, const char* separator, const char* reason)
+{
+    // CoD2x: player names are colored only on the scoreboard
+    char cleanName[64];
+    strip_text_codes(name, cleanName, sizeof(cleanName));
+    // CoD2x: End
+
+    SV_GameSendServerCommand(-1, type, va(format, cmd, cleanName, separator, reason)); // the same as SV_SendServerCommand(NULL, ...)
+}
+
+// 0045a670    void SV_SendServerCommand(struct client_s* cl @ eax, int32_t type, char const* fmt, ...)
+void SV_DropClient_SendServerCommand_Win32(int type, const char* format, int cmd, const char* name, const char* separator, const char* reason)
+{
+    client_t* cl;
+    ASM( movr, cl, "eax" );
+    SV_DropClient_SendServerCommand(cl, type, format, cmd, name, separator, reason);
 }
 
 
@@ -1396,8 +1398,10 @@ void server_patch()
     // Allow black (^0) in player names - ClientCleanName removed it, so "^0Name" showed in the default color
     patch_byte(ADDR(0x004fe056, 0x080f8ba2), 0xeb); // from '7503 jne' (Linux '7505 jne') to 'eb jmp'
 
-    // Chat names: extended colors follow the vanilla rule - only double codes color the name
+    // Player names without color codes - they are colored only on the scoreboard
     patch_call(ADDR(0x00502883, 0x080ff799), (unsigned int)WL(I_CleanStr_Win32, I_CleanStr)); // G_Say
+    patch_call(ADDR(0x0050486d, 0x0811084b), (unsigned int)Scr_ConstructMessageString_va); // Scr_ConstructMessageString
+    patch_call(ADDR(0x0045488b, 0x0808f197), (unsigned int)WL(SV_DropClient_SendServerCommand_Win32, SV_DropClient_SendServerCommand)); // SV_DropClient
 
     // Hook the SV_ConnectionlessPacket function
     patch_call(ADDR(0x0045bbc2, 0x08096126), (unsigned int)SV_ConnectionlessPacket);

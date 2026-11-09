@@ -1,6 +1,10 @@
+// http_download.h pulls in mongoose -> winsock2.h, which must be included before windows.h.
+#include "../shared/http_download.h"
+
 #include "updater.h"
 
 #include <windows.h>
+#include <shellapi.h>
 #include <wininet.h>
 
 #include "shared.h"
@@ -12,6 +16,11 @@
 #include "../shared/cod2_cmd.h"
 #include "../shared/cod2_shared.h"
 #include "../shared/updater_https.h"
+#include "../shared/error.h"
+#include "../shared/files.h"
+
+// A file of an interrupted download or an unused backup is removed after this time
+#define UPDATER_FILE_MAX_AGE_SECONDS 3600
 
 
 #define cl_updateAvailable (*(dvar_t **)(0x0096b644))
@@ -28,6 +37,9 @@ bool                updater_waitingForResponse = false;
 int                 updater_waitingForResponseRepeats = 0;
 DWORD               updater_waitingForResponseTime = 0;
 bool                updater_forcedUpdate = false;
+HttpDownload        updater_download;                   // server: runs in background, a running match must not freeze
+char                updater_downloadingVersion[64];     // server: version of the running download
+std::string         updater_dllStamp;                   // the DLL this process was started from
 struct netaddr_s    updater_address = { NA_INIT, {0}, 0, {0} };
 dvar_t*             sv_update;
 
@@ -158,37 +170,45 @@ bool updater_downloadDLL(const char *url, const char *downloadPath, char *errorB
 }
 
 
-bool updater_downloadAndReplaceDllFile(const char *url, char *errorBuffer, size_t errorBufferSize) { 
+// Path of the file next to the executable
+static std::string updater_getDllPath(const char* fileName) {
+    return std::string(EXE_DIRECTORY_PATH) + "\\" + fileName;
+}
 
-    const char destinationFileName[] = "mss32_new.dll";
-    const char oldFileName[] = "mss32_old.dll";
-    const char currentFileName[] = "mss32.dll";
+// Server: with the process id, server instances sharing the folder must not write to the same file
+static std::string updater_getServerDownloadPath() {
+    return updater_getDllPath(("mss32_new_" + std::to_string(GetCurrentProcessId()) + ".dll").c_str());
+}
 
-    char dllFilePathNew[sizeof(EXE_DIRECTORY_PATH) + sizeof(destinationFileName) + 1];
-    char dllFilePathOld[sizeof(EXE_DIRECTORY_PATH) + sizeof(oldFileName) + 1];
-    char dllFilePathCurrent[sizeof(EXE_DIRECTORY_PATH) + sizeof(currentFileName) + 1];
+// The DLL on the disk is not the one this process runs: it was already updated by this process or by
+// another instance sharing the folder.
+static bool updater_isDllReplaced() {
+    std::string stamp = file_getStamp(updater_getDllPath("mss32.dll").c_str());
+    return !updater_dllStamp.empty() && !stamp.empty() && stamp != updater_dllStamp;
+}
 
-    // Construct the destination path (same directory as the executable)
-    snprintf(dllFilePathNew, sizeof(dllFilePathNew), "%s\\%s", EXE_DIRECTORY_PATH, destinationFileName);  
-    snprintf(dllFilePathOld, sizeof(dllFilePathOld), "%s\\%s", EXE_DIRECTORY_PATH, oldFileName);
-    snprintf(dllFilePathCurrent, sizeof(dllFilePathCurrent), "%s\\%s", EXE_DIRECTORY_PATH, currentFileName);
+// Swaps the running DLL with the downloaded file
+static bool updater_swapDllFile(const char *dllFilePathNew, char *errorBuffer, size_t errorBufferSize) {
+    std::string oldPath = updater_getDllPath("mss32_old.dll");
+    std::string currentPath = updater_getDllPath("mss32.dll");
+    const char* dllFilePathCurrent = currentPath.c_str();
 
+    // Rename the existing DLL. An instance that was not restarted since the last update still runs
+    // mss32_old.dll, the file can't be replaced then.
+    if (!MoveFileEx(dllFilePathCurrent, oldPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        oldPath = updater_getDllPath(("mss32_old_" + std::to_string(GetCurrentProcessId()) + ".dll").c_str());
 
-    // Download the DLL
-    bool ok = updater_downloadDLL(url, dllFilePathNew, errorBuffer, errorBufferSize);
-    if (!ok) return false;
+        if (!MoveFileEx(dllFilePathCurrent, oldPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            snprintf(errorBuffer, errorBufferSize, "Error renaming DLL from '%s' to '%s' (error %lu).", dllFilePathCurrent, oldPath.c_str(), GetLastError());
 
-
-    // Rename the existing DLL
-    if (!MoveFileEx(dllFilePathCurrent, dllFilePathOld, MOVEFILE_REPLACE_EXISTING)) {
-        snprintf(errorBuffer, errorBufferSize, "Error renaming DLL from '%s' to '%s'.", dllFilePathCurrent, dllFilePathOld);
-
-        return false;
+            return false;
+        }
     }
+    const char* dllFilePathOld = oldPath.c_str();
 
     // Rename the new DLL to the original name
     if (!MoveFileEx(dllFilePathNew, dllFilePathCurrent, FALSE)) {
-        snprintf(errorBuffer, errorBufferSize, "Error copying new DLL from '%s' to '%s'.", dllFilePathNew, dllFilePathCurrent);
+        snprintf(errorBuffer, errorBufferSize, "Error copying new DLL from '%s' to '%s' (error %lu).", dllFilePathNew, dllFilePathCurrent, GetLastError());
         
         // Attempt to restore the original DLL name
         MoveFileEx(dllFilePathOld, dllFilePathCurrent, MOVEFILE_REPLACE_EXISTING);
@@ -206,10 +226,73 @@ bool updater_downloadAndReplaceDllFile(const char *url, char *errorBuffer, size_
     return true;
 }
 
+// Replaces the running DLL with the downloaded file, or discards it if another instance was faster
+bool updater_replaceDllFile(const char *dllFilePathNew, char *errorBuffer, size_t errorBufferSize) {
+    FileLock lock = file_lockFolder(EXE_DIRECTORY_PATH, "update");
+
+    bool ok;
+    if (lock != FILE_LOCK_NONE && !updater_isDllReplaced()) {
+        ok = updater_swapDllFile(dllFilePathNew, errorBuffer, errorBufferSize);
+    } else {
+        remove(dllFilePathNew);
+        ok = true;
+    }
+
+    if (lock != FILE_LOCK_NONE)
+        file_unlockFolder(lock);
+    return ok;
+}
+
+
+bool updater_downloadAndReplaceDllFile(const char *url, char *errorBuffer, size_t errorBufferSize) {
+    std::string newPath = updater_getDllPath("mss32_new.dll");
+    if (!updater_downloadDLL(url, newPath.c_str(), errorBuffer, errorBufferSize))
+        return false;
+
+    return updater_replaceDllFile(newPath.c_str(), errorBuffer, errorBufferSize);
+}
+
+
+/** Called when the DLL is unloaded, the thread would continue in the old code. */
+void updater_unload() {
+    updater_download.cancel();
+}
+
+
+// Server: called every frame, finishes the background download when it ends
+static void updater_processDownload() {
+    HttpDownload::State state = updater_download.getState();
+    if (state == HttpDownload::Idle || state == HttpDownload::Running)
+        return;
+
+    updater_download.join();
+
+    std::string newPath = updater_getServerDownloadPath();
+    char errorBuffer[1024];
+    std::string error;
+    if (state == HttpDownload::Failed) {
+        error = "Download failed: " + updater_download.getError();
+    } else if (!updater_download.isComplete()) {
+        error = "Download failed: received " + std::to_string(updater_download.getDownloaded()) + " of " + std::to_string(updater_download.getTotal()) + " bytes";
+    } else if (updater_replaceDllFile(newPath.c_str(), errorBuffer, sizeof(errorBuffer))) {
+        Com_Printf("Successfully downloaded and replaced file.\n");
+        Com_Printf("The update will take effect after the next server restart.\n");
+        return;
+    } else {
+        error = std::string("Failed to replace file: ") + errorBuffer;
+    }
+
+    Com_Printf("%s\n", error.c_str());
+    error_report(ERROR_KIND_COD2X_UPDATE, std::string("CoD2x update ") + updater_downloadingVersion + " not installed: " + error);
+
+    // Tried again with the next update check
+    remove(newPath.c_str());
+}
+
 
 bool updater_resolveServerAddress() {
     // Resolve the Auto-Update server address if not already resolved
-    if (updater_address.type == NA_INIT) 
+    if (updater_address.type == NA_INIT)
     {
         Com_DPrintf("Resolving AutoUpdate Server %s...\n", SERVER_UPDATE_URI);
         if (!NET_StringToAdr(SERVER_UPDATE_URI, &updater_address))
@@ -229,8 +312,9 @@ bool updater_resolveServerAddress() {
 
 // Sends the HTTPS update check with the same data as the UDP request (runs on a background thread).
 // If it fails, the UDP request is sent as a fallback.
-static void updater_sendHttpsRequest() {
+static void updater_sendHttpsRequest(bool periodic) {
     UpdaterHttpsRequest request;
+    request.periodic = periodic;
 
     if (dedicated->value.boolean == 0) // Client
     {
@@ -335,7 +419,7 @@ void updater_updatePacketResponse(struct netaddr_s addr)
     }
 
     Com_DPrintf("Auto-Updater response from %s\n", NET_AdrToString(addr));
-    
+
     if (NET_CompareBaseAdrSigned(&updater_address, &addr))
     {
         Com_DPrintf("Received update packet from unexpected IP.\n");
@@ -361,15 +445,12 @@ static void updater_processResponse(int updateAvailable, const char* updateFile,
 
         // Server
         if (dedicated->value.boolean > 0) {
-            Com_Printf("Downloading file '%s'...\n", updateFile);
-            char errorBuffer[1024];
-            bool ok = updater_downloadAndReplaceDllFile(updateFile, errorBuffer, sizeof(errorBuffer));  
-            if (ok) {
-                Com_Printf("Successfully downloaded and replaced file.\n");
+            if (updater_isDllReplaced()) {
                 Com_Printf("The update will take effect after the next server restart.\n");
-            } else {
-                Com_Printf("Failed to download and replace file.\n");
-                Com_Printf("Error: %s\n", errorBuffer);
+            } else if (updater_download.getState() == HttpDownload::Idle) {
+                Com_Printf("Downloading file '%s' in background.\n", updateFile);
+                snprintf(updater_downloadingVersion, sizeof(updater_downloadingVersion), "%s", newVersionString);
+                updater_download.start(updateFile, updater_getServerDownloadPath(), "MZ");
             }
 
         // Client
@@ -401,22 +482,32 @@ static void updater_processResponse(int updateAvailable, const char* updateFile,
 }
 
 
+static bool updater_isServerUpdateEnabled() {
+    return sv_update->value.boolean && sv_running->value.boolean;
+}
+
 // Called on the main thread when the HTTPS update check has finished
 static void updater_processHttpsResult(const UpdaterHttpsResult& result)
 {
+    bool applyUpdate = dedicated->value.boolean == 0 || updater_isServerUpdateEnabled();
+
     if (result.ok) {
-        updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
+        // A CoD2x downgrade must not be installed before the zPAM versions it can't run are blocked
+        bool zpamSafe = zpam_applyManifest(result.zpam);
+
+        if (applyUpdate && zpamSafe)
+            updater_processResponse(result.available, result.url.c_str(), result.version.c_str());
         return;
     }
 
     Com_Printf("Auto-Updater: Request failed: %s\n", result.error.c_str());
 
     // Fallback to the legacy UDP request (the master server logs UDP requests from new versions as HTTPS failures)
-    Com_Printf("Auto-Updater: Trying UDP...\n");
-    updater_sendRequest();
+    if (applyUpdate && !result.periodic) {
+        Com_Printf("Auto-Updater: Trying UDP...\n");
+        updater_sendRequest();
+    }
 }
-
-
 
 
 // This function is called when the user confirms the update dialog
@@ -429,21 +520,22 @@ void updater_dialogConfirmed() {
         ShellExecute(NULL, "open", EXE_PATH, EXE_COMMAND_LINE, NULL, SW_SHOWNORMAL);
         ExitProcess(0);
     } else {
+        error_report(ERROR_KIND_COD2X_UPDATE, std::string("CoD2x update ") + cl_updateVersion->value.string + " not installed: " + errorBuffer);
         Com_Error(ERR_DROP, "Failed to download and replace file.\n\n%s", errorBuffer);
     }
 }
 
 
 
+// zPAM is checked on server start even if no map is running yet
+static bool updater_isServerCheckEnabled() {
+    return updater_isServerUpdateEnabled() || zpam_isUpdateCheckNeeded();
+}
+
 void updater_checkForUpdate() {
-    // Server
-    if (dedicated->value.boolean > 0) {
-        // Send the request to the Auto-Update server
-        if (sv_update->value.boolean && sv_running->value.boolean) {
-            updater_sendHttpsRequest();
-        }
-    } else {
-        updater_sendHttpsRequest();
+    // Client always, server only if there is something to apply
+    if (dedicated->value.boolean == 0 || updater_isServerCheckEnabled()) {
+        updater_sendHttpsRequest(false);
     }
 }
 
@@ -487,6 +579,13 @@ void updater_frame() {
         updater_processHttpsResult(httpsResult);
     }
 
+    updater_processDownload();
+
+    // Running dedicated server checks for updates regularly
+    if (dedicated->value.boolean > 0 && updater_https_isPeriodicCheckDue() && updater_isServerCheckEnabled()) {
+        updater_sendHttpsRequest(true);
+    }
+
     updater_lastClientState = clientState;
     updater_lastMainMenuClosed = cg.isMainMenuClosed; // Update last main menu closed state
 }
@@ -495,10 +594,16 @@ void updater_frame() {
 /** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
 void updater_init() {
     sv_update = Dvar_RegisterBool("sv_update", true, (dvarFlags_e)(DVAR_CHANGEABLE_RESET));
+
+    // Interrupted downloads and backups of instances that were restarted since, a file in use can't be removed
+    file_removeOld(EXE_DIRECTORY_PATH, "mss32_new", ".dll", UPDATER_FILE_MAX_AGE_SECONDS);
+    file_removeOld(EXE_DIRECTORY_PATH, "mss32_old_", ".dll", UPDATER_FILE_MAX_AGE_SECONDS);
 }
 
 /** Called before the entry point is called. Used to patch the memory. */
 void updater_patch() {
+
+    updater_dllStamp = file_getStamp(updater_getDllPath("mss32.dll").c_str());
 
     // Hook function that was called when update UDP packet was received from update server
     patch_call(0x0040ef9c, (unsigned int)&updater_updatePacketResponse);

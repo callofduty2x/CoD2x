@@ -1,5 +1,3 @@
-// http_client.h pulls in mongoose; include it first (matches the other telemetry/updater files).
-#include "../shared/http_client.h"
 #include "../shared/json.h"
 
 #include "exception.h"
@@ -15,10 +13,8 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <errno.h>
-#include <dirent.h>
 #include <sys/uio.h>
 #include <sys/syscall.h>
-#include <sys/stat.h>
 #include <sys/utsname.h>
 #include <sys/sysinfo.h>
 #include <string>
@@ -34,11 +30,8 @@
 #include "shared.h"
 #include "../shared/logger.h"
 #include "../shared/cod2_dvars.h"
+#include "../shared/exception.h"
 #include "symbols_libcod2x.h"   // resolve libCoD2x.so's own (static) functions, like symbols_mss32.h on Windows
-
-// Telemetry endpoint that receives crash reports as JSON (same as the Windows client).
-#define TELEMETRY_ENDPOINT_URL "https://master.cod2x.me/api/telemetry/cod2x-exceptions"
-//#define TELEMETRY_ENDPOINT_URL "http://localhost:8080/api/telemetry/cod2x-exceptions"
 
 // Crash handler of the Linux dedicated server.
 // On SIGSEGV / SIGBUS / SIGFPE / SIGILL / SIGABRT it writes "cod2x_crash.<time>.<pid>.log" into the working directory
@@ -266,6 +259,30 @@ static void exception_jsonStackByBacktrace(unsigned long tid) {
     jraw("],\"diagnostics\":{\"method\":\"glibc backtrace\"}}");
 }
 
+// Writes the stack of the calling thread as text, one "  N  0xADDRESS  module+0xOFFSET (Symbol)" per line.
+// Used for fatal errors that are not exceptions (Sys_Error).
+size_t exception_captureCallerStack(char* out, size_t outSize, int framesToSkip) {
+    size_t pos = 0;
+    char mod[128], sym[256];
+    unsigned int off;
+    unsigned int frame = (unsigned int)(uintptr_t)__builtin_frame_address(0);
+    out[0] = '\0';
+
+    for (int i = 0, n = 0; i < 64 && frame != 0 && (frame & 3) == 0; i++) {
+        unsigned int words[2];
+        if (!exception_safeRead(frame, words, sizeof(words)) || words[1] == 0) break;
+        if (i >= framesToSkip) {
+            exception_resolveFrame(words[1], mod, sizeof(mod), &off, sym, sizeof(sym));
+            int written = snprintf(out + pos, outSize - pos, "  %d  0x%08x  %s+0x%x (%s)\n", n++, words[1], mod, off, sym[0] ? sym : "<no symbol>");
+            if (written < 0 || (size_t)written >= outSize - pos) break;
+            pos += (size_t)written;
+        }
+        if (words[0] <= frame) break;
+        frame = words[0];
+    }
+    return pos;
+}
+
 // Append a memory block {name,address,hex,note}.
 static void exception_jsonMemory(const char* name, unsigned int addr, size_t len) {
     jraw("{"); jkv("name", name); jraw("\"address\":\"0x%08x\",", addr);
@@ -452,6 +469,20 @@ static void exception_gatherStaticSystemInfo() {
     exception_detectVirt();
 }
 
+// System info of error reports (crash reports add the dynamic state and are built in the signal handler)
+std::string exception_getSystemInfoJson() {
+    std::string json = "{";
+    json += "\"os\":\"Linux " + json_escape_string(sys_kernel) + " " + json_escape_string(sys_arch) + "\",";
+    json += "\"distro\":\"" + json_escape_string(sys_distro) + "\",";
+    json += "\"arch\":\"" + json_escape_string(sys_arch) + "\",";
+    json += "\"libc\":\"" + json_escape_string(sys_libc) + "\",";
+    json += "\"cpuModel\":\"" + json_escape_string(sys_cpuModel) + "\",";
+    json += "\"virtualization\":\"" + json_escape_string(sys_virt) + "\",";
+    json += "\"isElevated\":" + std::string(sys_isRoot ? "true" : "false");
+    json += "}";
+    return json;
+}
+
 // Parse a "Key:\t<N> kB" line from a /proc/self/status buffer. Returns -1 if not found.
 static long exception_readProcStatusKB(const char* buf, const char* key) {
     const char* p = strstr(buf, key);
@@ -624,7 +655,7 @@ static void exception_buildJson(int sig, siginfo_t* info, ucontext_t* uc, const 
 // Writes exception_json[] to "<base>.pending.json" (open/write only - safe in the signal handler).
 static void exception_writePending(const char* reportPath) {
     char jpath[256];
-    snprintf(jpath, sizeof(jpath), "%s.pending.json", reportPath);
+    snprintf(jpath, sizeof(jpath), "%s" EXCEPTION_PENDING_SUFFIX, reportPath);
     int fd = open(jpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) return;
     if (write(fd, exception_json, exception_jsonPos) < 0) { /* best effort */ }
@@ -770,93 +801,6 @@ void exception_patch() {
 }
 
 // ---------------------------------------------------------------------------
-// Delivery: send queued "<name>.pending.json" reports on the next server start.
-//
-// A dedicated server auto-restarts under Docker/systemd, so a crash is reported shortly after it
-// comes back up. This runs on a normal thread (heap/OpenSSL are fine here), never in the handler.
-// ---------------------------------------------------------------------------
-
-// Reports older than this are deleted instead of being sent again.
-#define EXCEPTION_PENDING_MAX_AGE_DAYS 14
-
-static bool exception_readFile(const char* path, std::string& out, size_t maxSize) {
-    int fd = open(path, O_RDONLY);
-    if (fd < 0) return false;
-    struct stat st;
-    if (fstat(fd, &st) != 0 || st.st_size <= 0 || (size_t)st.st_size > maxSize) { close(fd); return false; }
-    out.resize((size_t)st.st_size);
-    ssize_t got = read(fd, &out[0], out.size());
-    close(fd);
-    return got == (ssize_t)out.size();
-}
-
-// Sends one report synchronously; returns true when delivered or permanently rejected (so it can be deleted).
-static bool exception_sendOne(const std::string& json) {
-    struct Result { bool done = false; bool deletable = false; } result;
-
-    HttpClient client;
-    client.postJson(
-        TELEMETRY_ENDPOINT_URL,
-        json.c_str(),
-        [&result](const HttpClient::Response& res) {
-            result.done = true;
-            // Delivered (2xx) or permanently rejected (4xx except 408/429) -> stop retrying.
-            result.deletable = (res.status >= 200 && res.status < 300) ||
-                               (res.status >= 400 && res.status < 500 && res.status != 408 && res.status != 429);
-            if (res.status >= 200 && res.status < 300)
-                logger_add("[EXCEPTION] Report sent successfully (HTTP %d)", res.status);
-            else
-                logger_add("[EXCEPTION] Report rejected by endpoint (HTTP %d)", res.status);
-        },
-        [&result](const std::string& err) {
-            result.done = true; // transient: keep the file for next start
-            logger_add("[EXCEPTION] Failed to send report: %s", err.c_str());
-        },
-        5000);
-
-    client.poll_max(10000);
-    return result.deletable;
-}
-
-static void exception_resendPending() {
-    DIR* dir = opendir(".");
-    if (!dir) return;
-
-    time_t now = time(NULL);
-    struct dirent* ent;
-    int sent = 0;
-    while ((ent = readdir(dir)) != NULL && sent < 20) {
-        const char* n = ent->d_name;
-        // Match "cod2x_crash.*.pending.json"
-        size_t len = strlen(n);
-        if (strncmp(n, "cod2x_crash.", 12) != 0) continue;
-        const char* suffix = ".pending.json";
-        size_t slen = strlen(suffix);
-        if (len < slen || strcmp(n + len - slen, suffix) != 0) continue;
-
-        // Too old to be useful -> delete without sending.
-        struct stat st;
-        if (stat(n, &st) == 0 && now > st.st_mtime &&
-            (now - st.st_mtime) > EXCEPTION_PENDING_MAX_AGE_DAYS * 86400) {
-            unlink(n);
-            continue;
-        }
-
-        std::string json;
-        if (!exception_readFile(n, json, 8 * 1024 * 1024) || json.empty() || json[0] != '{') {
-            unlink(n);
-            continue;
-        }
-
-        logger_add("[EXCEPTION] Sending pending report %s", n);
-        if (exception_sendOne(json))
-            unlink(n);
-        sent++;
-    }
-    closedir(dir);
-}
-
-// ---------------------------------------------------------------------------
 // Crash-handler self test (Linux)
 //
 // EXCEPTION_TEST=1 compiles the self test into the build (shipping builds use 0). It is NOT a mode.
@@ -958,8 +902,10 @@ void exception_init() {
     }
 #endif
     std::thread([]() {
+        // A dedicated server auto-restarts under Docker/systemd, so a crash is reported shortly after it
+        // comes back up. Runs on a normal thread (heap/OpenSSL are fine here), never in the handler.
         // Give the server a moment to finish starting before using the network.
         sleep(10);
-        exception_resendPending();
+        exception_resendPending(".", "cod2x_crash.", false);
     }).detach();
 }

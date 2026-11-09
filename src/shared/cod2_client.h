@@ -14,6 +14,15 @@
 
 #define com_playerProfile (*(dvar_t **)(0x00c23f1c))
 
+#define cl_downloadName               ((char*)0x00966db0) // www download: the URL (256 bytes)
+#define cl_downloadTempName           ((char*)0x00966eb0) // www download: full path of the .tmp file (256 bytes)
+#define cl_downloadLocalName          ((char*)0x00966fb0) // www download: "main/file.iwd" after the rename (64 bytes)
+#define cl_wwwDlFlags                 (*((int*)0x00966ff4)) // flags of the redirect from the server
+#define cl_downloadingWWW             (*((int*)0x00966ff8)) // the running download is a www download
+#define clc_realTime                  (*((int*)0x0068a520))
+#define legacyHacks                   (*((legacyHacks_t**)0x005cf444))
+#define cl_wwwDlDisconnected          (*((int*)0x00966dac)) // the server disconnected the client for the www download
+
 
 // https://github.com/id-Software/Enemy-Territory/blob/40342a9e3690cb5b627a433d4d5cbf30e3c57698/src/game/q_shared.h#L1621
 enum clientState_e{
@@ -41,6 +50,33 @@ inline const char* get_client_state_name(int state) {
         case CLIENT_STATE_ACTIVE: return "ACTIVE";
         default: return "UNKNOWN";
     }
+}
+
+// Download state shown on the loading screen
+struct legacyHacks_t {
+    int  pad[4];
+    int  downloadSize;      // 0x10, 0 if not known
+    int  downloadCount;     // 0x14, bytes received
+    int  downloadTime;      // 0x18, clc_realTime when the download started
+    char downloadName[64];  // 0x1c
+};
+
+// Adds a command that is sent to the server reliably.
+// 0040c000    void CL_AddReliableCommand(char* cmd)
+inline void CL_AddReliableCommand(const char* cmd) {
+    ASM_CALL(RETURN_VOID, 0x0040c000, 1, PUSH(cmd));
+}
+
+// Downloads the next file of the list, or finishes with CL_DownloadsComplete if the list is empty.
+// 0040de70    char* CL_NextDownload()
+inline void CL_NextDownload() {
+    ASM_CALL(RETURN_VOID, 0x0040de70);
+}
+
+// Clears all the download state and cancels the running www download.
+// 0040cc70    int32_t CL_ClearStaticDownload()
+inline void CL_ClearStaticDownload() {
+    ASM_CALL(RETURN_VOID, 0x0040cc70);
 }
 
 typedef struct {
@@ -142,12 +178,20 @@ static_assert(offsetof(cg_t, padding1) == 0x02ccd8);
 
 
 
-inline void CL_AddDebugString(float const* xyz, float const* color, float scale, char const* text, int duration) {
-    ASM_CALL(RETURN_VOID, 0x00412230, 3, EBX(xyz), EDI(color), PUSH(scale), PUSH(text), PUSH(duration));
+// Adds a debug text drawn in the world by the local client (does nothing when the renderer is not initialized - dedicated server).
+// The text has no duration - it is removed by the next CL_FlushDebugData of the same side: the next server frame
+// (CL_FlushDebugData(1) in SV_Frame) when fromServer is 1, the next client frame when fromServer is 0. Max 256 texts.
+// 00412230    void CL_AddDebugString(float const* xyz @ ebx, float const* color @ edi, float scale, char const* text, int32_t fromServer)
+inline void CL_AddDebugString(float const* xyz, float const* color, float scale, char const* text, int fromServer) {
+    ASM_CALL(RETURN_VOID, 0x00412230, 3, EBX(xyz), EDI(color), PUSH(scale), PUSH(text), PUSH(fromServer));
 }
 
-inline void CL_AddDebugLine(float const* xyz_start, float const* xyz_end, float const* color, int duration, int depthTest, int pernament) {
-    ASM_CALL(RETURN_VOID, 0x00412300, 3, EBX(xyz_start), EDI(xyz_end), ESI(color), PUSH(depthTest), PUSH(duration), PUSH(pernament));
+// Adds a 1 pixel wide debug line drawn by the local client (does nothing when the renderer is not initialized - dedicated server).
+// duration is the number of frames the line stays: server frames (CL_FlushDebugData(1) in SV_Frame) when fromServer is 1,
+// client frames when fromServer is 0. The line is drawn at least once, duration 0 = one frame.
+// 00412300    void CL_AddDebugLine(float const* start @ ebx, float const* end @ edi, float const* color @ esi, int32_t depthTest, int32_t duration, int32_t fromServer)
+inline void CL_AddDebugLine(float const* xyz_start, float const* xyz_end, float const* color, int duration, int depthTest, int fromServer) {
+    ASM_CALL(RETURN_VOID, 0x00412300, 3, EBX(xyz_start), EDI(xyz_end), ESI(color), PUSH(depthTest), PUSH(duration), PUSH(fromServer));
 }
 
 inline void CL_AddDebugCrossPoint(float const* center, float size, float const* color, int duration, int depthTest, int pernament) {
@@ -238,6 +282,44 @@ inline void Con_UpdateNotifyLine(int32_t lineFeed, int32_t channel, int32_t dura
 // 004abeb0    int32_t SEH_PrintStrlen(char* string @ edx)
 inline int32_t SEH_PrintStrlen(const char* string) {
     ASM_CALL_RETURN(int32_t, 0x004abeb0, 0, EDX(string));
+}
+
+// Returns white with the alpha of a fade out: 1 until the last fadeMsec of totalMsec after startMsec, then down to 0.
+// Returns NULL when totalMsec is over or startMsec is 0. The color is a static buffer.
+// 004c2860    float* CG_FadeColor(int32_t startMsec @ edx, int32_t totalMsec @ ecx, int32_t fadeMsec)
+inline float* CG_FadeColor(int32_t startMsec, int32_t totalMsec, int32_t fadeMsec) {
+    float* ret;
+    ASM_CALL(RETURN(ret), 0x004c2860, 1, EDX(startMsec), ECX(totalMsec), PUSH(fadeMsec));
+    return ret;
+}
+
+// Allocates the console buffers and message windows, called by the first print when the console is not initialized yet.
+// 004044a0    int32_t Con_OneTimeInit()
+inline void Con_OneTimeInit() {
+    ASM_CALL(RETURN_VOID, 0x004044a0, 0);
+}
+
+// Writes 3 cells with the red, green and blue of color (0..255) into the console buffer, on the control
+// channels channel, channel + 1 and channel + 2 (10 = color of the following killfeed name, 13 = killfeed icon color).
+// 004052d0    void CL_AddConsoleInfoColor(int32_t channel @ eax, float const* color @ esi)
+inline void CL_AddConsoleInfoColor(int32_t channel, const float* color) {
+    ASM_CALL(RETURN_VOID, 0x004052d0, 0, EAX(channel), ESI(color));
+}
+
+// Adds a material name to the killfeed icons hudMsgIconMaterials (a copy of the name, nothing is loaded) if it is not
+// there yet. The killfeed icon cell (channel 18) holds the index into this table, the renderer draws the material of it.
+// The table is not bounds checked, the cells hold 8 bits.
+// 00403810    char* CL_RegisterHudMsgIconMaterial(char const* name)
+inline void CL_RegisterHudMsgIconMaterial(const char* name) {
+    ASM_CALL(RETURN_VOID, 0x00403810, 1, PUSH(name));
+}
+
+// Draws a message window of the console (game messages, bold game messages, subtitles, mini console) at x, y in
+// virtual 640x480 coordinates. mode: 0 / 1 = lines from old to new going down / up, 2 = from new to old going up
+// (game messages), 3 = subtitles. charHeight is the line height (and the font size), scale multiplies the font size.
+// 00406a20    void Con_DrawMessageWindow(struct notifyBufferItem* msgwnd, int32_t x, int32_t y @ eax, int32_t mode @ ecx, int32_t charHeight, enum horizontalAlign_e horzAlign, enum verticalAlign_e vertAlign, float alpha, float scale)
+inline void Con_DrawMessageWindow(void* msgwnd, int32_t x, int32_t y, int32_t mode, int32_t charHeight, int32_t horzAlign, int32_t vertAlign, float alpha, float scale) {
+    ASM_CALL(RETURN_VOID, 0x00406a20, 7, PUSH(msgwnd), PUSH(x), EAX(y), ECX(mode), PUSH(charHeight), PUSH(horzAlign), PUSH(vertAlign), PUSH(alpha), PUSH(scale));
 }
 
 #endif

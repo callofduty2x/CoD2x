@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include "zpam.h"
+
 // HTTPS update check (JSON over HTTPS), the main source of update checks. The legacy UDP request
 // (getUpdateInfo2/3) is sent by the updater only as a fallback when the HTTPS check fails; the master
 // server logs UDP requests from versions with the HTTPS updater, so HTTPS failures are visible there.
@@ -15,6 +17,7 @@
 // (update_logs). Identity fields are only filled for a client, a dedicated server leaves them empty.
 struct UpdaterHttpsRequest {
     std::string type;           // "client" or "server"
+    bool        periodic = false;   // started by the timer of a running server, returned in the result
     std::string cdkeyHash;      // MD5 of the CD key
     std::string regid;          // install id
     bool        hasHwid = false;
@@ -30,10 +33,12 @@ struct UpdaterHttpsRequest {
 // Result of a finished update check.
 struct UpdaterHttpsResult {
     bool        ok = false;     // false = request failed / rejected / unparsable (see 'error')
+    bool        periodic = false;
     std::string error;
     int         available = 0;  // 0 = none, 1 = optional update, 2 = forced update
     std::string url;            // URL of the file to download
     std::string version;        // version string of the available update
+    ZpamManifest zpam;          // zPAM files for servers, empty if not sent
 };
 
 // Starts an update check in the background. Returns false if a check is already running.
@@ -41,5 +46,8 @@ bool updater_https_checkForUpdate(const UpdaterHttpsRequest& request);
 
 // Main thread: returns true and fills 'out' once when a started check has finished.
 bool updater_https_pollResult(UpdaterHttpsResult* out);
+
+// Main thread: returns true when a running dedicated server should check for updates again.
+bool updater_https_isPeriodicCheckDue();
 
 #endif // UPDATER_HTTPS_H

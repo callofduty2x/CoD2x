@@ -159,6 +159,54 @@ void escape_string(char* buffer, size_t bufferSize, const void* data, size_t len
     buffer[buffer_index] = '\0'; // Ensure null termination
 }
 
+
+/**
+ * Removes all color and style codes from text (player names are shown without them everywhere but the scoreboard):
+ *   - vanilla "^1" and double "^^11" (a run of carets with up to the same number of digits)
+ *   - CoD2x extended colors "$1" "#1" "@1", styles "$*" "$-" "@+" "@=" "@-" "#_" "#-" and their double forms "$$11" "$$**"
+ * A caret or prefix not followed by a code stays as text ("Ca$h", "^_^").
+ * Writes at most size - 1 characters to out, out can be the same buffer as text.
+ */
+void strip_text_codes(const char* text, char* out, size_t size) {
+    if (size == 0)
+        return;
+
+    auto isStyle = [](char prefix, char c) {
+        return (prefix == '$' && (c == '*' || c == '-')) ||
+               (prefix == '@' && (c == '+' || c == '=' || c == '-')) ||
+               (prefix == '#' && (c == '_' || c == '-'));
+    };
+    auto isDigit = [](char c) { return c >= '0' && c <= '9'; };
+
+    size_t len = 0;
+    for (const char* p = text; *p && len < size - 1; ) {
+        if (p[0] == '^') {
+            int carets = 0;
+            while (p[carets] == '^')
+                carets++;
+            int digits = 0;
+            while (digits < carets && isDigit(p[carets + digits]))
+                digits++;
+            if (digits > 0) {
+                p += carets + digits;
+                continue;
+            }
+        }
+        else if (p[0] == '$' || p[0] == '#' || p[0] == '@') {
+            if (p[1] == p[0] && ((isDigit(p[2]) && isDigit(p[3])) || (isStyle(p[0], p[2]) && p[3] == p[2]))) {
+                p += 4;
+                continue;
+            }
+            if (isDigit(p[1]) || isStyle(p[0], p[1])) {
+                p += 2;
+                continue;
+            }
+        }
+        out[len++] = *p++;
+    }
+    out[len] = '\0';
+}
+
 // CRC16-CCITT (poly 0x1021, initial value 0xFFFF)
 uint16_t crc16_ccitt(const uint8_t* data, size_t length)
 {

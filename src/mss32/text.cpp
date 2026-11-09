@@ -14,10 +14,10 @@
  *                  with the default color, "^8E^1#_Y" in a chat line = red bar with the allies color)
  *   ^7             also ends the rainbow, the font and the background
  *
- * Like vanilla, a single code colors the text on the scoreboard and HUD, but the killfeed and the chat
- * strip it from player names, so they show in the team color. The double form - "^^11", "$$11", "##11",
- * "@@11", "$$**", "@@++", "##__", ... - survives the stripping and styles the name there too; everywhere
- * else a double code works like the single one.
+ * Player names are colored only on the scoreboard. Everywhere else - killfeed, chat, name over the player,
+ * "You killed ...", "Following ...", game messages - all codes are removed from the name (strip_text_codes),
+ * so it shows in the team or default color. A double code ("^^11", "$$11", ...) works like the single one
+ * on the scoreboard, older names made for the killfeed keep their colors there.
  * To show a code as text, put another code between its characters: "$^75" shows "$5".
  * ('%' can not be a prefix, the network layer turns every '%' into '.' in MSG_ReadString.)
  *
@@ -25,9 +25,13 @@
  *   - renderer      R_TextWidth, R_DrawText, R_AddCmdDrawTextWithCursor, R_ConsoleTextWidth and
  *                   R_DrawConsoleText are replaced in the renderer function table gfx_funcs
  *   - console       CL_ConsolePrint_AddLine stores the codes as the color byte of each character
- *   - killfeed      CL_AddDeathMessageText stores double codes as control cells for R_DrawConsoleText
- *   - chat          CG_AddToTeamChat keeps the codes, CG_DrawChatMessages colors the background
- *   - server        G_Say strips single extended codes from player names (see server.cpp)
+ *   - killfeed      CL_DeathMessagePrint adds the weapon icon and the extra icons the mod passed to obituary(),
+ *                   CG_DrawGameMessages moves and scales the game messages (cg_gameMessage*)
+ *   - names         CL_AddDeathMessageText (killfeed), CG_AddToTeamChat (chat), CG_DrawCrosshairNames,
+ *                   CG_Obituary, CG_DrawFollow and the rename message strip the codes from the name
+ *   - chat          CG_AddToTeamChat keeps the codes of the message, CG_DrawChatMessages colors the background
+ *   - server        G_Say, Scr_ConstructMessageString (iprintln, ...) and SV_DropClient strip the codes
+ *                   from player names (see server.cpp)
  */
 
 #include "text.h"
@@ -38,11 +42,14 @@
 
 #include "../shared/cod2_client.h"
 #include "../shared/cod2_dvars.h"
+#include "../shared/cod2_shared.h"
 #include "drawing.h"
 #include "shared.h"
 
 
-dvar_t* con_printDoubleColors = NULL;
+dvar_t* cg_gameMessageOffsetX = NULL;
+dvar_t* cg_gameMessageOffsetY = NULL;
+dvar_t* cg_gameMessageScale = NULL;
 extern bool cgame_hideServerIp;
 
 
@@ -57,6 +64,32 @@ extern bool cgame_hideServerIp;
 #define cl_consoleActiveType           (*((int32_t*)0x00601790))
 #define cl_consoleBufferSize           (*((uint32_t*)0x00601794))
 #define cl_consoleTotalBuffers         (*((int32_t*)0x00601798))
+#define cl_noprint                     (*((dvar_t**)0x0096b628))
+#define con_initialized                (*((int32_t*)0x005e1780))
+#define con_gamemessagetime            (*((dvar_t**)0x005e1334))
+#define notify_buffer                  (*((void**)0x006017b0)) // message windows, the first one is the game messages
+
+// Killfeed icons, see CL_RegisterHudMsgIconMaterial
+#define hudMsgIconMaterials            ((const char**)0x005e1340)
+#define registeredIconMaterialCount    (*((int32_t*)0x005e1328))
+#define HUD_MSG_ICON_MATERIALS_MAX     256 // the icon cell holds 8 bits
+
+// Kill icon of a weapon definition (bg_weaponDefs)
+struct killIconWeaponDef_t {
+    char padding[0x34c];
+    const char* killIcon;
+    int32_t killIconRatio;  // 0 = 1:1, else 2:1 (twice as wide)
+    int32_t flipKillIcon;   // horizontally flipped
+};
+#define bg_weaponDefs                  ((killIconWeaponDef_t**)0x01728200)
+#define bg_numWeapons                  (*((int32_t*)0x019a1c74)) // weapons 1 .. bg_numWeapons
+
+#define cg_gameMessageWidth            (*((dvar_t**)0x0166ba9c))
+#define cg_hudCompassSize              (*((dvar_t**)0x0166bb34))
+#define menu_hud_compass_y             (*((float*)0x014eba90))
+#define menu_hud_compass_h             (*((float*)0x014eba8c))
+#define cg_showScores                  (*((int32_t*)0x015195b4))
+#define cg_scoreFadeTime               (*((int32_t*)0x015195b8))
 
 #define cg_chatHeightDvar              (*((dvar_t**)0x014c3684))
 #define cg_hudChatPositionDvar         (*((dvar_t**)0x014c362c))
@@ -296,9 +329,9 @@ static void Text_GetColor(char code, const float* baseColor, float* out)
     out[3] = baseColor[3];
 }
 
-// Vanilla double colors like "^^11Name" are made for the killfeed and chat, which strip one level of
-// codes ("^^11" -> "^1"). On the scoreboard and HUD vanilla shows them as "^1Name"; CoD2x resolves them
-// the same way, so they color the name there too. Returns text if nothing changed.
+// Vanilla double colors like "^^11Name" were made for the killfeed and chat, which stripped one level of
+// codes ("^^11" -> "^1"). On the scoreboard vanilla shows them as "^1Name"; CoD2x resolves them the same
+// way, so they color the name there. Returns text if nothing changed.
 static const char* Text_ResolveDoubleColors(const char* text, char* buffer, size_t size)
 {
     if (!strstr(text, "^^"))
@@ -737,7 +770,7 @@ static const char* Text_HideIpAddresses(const char* text, char* buffer, size_t s
 }
 
 // The same for console cells (see the console buffer cells below) - only the characters are masked,
-// killfeed control cells (channels 10..39) separate them. Returns text if nothing changed.
+// killfeed control cells (channels 10..19) separate them. Returns text if nothing changed.
 static const uint16_t* Text_HideIpAddressesInCells(const uint16_t* text, int textLen, uint16_t* buffer, int size)
 {
     if (!cgame_hideServerIp || textLen > size)
@@ -825,18 +858,10 @@ static void R_AddCmdDrawTextWithCursor(const char* text, int maxChars, fontHandl
 //   10..12     R, G, B of the following killfeed name (team color, CL_DeathMessagePrint)
 //   13..19     weapon icon: 13..15 color, 16 width, 17 height, 19 flipped width, 18 material (ends the icon)
 // CoD2x:
-//   20..22     R, G, B of a double extended color ("$$11") in a killfeed name
-//   23         double style code ("$$**", "@@++", "##__", ...) in a killfeed name, value = code character
 //   0x40..     extended color byte, see Text_EncodeColorByte
 // Vanilla R_GetConsoleString writes every color byte as "^" + (byte + '0'), so lines with CoD2x cells
-// are drawn and measured by CoD2x.
-#define CON_CHANNEL_TEAM_RGB        10
-#define CON_CHANNEL_ICON_FIRST      13
-#define CON_CHANNEL_ICON_WIDTH      16
-#define CON_CHANNEL_ICON_MATERIAL   18
-#define CON_CHANNEL_ICON_WIDTH_FLIP 19
-#define CON_CHANNEL_EXT_RGB         20
-#define CON_CHANNEL_STYLE           23
+// are drawn and measured by CoD2x. Killfeed lines have no CoD2x cells (names are without codes), the
+// engine draws them.
 
 // Extended color byte (CL_ConsolePrint_AddLine): CON_COLOR_EXT_BASE + colorIndex + CON_COLOR_EXT_COLORS * fx
 //   colorIndex   0..9 digits, 10..39 extended colors (Text_ExtendedIndex + 10)
@@ -882,19 +907,15 @@ static void Text_ApplyColorByte(textStyle_t* textStyle, int value, const float* 
     textStyle->rainbow = (fx & CON_FX_RAINBOW) != 0;
 }
 
-// True if a console line has CoD2x cells; isKillfeed is set for killfeed lines (control cells 10..23).
-static bool Text_HasCoD2xCells(const uint16_t* text, int textLen, bool* isKillfeed)
+// True if a console line has CoD2x cells (extended color bytes).
+static bool Text_HasCoD2xCells(const uint16_t* text, int textLen)
 {
-    bool hasCoD2xCells = false;
-    *isKillfeed = false;
     for (int i = 0; i < textLen; ++i) {
         int hi = (text[i] >> 8) & 0xff;
-        if (hi >= CON_COLOR_EXT_BASE || (hi >= CON_CHANNEL_EXT_RGB && hi <= CON_CHANNEL_STYLE))
-            hasCoD2xCells = true;
-        if (hi >= CON_CHANNEL_TEAM_RGB && hi <= CON_CHANNEL_STYLE)
-            *isKillfeed = true;
+        if (hi >= CON_COLOR_EXT_BASE)
+            return true;
     }
-    return hasCoD2xCells;
+    return false;
 }
 
 // Collects the characters of console cells and draws them in one style, or only moves x behind them
@@ -951,119 +972,17 @@ static float Text_DrawConsoleLine(const uint16_t* text, int textLen, fontHandle_
     return segment.x;
 }
 
-// Killfeed line written by CL_DeathMessagePrint / CL_AddDeathMessageText, drawn like the engine does, but
-// with a style per character:
-//   - team color cells (10-12) set the color of the following name, "^7" returns to it
-//   - "^0".."^9" left in a name by vanilla double colors ("^^11" -> "^1") apply like in R_DrawText
-//   - CoD2x: extended color cells (20-22) and style cells (23) of double codes
-//   - weapon icon cells (13-19) are drawn by the engine, the icon is (width / 32) * font height wide
-// With measure nothing is drawn. Returns x behind the line.
-static float Text_DrawKillfeedLine(const uint16_t* text, int textLen, fontHandle_t* font, float x, float y, float xScale, float yScale, const float* color, int style, bool measure)
-{
-    textStyle_t textStyle;
-    TextStyle_Init(&textStyle, color);
-    float teamColor[4];
-    Vector4Copy(color, teamColor);
-
-    textSegment_t segment;
-    segment.len = 0;
-    segment.x = x;
-    segment.measure = measure;
-
-    for (int i = 0; i < textLen; ++i) {
-        int hi = (text[i] >> 8) & 0xff;
-        char lo = (char)(text[i] & 0xff);
-
-        // Team color of the following name
-        if (hi >= CON_CHANNEL_TEAM_RGB && hi <= CON_CHANNEL_TEAM_RGB + 2) {
-            TextSegment_Draw(&segment, font, y, xScale, yScale, &textStyle, style);
-            teamColor[hi - CON_CHANNEL_TEAM_RGB] = (float)(uint8_t)lo / 255.0f;
-            textStyle.color[hi - CON_CHANNEL_TEAM_RGB] = teamColor[hi - CON_CHANNEL_TEAM_RGB];
-            textStyle.previousColor[hi - CON_CHANNEL_TEAM_RGB] = teamColor[hi - CON_CHANNEL_TEAM_RGB];
-            textStyle.rainbow = false;
-            textStyle.font = TEXT_FONT_DEFAULT;
-            textStyle.background = false;
-            continue;
-        }
-
-        // Weapon icon
-        if (hi >= CON_CHANNEL_ICON_FIRST && hi <= CON_CHANNEL_ICON_WIDTH_FLIP) {
-            TextSegment_Draw(&segment, font, y, xScale, yScale, &textStyle, style);
-            int start = i;
-            float iconWidth = 1.0f;
-            for (; i < textLen; ++i) {
-                int channel = (text[i] >> 8) & 0xff;
-                if (channel < CON_CHANNEL_ICON_FIRST || channel > CON_CHANNEL_ICON_WIDTH_FLIP)
-                    break;
-                if (channel == CON_CHANNEL_ICON_WIDTH || channel == CON_CHANNEL_ICON_WIDTH_FLIP)
-                    iconWidth *= (float)(text[i] & 0xff) / 32.0f;
-                if (channel == CON_CHANNEL_ICON_MATERIAL) {
-                    ++i;
-                    break;
-                }
-            }
-            if (!measure)
-                text_gfx.R_DrawConsoleText(text + start, i - start, font, segment.x, y, xScale, yScale, color, style);
-            segment.x += iconWidth * (float)gfx_funcs_R_TextHeight(font) * xScale;
-            textStyle.rainbow = false;
-            textStyle.font = TEXT_FONT_DEFAULT;
-            textStyle.background = false;
-            --i;
-            continue;
-        }
-
-        // CoD2x: double extended color and style
-        if (hi >= CON_CHANNEL_EXT_RGB && hi <= CON_CHANNEL_EXT_RGB + 2) {
-            TextSegment_Draw(&segment, font, y, xScale, yScale, &textStyle, style);
-            if (hi == CON_CHANNEL_EXT_RGB) // R comes first: a new color, keep the current one for "##__"
-                Vector4Copy(textStyle.color, textStyle.previousColor);
-            textStyle.color[hi - CON_CHANNEL_EXT_RGB] = (float)(uint8_t)lo / 255.0f;
-            continue;
-        }
-        if (hi == CON_CHANNEL_STYLE) {
-            TextSegment_Draw(&segment, font, y, xScale, yScale, &textStyle, style);
-            TextStyle_ApplyCode(&textStyle, lo, teamColor);
-            continue;
-        }
-        // CoD2x: End
-
-        if (!lo)
-            continue;
-
-        // "^0".."^9" in the name: "^7" is the team color
-        if (lo == '^' && i + 1 < textLen && ((text[i + 1] >> 8) & 0xff) == hi) {
-            char digit = (char)(text[i + 1] & 0xff);
-            if (digit >= '0' && digit <= '9') {
-                TextSegment_Draw(&segment, font, y, xScale, yScale, &textStyle, style);
-                TextStyle_ApplyCode(&textStyle, digit, teamColor);
-                ++i;
-                continue;
-            }
-        }
-
-        TextSegment_Add(&segment, lo);
-    }
-
-    TextSegment_Draw(&segment, font, y, xScale, yScale, &textStyle, style);
-    return segment.x;
-}
-
 // 1000c3b0 (gfx)    int32_t R_ConsoleTextWidth(uint16_t* text, int32_t textLen, void* font)
 // Width of a console line, used to center the bold game messages (iprintlnbold).
 static int R_ConsoleTextWidth(const uint16_t* text, int textLen, fontHandle_t* font)
 {
-    // CoD2x: lines with CoD2x cells are measured like Text_DrawConsoleLine / Text_DrawKillfeedLine draw them,
+    // CoD2x: lines with CoD2x cells are measured like Text_DrawConsoleLine draws them,
     // IP addresses are hidden with cl_hideServerIp
     uint16_t hidden[1024];
     text = Text_HideIpAddressesInCells(text, textLen, hidden, 1024);
 
-    bool isKillfeed;
-    if (Text_HasCoD2xCells(text, textLen, &isKillfeed)) {
-        float width = isKillfeed
-            ? Text_DrawKillfeedLine(text, textLen, font, 0.0f, 0.0f, 1.0f, 1.0f, colWhite, 0, true)
-            : Text_DrawConsoleLine(text, textLen, font, 0.0f, 0.0f, 1.0f, 1.0f, colWhite, 0, true);
-        return (int)width;
-    }
+    if (Text_HasCoD2xCells(text, textLen))
+        return (int)Text_DrawConsoleLine(text, textLen, font, 0.0f, 0.0f, 1.0f, 1.0f, colWhite, 0, true);
     // CoD2x: End
 
     return text_gfx.R_ConsoleTextWidth(text, textLen, font);
@@ -1077,12 +996,8 @@ static void R_DrawConsoleText(const uint16_t* text, int textLen, fontHandle_t* f
     uint16_t hidden[1024];
     text = Text_HideIpAddressesInCells(text, textLen, hidden, 1024);
 
-    bool isKillfeed;
-    if (Text_HasCoD2xCells(text, textLen, &isKillfeed)) {
-        if (isKillfeed)
-            Text_DrawKillfeedLine(text, textLen, font, x, y, xScale, yScale, color, style, false);
-        else
-            Text_DrawConsoleLine(text, textLen, font, x, y, xScale, yScale, color, style, false);
+    if (Text_HasCoD2xCells(text, textLen)) {
+        Text_DrawConsoleLine(text, textLen, font, x, y, xScale, yScale, color, style, false);
         return;
     }
     // CoD2x: End
@@ -1359,23 +1274,22 @@ uint32_t CL_ConsolePrint_AddLine_Win32(int32_t channel, int32_t duration, int32_
 // Killfeed
 // ======================================================================================================
 
-// Writes a control cell of a killfeed name into the console buffer
-static void Text_WriteConsoleCell(int frame, int hi, int lo)
-{
-    if (cl_consoleBufferPos >= cl_consoleBufferSize)
-        return;
-    cl_consoleBufferBase[frame * cl_consoleBufferSize + cl_consoleBufferPos] = (uint16_t)(((hi & 0xff) << 8) | (lo & 0xff));
-    cl_consoleBufferPos++;
-}
-
 /**
  * Writes a killfeed player name into the console buffer (called only by CL_DeathMessagePrint).
  * With color >= 0 the "^N" codes are stripped without being applied, so the name shows in the team
- * color (set by the cells in front of it); only double colors like "^^11" leave a "^1" behind that
- * R_DrawConsoleText applies.
+ * color (set by the cells in front of it).
  */
 void CL_AddDeathMessageText(const char* str, int32_t color)
 {
+    // CoD2x: player names are colored only on the scoreboard - also the double codes ("^^11" would leave
+    // "^1" in the name) and the CoD2x codes are removed
+    char cleanName[256];
+    if (color >= 0) {
+        strip_text_codes(str, cleanName, sizeof(cleanName));
+        str = cleanName;
+    }
+    // CoD2x: End
+
     int32_t colorNum = color;
     if (colorNum < 0)
         colorNum = ColorIndex('7');
@@ -1385,45 +1299,6 @@ void CL_AddDeathMessageText(const char* str, int32_t color)
     const char* p = str;
     while (*p && cl_consoleBufferPos < cl_consoleBufferSize)
     {
-        // CoD2x: CoD2x text codes
-        char code;
-        int codeLen;
-        // con_printDoubleColors 0 - names only in the team color, all codes are stripped
-        if (!con_printDoubleColors->value.boolean) {
-            if (p[0] == '^') {
-                // A run of carets with up to the same number of digits ("^^11")
-                int carets = 0;
-                while (p[carets] == '^')
-                    carets++;
-                int digits = 0;
-                while (digits < carets && p[carets + digits] >= '0' && p[carets + digits] <= '9')
-                    digits++;
-                p += carets + digits;
-                continue;
-            }
-            codeLen = Text_ParseCode(p, &code);
-            if (codeLen) {
-                p += codeLen;
-                continue;
-            }
-        }
-        // Extended codes: like "^1", a single one is stripped; a double one styles the name, written as
-        // control cells (color: 3 cells with R, G, B; style: 1 cell with the code)
-        else if (p[0] != '^' && (codeLen = Text_ParseCode(p, &code)) != 0) {
-            if (codeLen == 4) {
-                int index = Text_ExtendedIndex(code);
-                if (index >= 0) {
-                    for (int i = 0; i < 3; i++)
-                        Text_WriteConsoleCell(frame, CON_CHANNEL_EXT_RGB + i, (int)(text_extendedColors[index][i] * 255.0f + 0.5f));
-                } else {
-                    Text_WriteConsoleCell(frame, CON_CHANNEL_STYLE, code);
-                }
-            }
-            p += codeLen;
-            continue;
-        }
-        // CoD2x: End
-
         if (p[0] == '^' && p[1] && p[1] != '^' && p[1] >= '0' && p[1] <= '9') {
             if (color < 0)
                 colorNum = ColorIndex(p[1]);
@@ -1448,6 +1323,234 @@ void CL_AddDeathMessageText_Win32(int32_t color)
     CL_AddDeathMessageText(str, color);
 }
 
+// Entity state of the obituary CG_Obituary is printing, read by CL_DeathMessagePrint
+static const entityState_t* text_obituaryState = NULL;
+
+// Index of a killfeed icon in hudMsgIconMaterials. The weapon icons are added when the weapon is loaded,
+// the extra icons of obituary() are added here (the renderer loads the material by the name when drawing).
+// 0 when the table is full, like vanilla for an unknown icon.
+static int Text_KillfeedIconIndex(const char* name)
+{
+    for (int i = 0; i < registeredIconMaterialCount; i++) {
+        if (!strcmp(hudMsgIconMaterials[i], name))
+            return i;
+    }
+    if (registeredIconMaterialCount >= HUD_MSG_ICON_MATERIALS_MAX)
+        return 0;
+
+    CL_RegisterHudMsgIconMaterial(name);
+    return registeredIconMaterialCount - 1;
+}
+
+// Writes a killfeed icon into the console buffer like CL_DeathMessagePrint: color (13-15), width (16, or 19 when
+// flipped), height (17) - in 1/32 of the font height - and the icon index (18, ends the icon).
+static void Text_AddKillfeedIcon(const char* iconName, float iconWidth, float iconHeight, const float* iconColor, bool horzFlipIcon)
+{
+    CL_AddConsoleInfoColor(13, iconColor);
+
+    int32_t frame = cl_consoleFrameCounter % cl_consoleTotalBuffers;
+    uint16_t* line = cl_consoleBufferBase + frame * cl_consoleBufferSize;
+    line[cl_consoleBufferPos++] = (uint16_t)((int32_t)(iconWidth * 32.0f) | (horzFlipIcon ? 0x1300 : 0x1000));
+    line[cl_consoleBufferPos++] = (uint16_t)((int32_t)(iconHeight * 32.0f) | 0x1100);
+    line[cl_consoleBufferPos++] = (uint16_t)(Text_KillfeedIconIndex(iconName) | 0x1200);
+}
+
+#define KILLFEED_ICON_CELLS 6 // cells of one icon, see Text_AddKillfeedIcon
+
+// The icons between the names (see Obituary_SetExtendedIcons in gsc.cpp). Only when the mod passed extra icons
+// to obituary(): the weapon icon - also with a headshot or melee, where vanilla shows the icon of the means of
+// death - and the extra icons behind it. Otherwise (old mods, servers without CoD2x) only the vanilla icon.
+static void Text_AddKillfeedIcons(const char* iconName, float iconWidth, float iconHeight, const float* iconColor, bool horzFlipIcon, int32_t lineLimit)
+{
+    const entityState_t* es = text_obituaryState;
+
+    if (!es || !es->dmgFlags) {
+        Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
+        return;
+    }
+
+    // The weapon icon, the vanilla icon if the weapon has none (falling, trigger hurt, ...)
+    if (es->weapon > 0 && es->weapon <= bg_numWeapons) {
+        const killIconWeaponDef_t* weaponDef = bg_weaponDefs[es->weapon];
+        if (weaponDef && weaponDef->killIcon && weaponDef->killIcon[0]) {
+            iconName = weaponDef->killIcon;
+            iconWidth = weaponDef->killIconRatio ? iconHeight * 2.0f : iconHeight;
+            horzFlipIcon = weaponDef->flipKillIcon != 0;
+        }
+    }
+    Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
+
+    for (int i = 0; i < 4; i++) {
+        int shaderIndex = (es->dmgFlags >> (8 * i)) & 0xff;
+        if (!shaderIndex)
+            continue;
+        const char* shader = CL_GetConfigString(CS_SHADERS + shaderIndex);
+        if (!shader[0] || !strcmp(shader, iconName))
+            continue;
+        // Keep room for the space and the victim color behind the icons
+        if ((int32_t)cl_consoleBufferPos + KILLFEED_ICON_CELLS + 4 >= lineLimit)
+            break;
+        Text_AddKillfeedIcon(shader, iconHeight, iconHeight, iconColor, false);
+    }
+}
+
+// Number of characters the current console line takes on screen, an icon as wide as its characters
+// (a character is about half of the font height, the icon width is in 1/32 of the font height)
+static int Text_KillfeedLineWidth()
+{
+    int32_t frame = cl_consoleFrameCounter % cl_consoleTotalBuffers;
+    const uint16_t* line = cl_consoleBufferBase + frame * cl_consoleBufferSize;
+
+    int width = 0;
+    for (uint32_t i = 0; i < cl_consoleBufferPos; i++) {
+        int hi = (line[i] >> 8) & 0xff;
+        int lo = line[i] & 0xff;
+        if (hi < 10 || hi >= CON_COLOR_EXT_BASE)
+            width++;
+        else if (hi == 16 || hi == 19)
+            width += (lo + 15) / 16;
+    }
+    return width;
+}
+
+/**
+ * Adds a killfeed line to the game messages: attacker name in the attacker color, the icon, victim name in the
+ * victim color. The victim name goes to the next line if it does not fit.
+ */
+void CL_DeathMessagePrint(const char* attackerName, const float* attackerColor, const char* victimName, const float* victimColor, const char* iconName, float iconWidth, float iconHeight, const float* iconColor, bool horzFlipIcon)
+{
+    int32_t lineLimit = cl_consoleBufferSize;
+
+    // CoD2x: a line of the game messages keeps only 78 cells (like CL_ConsolePrint_AddLine), the victim name goes to
+    // the next line instead of being cut off when the extra icons make the line longer
+    if (lineLimit > 78)
+        lineLimit = 78;
+    // CoD2x: End
+
+    if (cl_noprint && cl_noprint->value.boolean)
+        return;
+
+    if (!con_initialized)
+        Con_OneTimeInit();
+
+    int32_t duration = (int32_t)floorf(con_gamemessagetime->value.decimal * 1000.0f + 0.5f);
+    if (duration < 0)
+        duration = 0;
+
+    if ((int32_t)cl_consoleBufferPos > 0)
+        Con_Linefeed(cl_consoleActiveType, duration);
+
+    if (*attackerName) {
+        CL_AddConsoleInfoColor(10, attackerColor);
+        CL_AddDeathMessageText(attackerName, ColorIndex('7'));
+        CL_AddDeathMessageText(" ", ColorIndex('7'));
+    }
+
+    // CoD2x: the weapon icon and the extra icons when the mod passed them to obituary()
+    /*
+    CL_AddConsoleInfoColor(13, iconColor);
+    ...width, height and icon index cells
+    */
+    Text_AddKillfeedIcons(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon, lineLimit);
+    // CoD2x: End
+
+    CL_AddDeathMessageText(" ", ColorIndex('7'));
+    CL_AddConsoleInfoColor(10, victimColor);
+
+    // CoD2x: the name is measured without codes (CL_AddDeathMessageText removes them), it also goes to the next
+    // line when the line would be wider than cg_gameMessageWidth
+    /*
+    if ((int32_t)(strlen(victimName) + cl_consoleBufferPos + 3) >= lineLimit) {
+    */
+    char cleanVictimName[256];
+    strip_text_codes(victimName, cleanVictimName, sizeof(cleanVictimName));
+    int32_t victimLen = (int32_t)strlen(cleanVictimName);
+    if (victimLen + (int32_t)cl_consoleBufferPos + 3 >= lineLimit ||
+        Text_KillfeedLineWidth() + victimLen > cg_gameMessageWidth->value.integer) {
+    // CoD2x: End
+        Con_Linefeed(1, duration);
+        CL_AddConsoleInfoColor(10, victimColor);
+    }
+
+    CL_AddDeathMessageText(cleanVictimName, ColorIndex('7'));
+    Con_Linefeed(1, duration);
+    cl_consoleActiveType = 1;
+}
+
+// 00405530    void CL_DeathMessagePrint(char const* attackerName @ eax, float const* attackerColor, char const* victimName, float const* victimColor @ ebx, char const* iconName, float iconWidth, float iconHeight, float const* iconColor, bool horzFlipIcon)
+// horzFlipIcon is taken as int: GCC narrows a bool parameter into a local through eax before the registers are read
+void CL_DeathMessagePrint_Win32(const float* attackerColor, const char* victimName, const char* iconName, float iconWidth, float iconHeight, const float* iconColor, int32_t horzFlipIcon)
+{
+    const char* attackerName;
+    const float* victimColor;
+    ASM( movr, attackerName, "eax" );
+    ASM( movr, victimColor, "ebx" );
+
+    CL_DeathMessagePrint(attackerName, attackerColor, victimName, victimColor, iconName, iconWidth, iconHeight, iconColor, (horzFlipIcon & 0xff) != 0);
+}
+
+// 004e03f0    void CG_Obituary(struct entityState_s* ent @ eax)
+// Hooked in CG_EntityEvent, the entity state is kept for CL_DeathMessagePrint (weapon and extra killfeed icons).
+void CG_Obituary(const entityState_t* ent)
+{
+    // CoD2x: the entity state for CL_DeathMessagePrint
+    text_obituaryState = ent;
+    // CoD2x: End
+
+    // Call the original function
+    ASM_CALL(RETURN_VOID, 0x004e03f0, 0, EAX(ent));
+
+    // CoD2x: the entity state for CL_DeathMessagePrint
+    text_obituaryState = NULL;
+    // CoD2x: End
+}
+
+void CG_Obituary_Win32()
+{
+    const entityState_t* ent;
+    ASM( movr, ent, "eax" );
+
+    CG_Obituary(ent);
+}
+
+
+
+// ======================================================================================================
+// Game messages
+// ======================================================================================================
+
+/**
+ * Draws the game messages (iprintln) and the killfeed above the compass in the bottom left corner, called by
+ * CG_Draw2D with cg_drawGameMessages. The messages fade out with the scoreboard.
+ */
+void CG_DrawGameMessages()
+{
+    int32_t y = (int32_t)floorf(menu_hud_compass_y - (cg_hudCompassSize->value.decimal - 1.0f) * menu_hud_compass_h + 12.0f + 0.5f);
+
+    float alpha = 1.0f;
+    if (cg_showScores) {
+        const float* color = CG_FadeColor(cg_scoreFadeTime, 100, 100);
+        if (!color)
+            return;
+        alpha = color[3];
+    }
+
+    // CoD2x: position and size by cg_gameMessageOffsetX, cg_gameMessageOffsetY and cg_gameMessageScale. The line height
+    // is a whole number (it also picks the font), the font scale corrects the rest.
+    /*
+    Con_DrawMessageWindow(notify_buffer, 6, y, 2, 12, HORIZONTAL_ALIGN_LEFT, VERTICAL_ALIGN_BOTTOM, alpha, 1.0f);
+    */
+    float height = 12.0f * cg_gameMessageScale->value.decimal;
+    int32_t charHeight = (int32_t)(height + 0.5f);
+    if (charHeight < 1)
+        charHeight = 1;
+    int32_t x = 6 + (int32_t)floorf(cg_gameMessageOffsetX->value.decimal + 0.5f);
+    y += (int32_t)floorf(cg_gameMessageOffsetY->value.decimal + 0.5f);
+
+    Con_DrawMessageWindow(notify_buffer, x, y, 2, charHeight, HORIZONTAL_ALIGN_LEFT, VERTICAL_ALIGN_BOTTOM, alpha, height / (float)charHeight);
+    // CoD2x: End
+}
+
 
 
 // ======================================================================================================
@@ -1455,9 +1558,9 @@ void CL_AddDeathMessageText_Win32(int32_t color)
 // ======================================================================================================
 
 // Removes the codes from the player name of a chat line, so the name shows in the team color.
-// G_Say builds the line as team color ("^8" / "^9") + cleaned name + "^7: " + message; the codes left
-// in the cleaned name come from double codes ("^^11" -> "^1", "$$11" -> "$1"). The leading team color
-// and the message are kept.
+// G_Say builds the line as team color ("^8" / "^9") + cleaned name + "^7: " + message; a CoD2x server
+// removes all codes from the name, servers without it leave the double codes ("^^11" -> "^1", "$$11").
+// The leading team color and the message are kept.
 static void Text_StripChatNameCodes(char* line)
 {
     char* nameEnd = strstr(line, "^7: ");
@@ -1552,14 +1655,12 @@ static int ChatCodes_Write(const chatCodes_t* codes, char* out)
  */
 void CG_AddToTeamChat(const char* str)
 {
-    // CoD2x: con_printDoubleColors 0 - player names in the chat only in the team color, like in the killfeed
+    // CoD2x: player names are colored only on the scoreboard, in the chat the name has the team color
     char line[1024];
-    if (!con_printDoubleColors->value.boolean) {
-        strncpy(line, str, sizeof(line) - 1);
-        line[sizeof(line) - 1] = '\0';
-        Text_StripChatNameCodes(line);
-        str = line;
-    }
+    strncpy(line, str, sizeof(line) - 1);
+    line[sizeof(line) - 1] = '\0';
+    Text_StripChatNameCodes(line);
+    str = line;
     // CoD2x: End
 
     int32_t chatHeight = cg_chatHeightDvar->value.integer;
@@ -1768,6 +1869,78 @@ char* SEH_LocalizeTextMessage(const char* pszInputBuffer, const char* pszMessage
 
 
 // ======================================================================================================
+// Player names
+// ======================================================================================================
+
+// Player names are colored only on the scoreboard, the HUD texts below show them without codes.
+
+// 0044a8d0    void I_CleanStr(char* string @ eax)
+// Hooked only in CG_DrawCrosshairNames, for the name of the player under the crosshair.
+// Vanilla I_CleanStr removes single "^1" codes, but a double "^^11" turns into "^1" and colors the name.
+void CG_DrawCrosshairNames_I_CleanStr(char* name)
+{
+    // CoD2x: all codes are removed, also the double ones and the CoD2x codes
+    strip_text_codes(name, name, strlen(name) + 1);
+    // CoD2x: End
+
+    // Call the original function
+    ASM_CALL(RETURN_VOID, 0x0044a8d0, 0, EAX(name));
+}
+
+void CG_DrawCrosshairNames_I_CleanStr_Win32()
+{
+    char* name;
+    ASM( movr, name, "eax" );
+    CG_DrawCrosshairNames_I_CleanStr(name);
+}
+
+// "You killed %s" / "You were killed by %s" in the center of the screen, in CG_Obituary:
+// va("CGAME_YOUKILLED\x15%s", name) or va("CGAME_YOUKILLED\x15^1&&2^7 %s\x14%s", name, "CGAME_TEAMMATE")
+char* CG_Obituary_va(const char* format, const char* name, const char* teammate)
+{
+    char cleanName[64];
+    strip_text_codes(name, cleanName, sizeof(cleanName));
+    return va(format, cleanName, teammate);
+}
+
+// The killer name for "Fragged by %s" in the killcam menu (ownerdraw CG_KILLER), copied in CG_Obituary
+char* CG_Obituary_strncpy(char* dest, const char* name, size_t count)
+{
+    char cleanName[64];
+    strip_text_codes(name, cleanName, sizeof(cleanName));
+    return strncpy(dest, cleanName, count); // CG_Obituary terminates it
+}
+
+// "Following" + name of the spectated player, in CG_DrawFollow (codes are not counted in the width the name is centered by)
+void CG_DrawFollow_UI_DrawText(const char* text, int len, fontHandle_t* font, float x, float y, horizontalAlign_e horzAlign, verticalAlign_e vertAlign, float scale, vec4_t color, textStyle_e style)
+{
+    char cleanName[64];
+    strip_text_codes(text, cleanName, sizeof(cleanName));
+    UI_DrawText(cleanName, len, font, x, y, horzAlign, vertAlign, scale, color, style);
+}
+
+// 005322c0    void UI_DrawText(char* text, int32_t len, void* font @ esi, float x, float y, int32_t horzAlign @ edi, int32_t vertAlign @ ebx, float scale, float* color, int32_t style)
+void CG_DrawFollow_UI_DrawText_Win32(const char* text, int len, float x, float y, float scale, vec4_t color, textStyle_e style)
+{
+    fontHandle_t* font;     ASM( movr, font, "esi" );
+    horizontalAlign_e horzAlign; ASM( movr, horzAlign, "edi" );
+    verticalAlign_e vertAlign;   ASM( movr, vertAlign, "ebx" );
+    CG_DrawFollow_UI_DrawText(text, len, font, x, y, horzAlign, vertAlign, scale, color, style);
+}
+
+// "<old name> renamed to <new name>" game message: va("%s^7 %s %s", oldName, "renamed to", newName)
+char* CG_PlayerRenamed_va(const char* format, const char* oldName, const char* renamedTo, const char* newName)
+{
+    char cleanOldName[64];
+    char cleanNewName[64];
+    strip_text_codes(oldName, cleanOldName, sizeof(cleanOldName));
+    strip_text_codes(newName, cleanNewName, sizeof(cleanNewName));
+    return va(format, cleanOldName, renamedTo, cleanNewName);
+}
+
+
+
+// ======================================================================================================
 // Module
 // ======================================================================================================
 
@@ -1808,9 +1981,12 @@ void text_unload() {
     gfx_funcs_R_AddCmdDrawTextWithCursor = text_gfx.R_AddCmdDrawTextWithCursor;
 }
 
-/** Called only once on game start after common initialization. */
+/** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
 void text_init() {
-    con_printDoubleColors = Dvar_RegisterBool("con_printDoubleColors", true, (enum dvarFlags_e)(DVAR_CHANGEABLE_RESET));
+    // Position and size of the game messages and killfeed, the offsets in 640x480 units
+    cg_gameMessageOffsetX = Dvar_RegisterFloat("cg_gameMessageOffsetX", 0.0f, -640.0f, 640.0f, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
+    cg_gameMessageOffsetY = Dvar_RegisterFloat("cg_gameMessageOffsetY", 0.0f, -480.0f, 480.0f, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
+    cg_gameMessageScale = Dvar_RegisterFloat("cg_gameMessageScale", 1.0f, 0.5f, 3.0f, (enum dvarFlags_e)(DVAR_ARCHIVE | DVAR_CHANGEABLE_RESET));
 }
 
 /** Called before the entry point is called. Used to patch the memory. */
@@ -1833,9 +2009,23 @@ void text_patch() {
     patch_call(0x004056d4, (unsigned int)CL_AddDeathMessageText_Win32); // CL_DeathMessagePrint
     patch_call(0x00405726, (unsigned int)CL_AddDeathMessageText_Win32); // CL_DeathMessagePrint
 
+    // Killfeed icons, game messages position and size
+    patch_call(0x004e1919, (unsigned int)CG_Obituary_Win32); // CG_EntityEvent
+    patch_call(0x004e0778, (unsigned int)CL_DeathMessagePrint_Win32); // CG_Obituary
+    patch_call(0x004cbe01, (unsigned int)CG_DrawGameMessages); // CG_Draw2D
+
     // Chat
     patch_jump(0x004d0e10, (unsigned int)CG_AddToTeamChat_Win32);
     patch_jump(0x004c7760, (unsigned int)CG_DrawChatMessages);
     patch_call(0x004d1cbf, (unsigned int)SEH_LocalizeTextMessage); // CG_ServerCommand
     patch_call(0x004d1d1c, (unsigned int)SEH_LocalizeTextMessage); // CG_ServerCommand
+
+    // Player names without codes - they are colored only on the scoreboard
+    patch_call(0x004c9891, (unsigned int)CG_DrawCrosshairNames_I_CleanStr_Win32); // CG_DrawCrosshairNames
+    patch_call(0x004e06d1, (unsigned int)CG_Obituary_va); // CG_Obituary - "You killed" teammate
+    patch_call(0x004e070a, (unsigned int)CG_Obituary_va); // CG_Obituary - "You were killed by" teammate
+    patch_call(0x004e071e, (unsigned int)CG_Obituary_va); // CG_Obituary - "You killed" / "You were killed by"
+    patch_call(0x004e0670, (unsigned int)CG_Obituary_strncpy); // CG_Obituary - killer name for "Fragged by"
+    patch_call(0x004cbc23, (unsigned int)CG_DrawFollow_UI_DrawText_Win32); // CG_DrawFollow - name
+    patch_call(0x004df827, (unsigned int)CG_PlayerRenamed_va); // "renamed to" message
 }

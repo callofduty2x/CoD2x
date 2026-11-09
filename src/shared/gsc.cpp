@@ -60,6 +60,8 @@ scr_function_t scriptFunctions[] = {
 	{"test_allOk", gsc_test_allOk, 0},
 	#endif
 
+	{"stripColorCodes", gsc_player_stripColorCodes, 0},
+
 	{"http_fetch", gsc_http_fetch, 0},
 
 	{"websocket_connect", gsc_websocket_connect, 0},
@@ -262,6 +264,54 @@ bool gsc_beforeMapChangeOrRestart(bool fromScript, bool bComplete, bool shutdown
 	return true;
 }
 
+
+// Extended obituary(victim, attacker, sWeapon, sMeansOfDeath [, icon1, icon2, icon3, icon4]):
+// the icons are shaders precached with precacheShader (wallbang, no-scope, headshot, ...), undefined or "" is
+// skipped. The CoD2x client then shows the weapon icon and the icons behind it - also with a headshot or melee,
+// where vanilla shows only the icon of the means of death (pass "killiconheadshot" to keep it), see
+// CL_DeathMessagePrint in text.cpp.
+// Only the mod turns it on: without icons (old mods) the event is left as vanilla and every client shows the
+// vanilla killfeed. Vanilla clients do not read the fields:
+//   es->weapon      (7 bits)  weapon index, also when eventParm is 0x80 + means of death (melee, headshot, ...)
+//   es->dmgFlags    (32 bits) shader index (CS_SHADERS, 1 .. 127) of the icons, 8 bits each, icon1 in the lowest
+#define OBITUARY_ICONS_MAX 4
+
+static void Obituary_SetExtendedIcons(gentity_t* ent)
+{
+	int icons = 0;
+	int count = 0;
+	unsigned int numParams = Scr_GetNumParam();
+	for (unsigned int i = 4; i < numParams && count < OBITUARY_ICONS_MAX; i++) {
+		if (Scr_GetType(i) == 0) // undefined
+			continue;
+		const char* shader = Scr_GetString(i);
+		if (!shader[0])
+			continue;
+		icons |= (G_ShaderIndex(shader) & 0xff) << (8 * count);
+		count++;
+	}
+	if (!icons)
+		return;
+
+	ent->s.weapon = G_GetWeaponIndexForName(Scr_GetString(2)) & 0x7f;
+	ent->s.dmgFlags = icons;
+}
+
+// 0050ff70    struct gentity_s* G_TempEntity(float const* origin, int32_t event)
+// Hooked only in GScr_Obituary, for the EV_OBITUARY event entity.
+gentity_t* GScr_Obituary_G_TempEntity(const float* origin, int event)
+{
+	// Call the original function
+	gentity_t* ent = G_TempEntity(origin, event);
+
+	// CoD2x: weapon and extra icons for the killfeed of CoD2x clients
+	Obituary_SetExtendedIcons(ent);
+	// CoD2x: End
+
+	return ent;
+}
+
+
 /** Called every frame on frame start. */
 void gsc_frame() {
 	gsc_player_frame();
@@ -281,6 +331,7 @@ void gsc_patch()
     patch_call(ADDR(0x46E7BF, 0x08070BE7), (int)Scr_GetCustomFunction);
     patch_call(ADDR(0x46EA03, 0x08070E0B), (int)Scr_GetCustomMethod);
 	patch_call(ADDR(0x5043fa, 0x0811048c), (int)GScr_LoadGameTypeScript);
+	patch_call(ADDR(0x00507e9b, 0x08113186), (int)GScr_Obituary_G_TempEntity); // GScr_Obituary
 	patch_call(ADDR(0x004fc874, 0x08109572), (int)WL(Scr_ShutdownSystem_Win32, Scr_ShutdownSystem));
 
 	WL(

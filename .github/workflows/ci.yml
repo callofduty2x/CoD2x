@@ -4,13 +4,17 @@ name: CI
 # are downloadable for testing. Uses the shared build.yml, so these are the same builds as a release.
 #   PR #123       -> version 1.4.6.9-pr.123   (rebuilds on each push to the PR)
 #   push to main  -> version 1.4.6.9-dev.<sha>
+#   push to feature-graphic / feature/graphic -> version 1.4.6.9-graphic.<sha>
 # `on: pull_request` runs fork PRs sandboxed (no secrets, read-only token), so contributor code is safe.
 
 on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'feature-**'
+      - 'feature/**'
 
 permissions:
   contents: read
@@ -34,6 +38,12 @@ jobs:
           BASE="${BASE%%-*}"                                     # strip any suffix -> 1.4.6.9
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             SUFFIX="pr.${{ github.event.pull_request.number }}"
+          elif [ "${{ github.ref_name }}" != "main" ]; then
+            # feature-menu-rendering -> menu-rendering; keep only [a-z0-9-] (the version ends up in
+            # iwd file names and artifact names)
+            NAME="${GITHUB_REF_NAME#feature}"
+            NAME="$(printf '%s' "${NAME#[-/]}" | tr 'A-Z/' 'a-z-' | tr -cd 'a-z0-9-')"
+            SUFFIX="${NAME:-feature}.$(git rev-parse --short HEAD)"
           else
             SUFFIX="dev.$(git rev-parse --short HEAD)"
           fi

@@ -2,6 +2,8 @@
 #include <stdbool.h>
 #include <string.h>
 #include <functional>
+#include <string>
+#include <vector>
 
 // Get string field. Caller provides buffer.
 // Returns true if found, false otherwise.
@@ -39,6 +41,17 @@ static inline bool json_get_str(const char *json, const char *path, char *out, s
 
     // Not found or unsupported type
     return false;
+}
+
+// Appends the items of a string array to 'out', stops at the first item that is missing
+static inline void json_get_str_array(const char *json, const char *path, std::vector<std::string> *out) {
+    char buf[1024];
+    for (int i = 0; ; i++) {
+        std::string itemPath = std::string(path) + "[" + std::to_string(i) + "]";
+        if (!json_get_str(json, itemPath.c_str(), buf, sizeof(buf)))
+            break;
+        out->push_back(buf);
+    }
 }
 
 // Get numeric field
@@ -212,4 +225,28 @@ static inline std::string json_escape_string(const std::string &in) {
         }
     }
     return out;
+}
+
+// Appends a "fieldName":[ "line", ... ] array, splitting text on newlines (empty lines skipped)
+static inline void json_appendLines(std::string& out, const char* fieldName, const char* text) {
+    out += "\"";
+    out += fieldName;
+    out += "\":[";
+
+    const char* p = text ? text : "";
+    bool first = true;
+    while (*p) {
+        const char* lineStart = p;
+        while (*p && *p != '\n' && *p != '\r') ++p;
+        size_t lineLen = (size_t)(p - lineStart);
+        if (lineLen > 0) {
+            if (!first) out += ",";
+            first = false;
+            out += "\"";
+            out += json_escape_string(std::string(lineStart, lineLen));
+            out += "\"";
+        }
+        while (*p == '\n' || *p == '\r') ++p;
+    }
+    out += "]";
 }

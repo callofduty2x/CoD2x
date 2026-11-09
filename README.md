@@ -93,6 +93,13 @@ It focuses on fixing bugs and adding new features to the game.
 - Shogun consistent pellet spread
   - ![alt text](images/pellet_spread.png)
   - changeable via new cvar `g_shotgun_spread_fix`
+- Bullet penetration through walls (wallbang), off by default - `sv_wallbang 1`
+  - only rifle bullets (weapons with `MOD_RIFLE_BULLET`: rifles, BAR, Bren, MP44, FG42, MG turrets)
+  - each wall uses `thickness / max thickness` of the bullet's penetration power, the bullet stops when it is used up; damage behind the wall is `sv_wallbang_damage * remaining power` (falls linearly to 0)
+  - `sv_wallbang_depth` (24) - max wall thickness in units, multiplied by `sv_wallbang_surface_<type>` per surface type, defaults are relative to wood by real-world bullet protection of the material (`cloth`/`paper`/`foliage` 4, `wood` 1, `plaster` 0.8, `dirt` 0.6, `sand` 0.4, `brick` 0.25, `concrete` 0.15, `metal`/`rock` 0.1, ...), `none` 10 (caulk / nodraw faces without material - as if not there), weapon clip and sky are never penetrable
+  - `sv_wallbang_damage` (0.6), `sv_wallbang_maxWalls` (2), `sv_wallbang_debug` (prints the results to the shooter)
+  - bullet impact effect is spawned on both sides of the wall
+  - damage of a penetrated bullet has flag `64` in `iDFlags` of `CodeCallback_PlayerDamage` (e.g. to skip the hit indicator)
 
 #### Improvements
 - Added windowed and borderless window mode:
@@ -166,9 +173,15 @@ It focuses on fixing bugs and adding new features to the game.
 - Radar
 - vMIX support
 - URL protocol to launch the game from web links: `cod2x://`
-- Toggle colored player names (double colors) in killfeed and chat (`con_printDoubleColors`);
+- Player names are colored only on the scoreboard - everywhere else (killfeed, chat, name under the crosshair, "You killed ...", "Following ...", "Fragged by ...", rename, disconnect and `iprintln` messages) the name is shown without color codes, double colors (`^^11`) included. For HUD texts made by mods use the new GSC function `stripColorCodes`.
+- Game messages and killfeed
+  - position and size of the game messages (`iprintln` and the killfeed) via `cg_gameMessageOffsetX`, `cg_gameMessageOffsetY` (offset in 640x480 units, default 0) and `cg_gameMessageScale` (0.5 - 3, default 1)
+  - the killfeed line is wrapped by the vanilla cvar `cg_gameMessageWidth` (characters, default 70) like other game messages
+  - extra killfeed icons after the weapon icon (wallbang, no-scope, headshot, ...) - only when the mod turns them on via the extended GSC function `obituary` (see [GSC functions](#gsc-functions)), mods that do not use it have the vanilla killfeed
 - Bullet trace debugging (`cg_debugBullets`);
-- Automatic zPAM updates
+- Automatic zPAM updates on servers that already have zPAM in `main`, run without `fs_game` and have `sv_wwwDownload` and `sv_wwwBaseURL` set - new version is downloaded in background on server start and regularly while the server is running, and loaded on the next map change or full `map_restart` unless a match is running (an empty server restarts the map on its own). Disable with `sv_updateZpam 0`. Versions are tracked in `main/zpam.json`. A folder can be shared by more servers, each one switches on its own. When CoD2x is rolled back, the zPAM versions the older CoD2x can't run are blocked before the older CoD2x is installed, so they are not loaded after the restart.
+- Added support for `https://` in `sv_wwwBaseURL` (certificates are not verified), `http://` works the same as before.
+- Missing zPAM iwds are downloaded directly from `https://cod2x.me/zpam`, even if the server has `sv_wwwDownload` disabled. If the file is not there, the client asks the server for it as usual. Requires `cl_allowDownload 1` and `cl_wwwDownload 1`.
 - Smarter IWD handling and configs: always use `main/config_mp.cfg`; improved filtering to prevent sum/name mismatch; for demos only IWDs used at record-time are loaded; for listen servers only the latest zPAM files are loaded; assets in `movie` are included for demo playback; automatic extraction of `iw_CoD2x_01.iwd`.
 - Cvar to disable saving changes to config via cvar `com_writeConfig`
 - Allow scanning 32 LAN servers instead of 4
@@ -177,6 +190,10 @@ It focuses on fixing bugs and adding new features to the game.
 # GSC functions
 ### Level
 ```markdown
+- `stripColorCodes` - Returns the text without color and style codes (`^1`, `^^11`, `$1`, `$$11`, `$*`, `@+`, `#_`, ...), e.g. `stripColorCodes(player.name)`.
+
+- `obituary` - Extended original function, up to 4 extra killfeed icons can be added after the weapon icon: `obituary(victim, attacker, sWeapon, sMeansOfDeath [, icon1, icon2, icon3, icon4])`. Icons are shaders precached by `precacheShader`, `undefined` and `""` are skipped, e.g. `obituary(self, attacker, sWeapon, sMeansOfDeath, "killiconheadshot", "killiconwallbang")`. With at least one icon the CoD2x client shows the weapon icon followed by the icons - also for `MOD_HEAD_SHOT` and `MOD_MELEE`, where vanilla shows only the headshot / melee icon (pass `"killiconheadshot"` / `"killiconmelee"` to keep it). Without icons the killfeed stays vanilla. Vanilla clients always see the vanilla killfeed.
+
 - `kick(<entity number>, <reason>)` - Original function extended with optional reason. With reason, the reason is shown in the kicked player's disconnect dialog and to all players as "<name> <reason>", and no temporary ban (sv_kickBanTime) is applied. Without reason it works as before. Older CoD2x versions ignore the reason.
 
 - `http_fetch` - Fetches data from an HTTP endpoint asynchronously. Allows specifying HTTP method, data, headers, and callbacks for success or error handling.
@@ -259,7 +276,7 @@ It focuses on fixing bugs and adding new features to the game.
 6. Run the game with LD_PRELOAD, for example:
     - `LD_PRELOAD=./libCoD2x.so ./cod2_lnxded +set dedicated 2 +exec server.cfg`
     - 🛈 Its not common that server providers support adding this, only server administrators can do that.
-7. Auto-update is enabled by default. Make sure to enable UDP port 20720. If you want to disable auto-update, set `sv_update "0"` or disable UDP port 20720. On server start, the server will check for the latest version of CoD2x and download it if available. File libCoD2x.so will be replaced with the latest version. Process restart is needed to apply the update. 
+7. Auto-update is enabled by default, it needs outgoing HTTPS (TCP port 443) and HTTP (TCP port 80), with UDP port 20720 as a fallback for the update check. If you want to disable auto-update, set `sv_update "0"`. Everything about installing an update is written to `libCoD2x.so.log`. On server start, the server will check for the latest version of CoD2x and download it if available. File libCoD2x.so will be replaced with the latest version. Process restart is needed to apply the update. 
 
 # How to run server in Docker (Linux)
 The image is built from the source in this repository (`libCoD2x.so` + original `cod2_lnxded` 1.3).
@@ -370,6 +387,8 @@ In registry, when the game runs with administrator rights, we are moving old val
     - 📁 **mss32** - *code related for Windows, mimicking mss32.dll*
     - 📁 **shared** - *code shared for both Linux server and Windows version*
     - 📁 **other** - *reversed / testing code*
+- 📁 **tests**
+    - 📁 **mods** - *test mods for testing features in the game, see [tests/mods/README.md](tests/mods/README.md)*
 - 📁 **tools** - *contains external tools for coding, compiling, etc..*
 - 📁 **zip** - *zip files are generated here*
 

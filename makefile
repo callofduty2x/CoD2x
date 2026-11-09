@@ -186,13 +186,14 @@ VERSION_H = src/shared/version.h
 src/shared/version.h: makefile
 	@echo Generating version.h...
 
-	@echo $(ECHO_QUOTE)#define APP_VERSION_MAJOR $(VERSION_MAJOR)$(ECHO_QUOTE) 										>  $(VERSION_H)
-	@echo $(ECHO_QUOTE)#define APP_VERSION_MINOR $(VERSION_MINOR)$(ECHO_QUOTE) 										>> $(VERSION_H)
-	@echo $(ECHO_QUOTE)#define APP_VERSION_PROTOCOL $(VERSION_PROTOCOL)$(ECHO_QUOTE) 								>> $(VERSION_H)
-	@echo $(ECHO_QUOTE)#define APP_VERSION_PATCH $(VERSION_PATCH)$(ECHO_QUOTE) 										>> $(VERSION_H)
-	@echo $(ECHO_QUOTE)#define APP_VERSION_IS_TEST $(VERSION_IS_TEST)$(ECHO_QUOTE) 									>> $(VERSION_H)
-	@echo $(ECHO_QUOTE)#define APP_VERSION $(ECHO_QUOTE_ESCAPED)$(VERSION)$(ECHO_QUOTE_ESCAPED)$(ECHO_QUOTE) 		>> $(VERSION_H)
-	
+# The redirect goes first: cmd's echo would write the whitespace before a trailing '>' into the file
+	@>$(VERSION_H)  echo $(ECHO_QUOTE)#define APP_VERSION_MAJOR $(VERSION_MAJOR)$(ECHO_QUOTE)
+	@>>$(VERSION_H) echo $(ECHO_QUOTE)#define APP_VERSION_MINOR $(VERSION_MINOR)$(ECHO_QUOTE)
+	@>>$(VERSION_H) echo $(ECHO_QUOTE)#define APP_VERSION_PROTOCOL $(VERSION_PROTOCOL)$(ECHO_QUOTE)
+	@>>$(VERSION_H) echo $(ECHO_QUOTE)#define APP_VERSION_PATCH $(VERSION_PATCH)$(ECHO_QUOTE)
+	@>>$(VERSION_H) echo $(ECHO_QUOTE)#define APP_VERSION_IS_TEST $(VERSION_IS_TEST)$(ECHO_QUOTE)
+	@>>$(VERSION_H) echo $(ECHO_QUOTE)#define APP_VERSION $(ECHO_QUOTE_ESCAPED)$(VERSION)$(ECHO_QUOTE_ESCAPED)$(ECHO_QUOTE)
+
 	@echo $(VERSION) writed to $(VERSION_H)
 	@echo   Done.
 
@@ -202,23 +203,23 @@ VERSION_RC = src/mss32/version.rc
 src/mss32/version.rc: makefile
 	@echo Generating version.rc...
 
-	@echo 1 VERSIONINFO                                			>  $(VERSION_RC)
-	@echo FILEVERSION $(VERSION_COMMA)                			>> $(VERSION_RC)
-	@echo PRODUCTVERSION $(VERSION_COMMA)             			>> $(VERSION_RC)
-	@echo BEGIN                                       			>> $(VERSION_RC)
-	@echo     BLOCK "StringFileInfo"                  			>> $(VERSION_RC)
-	@echo     BEGIN                                   			>> $(VERSION_RC)
-	@echo         BLOCK "040904b0"                    			>> $(VERSION_RC)
-	@echo         BEGIN                               			>> $(VERSION_RC)
-	@echo             VALUE "ProductName", "CoD2x"    			>> $(VERSION_RC)
-	@echo             VALUE "ProductVersion", "$(VERSION)" 		>> $(VERSION_RC)
-	@echo         END                                 			>> $(VERSION_RC)
-	@echo     END                                     			>> $(VERSION_RC)
-	@echo     BLOCK "VarFileInfo"                     			>> $(VERSION_RC)
-	@echo     BEGIN                                   			>> $(VERSION_RC)
-	@echo         VALUE "Translation", 0x0409, 1200  			>> $(VERSION_RC)
-	@echo     END                                     			>> $(VERSION_RC)
-	@echo END                                         			>> $(VERSION_RC)
+	@>$(VERSION_RC)  echo 1 VERSIONINFO
+	@>>$(VERSION_RC) echo FILEVERSION $(VERSION_COMMA)
+	@>>$(VERSION_RC) echo PRODUCTVERSION $(VERSION_COMMA)
+	@>>$(VERSION_RC) echo BEGIN
+	@>>$(VERSION_RC) echo     BLOCK "StringFileInfo"
+	@>>$(VERSION_RC) echo     BEGIN
+	@>>$(VERSION_RC) echo         BLOCK "040904b0"
+	@>>$(VERSION_RC) echo         BEGIN
+	@>>$(VERSION_RC) echo             VALUE "ProductName", "CoD2x"
+	@>>$(VERSION_RC) echo             VALUE "ProductVersion", "$(VERSION)"
+	@>>$(VERSION_RC) echo         END
+	@>>$(VERSION_RC) echo     END
+	@>>$(VERSION_RC) echo     BLOCK "VarFileInfo"
+	@>>$(VERSION_RC) echo     BEGIN
+	@>>$(VERSION_RC) echo         VALUE "Translation", 0x0409, 1200
+	@>>$(VERSION_RC) echo     END
+	@>>$(VERSION_RC) echo END
 
 	@echo   Done.
 	@echo.

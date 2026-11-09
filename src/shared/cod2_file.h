@@ -56,7 +56,24 @@ inline void FS_Restart(int checksumFeed) {
     ASM_CALL(RETURN_VOID, ADDR(0x00425920, 0x080a337a), 1, PUSH(checksumFeed));
 }
 
-// 00421d30    int32_t FS_BuildOSPath(char* ospath @ eax, char* qpath @ ecx, void* game @ edx, char* base) 
+#if COD2X_WIN32
+// Creates all the folders of the path, the last part is the file name and is not created.
+// Returns non-zero if the path is invalid (contains ".." or "::").
+// 00421d50    int32_t FS_CreatePath(char* ospath @ edi)
+inline int FS_CreatePath(char* ospath) {
+    int ret;
+    ASM_CALL(RETURN(ret), 0x00421d50, 0, EDI(ospath));
+    return ret;
+}
+
+// Copies the file with full paths, a failed read or write ends with a fatal error.
+// 00421dc0    int32_t* FS_CopyFile(char* fromOSPath @ eax, char* toOSPath @ ecx)
+inline void FS_CopyFile(const char* fromOSPath, const char* toOSPath) {
+    ASM_CALL(RETURN_VOID, 0x00421dc0, 0, EAX(fromOSPath), ECX(toOSPath));
+}
+#endif
+
+// 00421d30    int32_t FS_BuildOSPath(char* ospath @ eax, char* qpath @ ecx, void* game @ edx, char* base)
 inline void FS_BuildOSPath(char* ospath, const char* qpath, void* game, const char* base) {
     WL(
         ASM_CALL(RETURN_VOID, 0x00421d30, 1, EAX(ospath), ECX(qpath), EDX(game), PUSH(base)),
