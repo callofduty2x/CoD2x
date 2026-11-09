@@ -1,0 +1,56 @@
+// CoD2x strings (UTF-8, all languages in one file - CoD2x loads only the line of the language of the player)
+VERSION             "1"
+CONFIG              "C:\trees\cod2\bin\StringEd.cfg"
+FILENOTES           "CoD2x strings."
+
+REFERENCE           LANGUAGE_INSTALLED
+LANG_ENGLISH        "As installed"
+LANG_FRENCH         "Selon l'installation"
+LANG_GERMAN         "Wie installiert"
+LANG_ITALIAN        "Come installato"
+LANG_SPANISH        "Según la instalación"
+LANG_RUSSIAN        "Как установлено"
+LANG_POLISH         "Jak zainstalowano"
+LANG_CZECH          "Podle instalace"
+
+REFERENCE           CZECH
+LANG_ENGLISH        "Czech"
+LANG_FRENCH         "Tchèque"
+LANG_GERMAN         "Tschechisch"
+LANG_ITALIAN        "Ceco"
+LANG_SPANISH        "Checo"
+LANG_RUSSIAN        "Чешский"
+LANG_POLISH         "Czeski"
+LANG_CZECH          "čeština"
+
+REFERENCE           FORCE_ENGLISH_TEXTS
+LANG_ENGLISH        "Force English Texts"
+LANG_FRENCH         "Forcer les textes en anglais"
+LANG_GERMAN         "Englische Texte erzwingen"
+LANG_ITALIAN        "Forza testi in inglese"
+LANG_SPANISH        "Forzar textos en inglés"
+LANG_RUSSIAN        "Принудительно английские тексты"
+LANG_POLISH         "Wymuś teksty po angielsku"
+LANG_CZECH          "Vynutit anglické texty"
+
+REFERENCE           FONT_STYLE
+LANG_ENGLISH        "Font Style"
+LANG_FRENCH         "Style de police"
+LANG_GERMAN         "Schriftstil"
+LANG_ITALIAN        "Stile carattere"
+LANG_SPANISH        "Estilo de fuente"
+LANG_RUSSIAN        "Стиль шрифта"
+LANG_POLISH         "Styl czcionki"
+LANG_CZECH          "Styl písma"
+
+REFERENCE           FONT_ORIGINAL
+LANG_ENGLISH        "Original"
+LANG_FRENCH         "Original"
+LANG_GERMAN         "Original"
+LANG_ITALIAN        "Originale"
+LANG_SPANISH        "Original"
+LANG_RUSSIAN        "Оригинальный"
+LANG_POLISH         "Oryginalny"
+LANG_CZECH          "Původní"
+
+ENDMARKER

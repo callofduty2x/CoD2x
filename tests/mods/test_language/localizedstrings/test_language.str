@@ -1,0 +1,60 @@
+// CoD2x test mod - translations of the strings of test_language.gsc (&"TEST_LANGUAGE_<REFERENCE>")
+// All languages are in one file. Vanilla CoD2 loads the last LANG_ line of every reference for everybody,
+// CoD2x loads only the line of the language of the player (LANG_ENGLISH when there is none).
+// The file is UTF-8: CoD2x converts it to the code page of the fonts of the player (cp1252 western, cp1250 czech /
+// polish, cp1251 russian, ...). A character his fonts do not have is shown as '?'.
+//
+VERSION             "1"
+CONFIG              "C:\trees\cod2\bin\StringEd.cfg"
+FILENOTES           ""
+
+REFERENCE           HELLO
+LANG_ENGLISH        "Hello! This text is translated by your own game (English)."
+LANG_FRENCH         "Bonjour ! Ce texte est traduit par votre jeu (français)."
+LANG_GERMAN         "Hallo! Dieser Text wird von deinem Spiel übersetzt (Deutsch)."
+LANG_CZECH          "Ahoj! Tento text překládá tvoje hra (čeština)."
+LANG_POLISH         "Cześć! Ten tekst tłumaczy twoja gra (polski)."
+LANG_RUSSIAN        "Привет! Этот текст переводит твоя игра (русский)."
+
+REFERENCE           WELCOME
+LANG_ENGLISH        "&&1 joined the game"
+LANG_FRENCH         "&&1 a rejoint la partie"
+LANG_GERMAN         "&&1 ist dem Spiel beigetreten"
+LANG_CZECH          "&&1 se připojil do hry"
+LANG_POLISH         "&&1 dołączył do gry"
+LANG_RUSSIAN        "&&1 присоединился к игре"
+
+REFERENCE           BOTS
+LANG_ENGLISH        "Bots: "
+LANG_FRENCH         "Bots : "
+LANG_GERMAN         "Bots: "
+LANG_CZECH          "Boti: "
+LANG_POLISH         "Boty: "
+LANG_RUSSIAN        "Боты: "
+
+REFERENCE           SAME
+LANG_ENGLISH        "#same: the same text in all languages (CoD2x)"
+LANG_FRENCH         "#same"
+LANG_GERMAN         "#same"
+LANG_CZECH          "#same"
+
+REFERENCE           ORDER
+LANG_CZECH          "Na pořadí řádků nezáleží (čeština před angličtinou)"
+LANG_ENGLISH        "The order of the lines does not matter (english after czech)"
+LANG_GERMAN         "Die Reihenfolge der Zeilen ist egal (Deutsch nach Englisch)"
+
+REFERENCE           ONLY_ENGLISH
+LANG_ENGLISH        "Only english - the other languages show this line"
+
+REFERENCE           FONT_WESTERN
+LANG_ENGLISH        "Font: ABC abc 0123 ÀÉÎÕÜ àéîõü ß ñ ç | € Š ž œ “”"
+
+REFERENCE           FONT_LANGUAGE
+LANG_ENGLISH        "Font of your language: (english has the line above)"
+LANG_FRENCH         "Police : à â ç é è ê ë î ï ô ù û ü ÿ œ « »"
+LANG_GERMAN         "Schrift: ä ö ü Ä Ö Ü ß „Zitat“"
+LANG_CZECH          "Písmo: Příliš žluťoučký kůň úpěl ďábelské ódy"
+LANG_POLISH         "Czcionka: Zażółć gęślą jaźń"
+LANG_RUSSIAN        "Шрифт: Съешь же ещё этих мягких французских булок"
+
+ENDMARKER

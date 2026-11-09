@@ -53,6 +53,44 @@ void gsc_player_playerGetHWID(scr_entref_t ref) {
 }
 
 /**
+ * Get the game language of a player: "english", "french", "german", "italian", "spanish", "british", "russian",
+ * "polish", "korean", "taiwanese", "japanese", "chinese", "thai", "leet" or "czech".
+ * Sent by CoD2x clients in the userinfo (cl_language). Undefined for bots and clients without CoD2x.
+ * Localized strings (&"MOD_STRING") are translated by the client itself, use this for plain strings only.
+ */
+void gsc_player_getLanguage(scr_entref_t ref) {
+	int id = ref.entnum;
+
+	if ( id >= MAX_CLIENTS )
+	{
+		Scr_Error(va("entity %d is not a player", id));
+		Scr_AddUndefined();
+		return;
+	}
+
+	client_t *client = &svs_clients[id];
+
+	const char* language = Info_ValueForKey(client->userinfo, "cl_language");
+
+	// Only a short lowercase name, the client can send anything
+	size_t len = strlen(language);
+	bool valid = len > 0 && len < 16;
+	for (size_t i = 0; valid && i < len; i++) {
+		if (language[i] < 'a' || language[i] > 'z')
+			valid = false;
+	}
+
+	if (!valid)
+	{
+		Scr_AddUndefined();
+		return;
+	}
+
+	Scr_AddString(language);
+}
+
+
+/**
  * Get the CDKey hash of a player.
  * The CDKey hash is a 32 character long string sent by the client during connection.
  * It is the MD5 hash of the CDKey.

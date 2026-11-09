@@ -6,6 +6,7 @@ of the zPAM and map pack IWDs in `main` and adds only its own gametype script.
 | Mod | Tests |
 |---|---|
 | `test_killfeed` | the killfeed: extended GSC `obituary` with icons, `cg_gameMessage*` cvars |
+| `test_language` | translations per player (`.str` with all languages), GSC `getLanguage()`, font sets `cl_fontSet` |
 
 ## Run
 
@@ -113,3 +114,15 @@ cg_gameMessageOffsetY -100
 cg_gameMessageWidth 20                          the victim goes to the next line
 name "^1Very^2Long^3Player^4Name^5With^6Colors"  long names with "e16" (scr_test_case e16)
 ```
+
+## test_language
+
+Hud elements and messages with localized strings from `localizedstrings/test_language.str` (english, french, german,
+czech, polish, russian in one file), plain strings chosen on the server with `getLanguage()`, font samples.
+
+- The `.str` file is UTF-8. CoD2x converts it to the code page of the fonts of the player when it is loaded (cp1252
+  western, cp1250 czech / polish, cp1251 russian, ...), the game itself has no Unicode.
+- Other languages than the ones of the CoD2x language IWD need their localized IWDs in `main`
+  (`localized_<language>_iw*.iwd`), the game does not allow a language without them (`loc_language` falls back to the language of the install).
+- The languages and the CoD4 fonts are in the CoD2x language IWD (`main/localized_CoD2x_01.iwd`). Run it with
+  `+set loc_language 14` (czech), `1` (french), `6` (russian), ... In the game `F5` = `cl_fontSet cod4`, `F6` = fonts of the game.

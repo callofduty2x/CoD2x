@@ -173,6 +173,24 @@ It focuses on fixing bugs and adding new features to the game.
   - `r_filmTweakColor "1 1 1"` - red, green and blue multipliers (0 - 2)
   - `r_filmTweakDarkTint "1 1 1"` and `r_filmTweakLightTint "1 1 1"` - color of the dark and bright parts (0 - 2)
 - `r_gamma` works in windowed and borderless mode too - applied to the whole frame by the game itself, the monitor gamma is not changed anymore (no wrong colors on the desktop after alt-tab or a crash)
+- Translations for mods: a `.str` file can have all languages, each player gets the `LANG_` line of his game language (`LANG_ENGLISH` when there is no translation) - vanilla loaded the last `LANG_` line for everybody
+  - works for localized strings in hud elements (`setText(&"...")`, `label`), `iprintln(&"...", ...)` / `iprintlnbold` and menus
+  - Options -> Game Options -> Language (shown always, vanilla shows it only with `developer 1`; Czech added; "As installed" = `loc_language auto`), Force English Texts (`loc_forceEnglish`, Language is grey "As installed" then) and Font Style (Original / CoD4 = `cl_fontSet`, grey when the language has no CoD4 fonts), applied by "Apply language change"
+  - `loc_language` is an enum with the names of the languages: `loc_language czech` (a number like `14` still works), applied by `vid_restart` or the next game start; `loc_language` and `loc_forceEnglish` from the config are applied at game start (vanilla waited for a `vid_restart`)
+  - `loc_language auto` (`0`, the default and the value of the vanilla configs) - the language of the localized IWDs of the install, as in vanilla (a polish install stays polish, a chinese one chinese); any other value is the language chosen by the player; English texts on a localized install: `loc_forceEnglish 1`; `+set loc_language` on the command line wins
+  - the server knows the language of the player: client cvar `cl_language` (read-only, sent in the userinfo, `english` with `loc_forceEnglish 1`), GSC `player getLanguage()`
+  - `.str` files can be UTF-8 (with or without BOM) - converted to the code page of the fonts of the player when loaded (cp1252 western, cp1250 czech / polish, cp1251 russian, ...), characters his fonts do not have are shown as `?`
+  - example mod: `tests/mods/test_language`
+- Font sets: `cl_fontSet original` (default) - fonts of the game, `cl_fontSet cod4` - CoD4 fonts; applied by an automatic `vid_restart`
+  - languages with own fonts (russian, polish, czech, korean, japanese, chinese, ...) use `fonts/<name>/<language>/<font>`, a missing font falls back to the font of the game
+  - the czech console font is used for the czech game (vanilla used the western console font)
+- Game languages for everybody: CoD2x has the texts of the game in English, French, German, Italian, Spanish, Russian, Polish and Czech and the fonts of Russian, Polish and Czech (`main/localized_CoD2x_01.iwd`, extracted automatically) - every player can switch in the options menu or with `loc_language`, also with the English version of the game
+  - a localized IWD - not checked by pure servers, works on every server; vanilla ignores it (`CoD2x` is not a language)
+  - the English localized assets (menu texts, sounds) are the fallback of everything a language does not have
+  - any IWD named `localized_<language>_*.iwd` makes a language selectable too (the localized versions of the game)
+  - world textures that exist only in the localized IWDs of the game (barrels, crates, flags, ...) are used only in their official version - a localized IWD or a loose file in a localized folder (`main/<language>/`) can not replace them, also on pure servers
+  - built from the localized versions of the game (by a local tool, outside the repository)
+  - sharing of language files, to add more languages: once per game start the client lists the language files of its localized IWDs (`.str` texts, fonts, font materials and images - name, CRC32 and size, read from the zip directory) and sends the list to the master server, which asks only for the files it does not have yet; a list that did not change is not sent again. Off with `cl_shareLanguageFiles 0`
 - Disabled VirtualStore folder redirection by checking for privileges
 - New GSC functions - list in [GSC functions](#gsc-functions)
 - Match system
@@ -224,6 +242,7 @@ It focuses on fixing bugs and adding new features to the game.
 - `getHWID` - Retrieves the hardware ID (HWID2) of the player, used for unique identification.
 - `getCDKeyHash` - Retrieves the MD5 hash of the player's CD key, which is sent during connection.
 - `getAuthorizationStatus` - Retrieves the authorization status of the player's CD key, such as validity or ban status.
+- `getLanguage` - Retrieves the game language of the player (`english`, `french`, `german`, `czech`, ...), undefined for bots and clients without CoD2x. For plain strings built on the server; localized strings `&"..."` are translated by the client itself.
 
 - `getViewOrigin` - Retrieves the player's current view origin as a 3D vector.
 - `getStance` - Retrieves the player's current stance (e.g., stand, crouch, prone).

@@ -6,6 +6,7 @@
 void gsc_player_getip(scr_entref_t id);
 void gsc_player_playerGetHWID(scr_entref_t ref);
 void gsc_player_playerGetCDKeyHash(scr_entref_t ref);
+void gsc_player_getLanguage(scr_entref_t ref);
 void gsc_player_playerGetAuthorizationStatus(scr_entref_t ref);
 void gsc_player_getViewOrigin(scr_entref_t ref);
 void gsc_player_getStance(scr_entref_t ref);

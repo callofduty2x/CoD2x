@@ -1,0 +1,592 @@
+#include "ui/menudef.h"
+{
+menuDef 
+{
+	name options_game
+	fullScreen 0				
+	rect OPTIONS_WINDOW_POS OPTIONS_WINDOW_SIZE				// Size and position of the menu
+	focusColor GLOBAL_FOCUSED_COLOR			// Menu focus color for text and items
+	soundloop ""
+	onOpen
+	{
+		uiScript loadControls
+		uiScript getLanguage;
+		setdvar ui_background_gradient_show "1";
+
+	}
+	onClose
+	{
+
+	}
+	onESC 
+	{ 
+		close options_menu;		
+	}
+/*
+	itemDef 
+	{
+		name keyBindStatus
+		rect 0 322 640 30 
+		ownerdraw UI_KEYBINDSTATUS
+		text "-"      
+		forecolor 1 .75 0 1
+		textscale .23
+		textalignx 221
+		textalign 1
+		textaligny 20
+		visible 1
+		decoration 
+	}
+*/
+	itemDef
+	{
+		type			ITEM_TYPE_TEXT
+		origin			HEADER_ORIGIN
+		forecolor		1 1 1 1
+		text			"@MENU_GAME_OPTIONS"
+		textfont		UI_FONT_NORMAL
+		textscale		HEADER_SIZE
+		visible			1
+		decoration
+	}
+
+	itemDef 
+	{
+		name other
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@MENU_SUBTITLES"
+		rect 0 0 1 13
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	0
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible 1
+		dvartest "ui_multiplayer"
+		hideDvar { "1" }
+		decoration
+	}
+	itemDef 
+	{
+		name misc
+		group grpControls
+		type ITEM_TYPE_BUTTON
+		text "@MENU_ENABLE_CROSSHAIR"
+		rect		0 15 1 13 
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		decoration
+  	}
+	itemDef 
+	{
+		name misc
+		group grpControls
+		type ITEM_TYPE_BUTTON
+		text "@MENU_SHOW_BLOOD"
+		rect		0 30 1 13 
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		decoration
+  	}
+
+	itemDef 
+	{
+		name misc
+		group grpControls
+		type ITEM_TYPE_BUTTON
+		text "@MENU_ENABLE_CONSOLE"
+		rect		0 45 1 13 
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		decoration
+  	}
+//
+// LANGUAGE
+//
+	itemDef 
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+
+		text "@MENU_LANGUAGE"
+//		dvarTest		"loc_languagesavailable"
+//		hideDvar		{ "1" }
+		// CoD2x: the language is shown always (vanilla: only with developer 1), grey with English texts (below)
+//		dvarTest		"developer"
+//		showDvar		{ "1";"2"; }
+		dvarTest		"ui_forceEnglish"
+		hideDvar		{ "1" }
+		// CoD2x: End
+
+		rect		0 60 1 13
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1
+		decoration
+
+	}
+	// CoD2x: Language grey with English texts - the language would change only the fonts (and the voices of an install
+	// with more languages), "As installed" is applied
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@MENU_LANGUAGE"
+		dvarTest		"ui_forceEnglish"
+		showDvar		{ "1" }
+		rect		0 60 1 13
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	.5 .5 .5 1
+		visible		1
+		decoration
+	}
+	// CoD2x: End
+	// CoD2x: Force English texts (loc_forceEnglish) - for example an install in another language
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@COD2X_FORCE_ENGLISH_TEXTS"
+		rect		0 75 1 13
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1
+		decoration
+	}
+	// CoD2x: End
+	// CoD2x: Font style (cl_fontSet), grey when the selected language has no fonts in the set (ui_fontSetAvailable)
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@COD2X_FONT_STYLE"
+		dvarTest	"ui_fontSetAvailable"
+		showDvar	{ "1" }
+		rect		0 90 1 13
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1
+		decoration
+	}
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@COD2X_FONT_STYLE"
+		dvarTest	"ui_fontSetAvailable"
+		hideDvar	{ "1" }
+		rect		0 90 1 13
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_ITEM_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	.5 .5 .5 1
+		visible		1
+		decoration
+	}
+	// CoD2x: End
+
+
+/* Actual Binds */
+	itemDef 
+	{
+		name other
+		group grpSystem
+		type ITEM_TYPE_YESNO
+		text " "
+		dvar "cg_subtitles"
+		rect 0 0 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		dvartest "ui_multiplayer"
+		hideDvar { "1" }
+		action { play "mouse_click"; }
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+	}
+	itemDef 
+	{
+		name misc
+		group grpControls
+		type ITEM_TYPE_MULTI
+		text " "
+		dvar "cg_drawcrosshair"
+		dvarFloatList { "@MENU_YES" 1 "@MENU_NO" 0 }
+		rect		0 15 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+		action { play "mouse_click"; }
+  	}
+	itemDef 
+	{
+		name other
+		group grpSystem
+		type ITEM_TYPE_YESNO
+		text " "
+		dvar "cg_blood"
+		rect 0 30 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		action { play "mouse_click"; }
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+	}
+	itemDef 
+	{
+		name misc
+		group grpControls
+		type ITEM_TYPE_MULTI
+		text " "
+		dvar "monkeytoy"
+		dvarFloatList { "@MENU_YES" 0 "@MENU_NO" 1 }
+		rect		0 45 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		dvartest		"ui_multiplayer"
+		hidedvar		{ "1" }
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+		action { play "mouse_click"; }
+  	}
+	itemDef 
+	{
+		name misc
+		group grpControls
+		type ITEM_TYPE_MULTI
+		text " "
+		dvar "con_restricted"
+		dvarFloatList { "@MENU_YES" 0 "@MENU_NO" 1 }
+		rect		0 45 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		dvartest		"ui_multiplayer"
+		showdvar		{ "1" }
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+		action { play "mouse_click"; }
+  	}
+//
+// LANGUAGE
+//
+	itemDef 
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_MULTI
+
+		text " "
+		dvar "ui_language"
+		// This list needs to be the complete list of languages supported by the game. The game will weed out unavailable ones itself.
+		// CoD2x: 0 is "As installed" - the language of the localized IWDs of the install (english IWDs may have other texts); czech added
+		//dvarFloatList { "@MENU_ENGLISH" 0 "@MENU_FRENCH" 1 "@MENU_GERMAN" 2 "@MENU_ITALIAN" 3 "@MENU_SPANISH" 4 "@MENU_BRITISH" 5 "@MENU_RUSSIAN" 6 "@MENU_POLISH" 7 "@MENU_KOREAN" 8 "@MENU_TAIWANESE" 9 "@MENU_JAPANESE" 10 "@MENU_CHINESE" 11 "@MENU_THAI" 12 }
+		dvarFloatList { "@COD2X_LANGUAGE_INSTALLED" 0 "@MENU_FRENCH" 1 "@MENU_GERMAN" 2 "@MENU_ITALIAN" 3 "@MENU_SPANISH" 4 "@MENU_BRITISH" 5 "@MENU_RUSSIAN" 6 "@MENU_POLISH" 7 "@MENU_KOREAN" 8 "@MENU_TAIWANESE" 9 "@MENU_JAPANESE" 10 "@MENU_CHINESE" 11 "@MENU_THAI" 12 "@COD2X_CZECH" 14 }
+		// CoD2x: End
+
+//		dvarTest		"loc_languagesavailable"
+//		hideDvar		{ "0";"1" }
+		// CoD2x: the language is shown always (vanilla: only with developer 1), grey with English texts (below)
+//		dvarTest		"developer"
+//		showDvar		{ "1";"2"; }
+		dvarTest		"ui_forceEnglish"
+		hideDvar		{ "1" }
+		// CoD2x: End
+
+		rect		0 60 OPTIONS_BIND_SIZE 
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X 
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+		action { play "mouse_click"; uiScript verifyLanguage; }
+	}
+	// CoD2x: Language grey with English texts: "As installed"
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@COD2X_LANGUAGE_INSTALLED"
+		dvarTest	"ui_forceEnglish"
+		showDvar	{ "1" }
+		rect		0 60 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	180 // OPTIONS_BIND_ALIGN_X + the space the multi items draw before the value
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	.5 .5 .5 1
+		visible		1
+		decoration
+	}
+	// CoD2x: End
+	// CoD2x: Force English texts (loc_forceEnglish, applied with the language - "Apply language change")
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_YESNO
+		text " "
+		dvar "ui_forceEnglish"
+		rect		0 75 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1
+		mouseEnter
+		{
+			play "mouse_over";
+		}
+		action { play "mouse_click"; uiScript verifyLanguage; }
+	}
+	// CoD2x: End
+	// CoD2x: Font style (cl_fontSet "" / "cod4", applied with the language - "Apply language change"). When the selected
+	// language has no fonts in the set, the fonts of the game are used: grey "Original", not selectable.
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_MULTI
+		text " "
+		dvar "ui_fontSet"
+		dvarFloatList { "@COD2X_FONT_ORIGINAL" 0 "CoD4" 1 }
+		dvarTest	"ui_fontSetAvailable"
+		showDvar	{ "1" }
+		rect		0 90 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	OPTIONS_BIND_ALIGN_X
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1
+		mouseEnter
+		{
+			play "mouse_over";
+		}
+		action { play "mouse_click"; uiScript verifyLanguage; }
+	}
+	itemDef
+	{
+		name language
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+		text "@COD2X_FONT_ORIGINAL"
+		dvarTest	"ui_fontSetAvailable"
+		hideDvar	{ "1" }
+		rect		0 90 OPTIONS_BIND_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		textalign	OPTIONS_ITEM_ALIGN
+		textalignx	180 // OPTIONS_BIND_ALIGN_X + the space the multi items draw before the value
+		textaligny	OPTIONS_ITEM_ALIGN_Y
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	.5 .5 .5 1
+		visible		1
+		decoration
+	}
+	// CoD2x: End
+
+/////////////////////////////////////////
+
+	itemDef 
+	{
+		name keyBindStatus
+		rect -55 250 360 15 
+		textstyle	OPTIONS_ITEM_TEXT_STYLE
+		origin OPTIONS_ITEM_ORIGIN
+		ownerdraw UI_KEYBINDSTATUS
+		text " "      
+		style WINDOW_STYLE_FILLED
+//		backcolor OPTIONS_WINDOW_BACKCOLOR
+		forecolor .9 .9 .9 1
+		border 0
+		bordercolor .5 .5 .5 .5
+		textscale .20
+		textalignx 168
+		textalign 1
+		textaligny 12
+		visible 0
+		decoration 
+	}
+//
+// APPLY
+//
+
+
+	itemDef
+	{
+		name applylanguage
+		group grpSystem
+		type ITEM_TYPE_BUTTON
+
+		text "@MENU_APPLY_LANGUAGE_CHANGE"
+		dvarTest	"ui_languagechanged"
+		showDvar	{ "1" }
+
+		rect		5 175 OPTIONS_CONTROL_SIZE
+		origin OPTIONS_ITEM_ORIGIN
+		textalign	ITEM_ALIGN_CENTER
+		textalignx	OPTIONS_CONTROL_XALIGN 
+		textaligny	OPTIONS_CONTROL_YALIGN
+		textscale	OPTIONS_CONTROL_TXTSCALE
+		style		WINDOW_STYLE_FILLED
+		backcolor	OPTIONS_CONTROL_BACKCOLOR
+		forecolor	OPTIONS_CONTROL_FORECOLOR
+		visible		1 
+		textstyle 3
+		mouseEnter 
+		{
+			play "mouse_over";
+		}
+		action 
+		{ 
+			play "mouse_click";
+			open language_restart_popmenu;
+		}
+	}
+
+
+}
+
+}

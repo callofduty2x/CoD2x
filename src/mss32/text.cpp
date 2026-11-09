@@ -113,9 +113,6 @@ struct killIconWeaponDef_t {
 #define cg_chatBackgroundShader        (*((void**)0x014eb2a8))
 #define CHAT_MESSAGE_SIZE              271
 
-#define loc_language                   (*((dvar_t**)0x011972ec))
-#define loc_isMultiByteLanguage        (*((int32_t*)0x011972f8))
-
 // Renderer functions, copied by the engine into the table gfx_funcs (0x0068a1e8) after the renderer is loaded
 typedef void  (__cdecl *R_AddCmdDrawStretchPic_t)(float x, float y, float w, float h, float s0, float t0, float s1, float t1, const float* color, void* material);
 typedef float (__cdecl *R_NormalizedTextScale_t)(fontHandle_t* font, float scale);

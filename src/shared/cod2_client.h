@@ -24,6 +24,21 @@
 #define legacyHacks                   (*((legacyHacks_t**)0x005cf444))
 #define cl_wwwDlDisconnected          (*((int*)0x00966dac)) // the server disconnected the client for the www download
 
+// Language (SEH_InitLanguage). loc_language is the index into g_languages: 0 english, 1 french, 2 german,
+// 3 italian, 4 spanish, 5 british, 6 russian, 7 polish, 8 korean, 9 taiwanese, 10 japanese, 11 chinese,
+// 12 thai, 13 leet, 14 czech. Languages 8..12 are multi-byte (two bytes per character, see SEH_ReadCharFromString).
+#define loc_language                  (*((dvar_t**)0x011972ec))
+#define loc_forceEnglish              (*((dvar_t**)0x011972f0)) // only LANG_ENGLISH lines of .str files are loaded
+#define loc_translate                 (*((dvar_t**)0x011972f4))
+#define loc_isMultiByteLanguage       (*((int32_t*)0x011972f8)) // g_currentAsian
+#define LANGUAGE_COUNT                15
+
+struct languageInfo_t {
+    const char* name;   // "english", "czech", ...
+    int32_t hasAssets;  // localized_<name>_iw*.iwd files were found (FS_LanguageHasAssets)
+};
+#define g_languages                   ((languageInfo_t*)0x005d8840) // [LANGUAGE_COUNT]
+
 
 // https://github.com/id-Software/Enemy-Territory/blob/40342a9e3690cb5b627a433d4d5cbf30e3c57698/src/game/q_shared.h#L1621
 enum clientState_e{
@@ -362,6 +377,15 @@ inline void* Com_GetClientDObj(int handle, int localClientNum) {
 inline int32_t CG_DObjGetWorldTagPos(int32_t tagName, void* dobj, centity_t* cent, float* pos) {
     int32_t ret;
     ASM_CALL(RETURN(ret), 0x004cce70, 2, EAX(tagName), ECX(dobj), PUSH(cent), PUSH(pos));
+    return ret;
+}
+
+// Sets the dvar to the integer (a latched dvar gets the latched value). A dvar that does not exist is created as a string
+// dvar with DVAR_EXTERNAL (the ui_* dvars of the menus). Not in the Linux server.
+// 00438e20    struct dvar_s* Dvar_SetIntByName(char* name, int32_t value)
+inline struct dvar_s* Dvar_SetIntByName(const char* name, int value) {
+    struct dvar_s* ret;
+    ASM_CALL(RETURN(ret), 0x00438e20, 2, PUSH(name), PUSH(value));
     return ret;
 }
 

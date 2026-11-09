@@ -48,7 +48,12 @@ find_files_by_extension(SHARED_SRC "src/shared" c cpp)
 # Define files to embed
 set(EMBED_FILES
     ${CMAKE_SOURCE_DIR}/src/embedded/iw_CoD2x_01.iwd
+    ${CMAKE_SOURCE_DIR}/src/embedded/iw_CoD2x_02.iwd
 )
+# Languages: the .str files with all languages and the fonts (only the client, built outside the repository)
+if(WIN32)
+    list(APPEND EMBED_FILES ${CMAKE_SOURCE_DIR}/src/embedded/localized_CoD2x_01.iwd)
+endif()
 
 # Pick objcopy output format depending on platform
 if(WIN32)

@@ -32,6 +32,7 @@ scr_method_t scriptMethods[] =
 	{"getIp", gsc_player_getip, 0},
 	{"getHWID", gsc_player_playerGetHWID, 0},
 	{"getCDKeyHash", gsc_player_playerGetCDKeyHash, 0},
+	{"getLanguage", gsc_player_getLanguage, 0},
 	{"getAuthorizationStatus", gsc_player_playerGetAuthorizationStatus, 0},
 
 	{"getViewOrigin", gsc_player_getViewOrigin, 0},

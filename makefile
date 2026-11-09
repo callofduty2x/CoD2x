@@ -262,5 +262,5 @@ IWD_FILE = iw_CoD2x_$(IWD_NUM).iwd
 
 zip_iwd:
 	@echo Zipping files from $(IWD_DIR) into $(IWD_FILE) ...
-	@cd $(IWD_DIR) && if exist "..\$(IWD_FILE)" del "..\$(IWD_FILE)" && $(ZIP_EXEC) a -tzip "..\$(IWD_FILE)" *
+	@cd $(IWD_DIR) && (if exist "..\$(IWD_FILE)" del "..\$(IWD_FILE)") && $(ZIP_EXEC) a -tzip "..\$(IWD_FILE)" *
 	@echo Done: $(IWD_FILE)

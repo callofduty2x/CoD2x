@@ -25,7 +25,7 @@ extern vec4_t colYellow;
 
 #define shaderWhite             *((materialHandle_t**)0x00966bfc)
 #define shaderConsole           *((materialHandle_t**)0x00966c00)
-#define shaderFontByLanguage    *((materialHandle_t**)0x00966c04)
+#define cls_consoleFont         *((fontHandle_t**)0x00966c04) // console font of the language, CL_InitRenderer
 #define shaderCursor            *((materialHandle_t**)0x00d5290c)
 
 #define shaderObjective                 *((materialHandle_t**)0x014eb4e8)   // yellow star icon

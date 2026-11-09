@@ -44,10 +44,24 @@
 // The file name depends on the name used in CMakeLists.txt - file name is used with non-alphanumeric characters replaced by '_'
 extern "C" {
     EMBEDDED_FILE_DECLARATIONS(iw_CoD2x_01_iwd)
+    EMBEDDED_FILE_DECLARATIONS(iw_CoD2x_02_iwd)
+    #if COD2X_WIN32
+    EMBEDDED_FILE_DECLARATIONS(localized_CoD2x_01_iwd)
+    #endif
 }
 
+// Localized IWDs of the client (localized_CoD2x_01: the .str files with all languages - the game's and cod2x.str with the
+// strings of the CoD2x menus (src/embedded/localized_CoD2x_01, the rest is built outside the repository) - the fonts of the languages,
+// src/mss32/language.cpp). Localized IWDs are not checked by pure servers; FS_iwIwd accepts them on every server (client
+// only content). "CoD2x" is not a language: vanilla ignores them, CoD2x loads them as English localized assets - the
+// fallback of all languages.
+#define IWD_LOCALIZED_COD2X_PREFIX "localized_CoD2x_"
+#define IWD_LOCALIZED_COD2X_OLD_1 "localized_english_iw24_CoD2x" // the names in the first test builds
+#define IWD_LOCALIZED_COD2X_OLD_2 "localized_CoD2x_iw01"
+
 #define NUM_IW_IWDS 25 // Original
-#define NUM_IW_COD2X_IWDS 1 // New CoD2x iwds
+#define NUM_IW_COD2X_IWDS 2 // New CoD2x iwds (iw_CoD2x_02 since 1.4.7.1: options menu with the language)
+#define NUM_LOCALIZED_COD2X_IWDS 1 // New CoD2x localized iwds
 
 extern dvar_t* g_cod2x;
 dvar_t* com_writeConfig = NULL;
@@ -67,13 +81,34 @@ static void iwd_cleanupCoD2xIwdFiles() {
     char mainDir[MAX_OSPATH * 2] = {0};
     snprintf(mainDir, sizeof(mainDir), "%s%smain", (const char*)fs_basePath->value.string, sep);
 
-    auto shouldDelete = [](const char* filename) -> bool {
+    // Testing version of an IWD: iw_CoD2x_xx_1.4.5.1-test.1.iwd  vs  iw_CoD2x_xx.iwd
+    // CI builds: iw_CoD2x_xx_1.4.6.9-dev.abc1234.iwd, iw_CoD2x_xx_1.4.6.9-language.abc1234.iwd, iw_CoD2x_xx_1.4.6.9-pr.12.iwd
+    // versionPart is the rest of the file name after the IWD name
+    auto isOtherTestVersion = [](const char* versionPart) -> bool {
+        if (*versionPart == '.')
+            return false; // release version
+        if (APP_VERSION_IS_TEST)
+            return FS_FilenameCompare(versionPart, "_" APP_VERSION ".iwd") != 0; // not exactly the current test version (-test.1 vs -test.10), delete it
+        return true; // if it does not end with .iwd, delete it (it's a testing version)
+    };
+
+    auto shouldDelete = [&isOtherTestVersion](const char* filename) -> bool {
         // Only consider IWD files
         const char* dot = strrchr(filename, '.');
         if (!dot || FS_FilenameCompare(dot, ".iwd") != 0) return false;
 
-        // Must start with iw_CoD2x_
+        // Localized IWDs with the old names
+        if (I_strnicmp(filename, IWD_LOCALIZED_COD2X_OLD_1, (int)strlen(IWD_LOCALIZED_COD2X_OLD_1)) == 0 ||
+            I_strnicmp(filename, IWD_LOCALIZED_COD2X_OLD_2, (int)strlen(IWD_LOCALIZED_COD2X_OLD_2)) == 0)
+            return true;
+
+        // Must start with iw_CoD2x_ or localized_CoD2x_
         const char* prefix = "iw_CoD2x_";
+        int numIwds = NUM_IW_COD2X_IWDS;
+        if (I_strnicmp(filename, IWD_LOCALIZED_COD2X_PREFIX, (int)strlen(IWD_LOCALIZED_COD2X_PREFIX)) == 0) {
+            prefix = IWD_LOCALIZED_COD2X_PREFIX;
+            numIwds = NUM_LOCALIZED_COD2X_IWDS;
+        }
         size_t prefixLen = strlen(prefix);
         if (I_strnicmp(filename, prefix, prefixLen) != 0) return false;
 
@@ -84,23 +119,10 @@ static void iwd_cleanupCoD2xIwdFiles() {
         int num = (filename[prefixLen] - '0') * 10 + (filename[prefixLen + 1] - '0');
 
         // Delete higher-numbered IWDs (downgrade protection)
-        if (num > NUM_IW_COD2X_IWDS) return true;
+        if (num > numIwds) return true;
 
         // Delete testing versions
-        // iw_CoD2x_xx_1.4.5.1-test.1.iwd  vs  iw_CoD2x_xx.iwd
-        const char* versionPart = filename + prefixLen + 2; // after the two digits
-        if (*versionPart != '.') {
-            if (APP_VERSION_IS_TEST) {
-                // Ignore current test version
-                if (strstr(versionPart, APP_VERSION) == nullptr) {
-                    return true; // if it does not contain current test version, delete it
-                }
-            } else {
-                return true; // if it does not end with .iwd, delete it (it's a testing version)
-            }
-        }
-
-        return false;
+        return isOtherTestVersion(filename + prefixLen + 2); // after the two digits
     };
 
 
@@ -225,13 +247,27 @@ qboolean FS_iwIwd(char *iwd, const char *base, int cod2x_version)
 
         // Since 1.4.5.1
         case 5: 
-        default:
+        case 6: 
             numCoD2xIwds = 1; 
+            break;
+
+        // Since 1.4.7.1
+        case 7: 
+        default:
+            numCoD2xIwds = 2; 
             break;
     }
     for ( i = 0; i < numCoD2xIwds; ++i )
     {
         const char *filename = va("%s/iw_CoD2x_%02d", base, i + 1); // check if it starts with this
+        if ( !I_strnicmp(iwd, filename, strlen(filename)) )
+            return qtrue;
+    }
+
+    // Localized IWDs: client only content, on every server
+    for ( i = 0; i < NUM_LOCALIZED_COD2X_IWDS; ++i )
+    {
+        const char *filename = va("%s/" IWD_LOCALIZED_COD2X_PREFIX "%02d", base, i + 1); // check if it starts with this
         if ( !I_strnicmp(iwd, filename, strlen(filename)) )
             return qtrue;
     }
@@ -722,6 +758,12 @@ void FS_RegisterDvars() {
 
         // Extract embedded iw_CoD2x_01.iwd file into main folder
         iwd_extractIwdFileToMain("iw_CoD2x_01", EMBEDDED_FILE_SYMBOLS(iw_CoD2x_01_iwd));
+        iwd_extractIwdFileToMain("iw_CoD2x_02", EMBEDDED_FILE_SYMBOLS(iw_CoD2x_02_iwd));
+
+        #if COD2X_WIN32
+            // Languages of the client
+            iwd_extractIwdFileToMain(IWD_LOCALIZED_COD2X_PREFIX "01", EMBEDDED_FILE_SYMBOLS(localized_CoD2x_01_iwd));
+        #endif
     }
 }
 

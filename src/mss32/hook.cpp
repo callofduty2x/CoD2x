@@ -26,6 +26,8 @@
 #include "text.h"
 #include "renderer.h"
 #include "filmtweak.h"
+#include "language.h"
+#include "language_share.h"
 #include "master_server.h"
 #include "error.h"
 #include "downloading.h"
@@ -114,6 +116,8 @@ void hook_Com_Frame()
         text_frame();
         renderer_frame();
         filmtweak_frame();
+        language_frame();
+        language_share_frame();
         competitive_frame();
         cgame_frame();
         xray_frame();
@@ -220,6 +224,8 @@ void hook_CL_Init() {
     drawing_init();
     text_init();
     filmtweak_init();
+    language_init();
+    language_share_init();
     radar_init();
     demo_init();
     vmix_init();
@@ -344,6 +350,7 @@ bool hook_patch() {
     downloading_patch();
     drawing_patch();
     text_patch();
+    language_patch();
     radar_patch();
     demo_patch();
     vmix_patch();
