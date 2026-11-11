@@ -3,6 +3,7 @@
 
 #include "../shared/assembly.h"
 #include "../shared/cod2_definitions.h"
+#include "hook.h"
 
 
 typedef void* materialHandle_t;
@@ -140,6 +141,28 @@ inline void UI_DrawHandlePic(float x, float y, float w, float h, int horizontalA
  */
 inline void CG_DrawRotatedPic(float x, float y, float w, float h, horizontalAlign_e horizontalAlign, verticalAlign_e verticalAlign, float rotation, vec4_t color, void* shader) {
     ASM_CALL(RETURN_VOID, 0x004c2460, 7, PUSH(x), PUSH(y), PUSH(w), PUSH(h), EDI(horizontalAlign), EBX(verticalAlign), PUSH(rotation), PUSH(color), PUSH(shader));
+}
+
+
+
+/**
+ * Renderer: adds the render command 0x0f (RB_StretchPicCmd in the backend) that draws the material stretched over the rectangle in real screen
+ * pixels, with the texture coordinates s1, t1 .. s2, t2 and the color (0..1, stored as bytes). The command is not added when the command list is full.
+ * Called through the renderer function table gfx_funcs (slot 0x0068a294), the renderer DLL is loaded at runtime.
+ */
+// 10021500 (gfx)    void* R_AddCmdDrawStretchPic(float x, float y, float width, float height, float s1, float t1, float s2, float t2, float* colour, int32_t shader)
+inline void R_AddCmdDrawStretchPic(float x, float y, float width, float height, float s1, float t1, float s2, float t2, const float* color, const void* material) {
+    unsigned int address = *(unsigned int*)0x0068a294;
+    ASM_CALL(RETURN_VOID, address, 10, PUSH(x), PUSH(y), PUSH(width), PUSH(height), PUSH(s1), PUSH(t1), PUSH(s2), PUSH(t2), PUSH(color), PUSH(material));
+}
+
+/**
+ * Renderer backend: draws the quads collected for the current material (tess) with its render states and empties the collection.
+ * The render commands call it when the material changes, or before they change the device state.
+ */
+// 1003ad30 (gfx)    struct shaderCommands_t* RB_EndSurface()
+inline void RB_EndSurface() {
+    ASM_CALL(RETURN_VOID, (gfx_module_addr + 0x0003ad30), 0);
 }
 
 

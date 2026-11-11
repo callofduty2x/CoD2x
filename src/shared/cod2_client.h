@@ -322,4 +322,38 @@ inline void Con_DrawMessageWindow(void* msgwnd, int32_t x, int32_t y, int32_t mo
     ASM_CALL(RETURN_VOID, 0x00406a20, 7, PUSH(msgwnd), PUSH(x), EAX(y), ECX(mode), PUSH(charHeight), PUSH(horzAlign), PUSH(vertAlign), PUSH(alpha), PUSH(scale));
 }
 
+// Traces a capsule (mins, maxs) from start to end against the world (CM_Trace) and then the entities, skipping the entity skipNumber.
+// mask is the contents mask (0x811 = solid, used for the camera). result->fraction is 1 if nothing was hit, entityNum is the hit entity
+// (0x3fe = world, 0x3ff = none).
+// 004de690    int32_t CG_TraceCapsule(struct trace_t* result, vec3_t& start, vec3_t& mins, vec3_t& maxs, vec3_t& end, int32_t skipNumber, int32_t mask)
+inline void CG_TraceCapsule(trace_t* result, const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end, int skipNumber, int mask) {
+    ASM_CALL(RETURN_VOID, 0x004de690, 7, PUSH(result), PUSH(start), PUSH(mins), PUSH(maxs), PUSH(end), PUSH(skipNumber), PUSH(mask));
+}
+
+// Traces 8192 units from the view along the view direction (skipping the followed player, mask 0x2000001). If a player (entity < 64)
+// is hit, sets cg.crosshairClientNum to it and cg.crosshairClientTime to cg.time, otherwise leaves both as they are.
+// Called only by CG_DrawCrosshairNames, the name is then shown until 150 ms after crosshairClientTime.
+// 004c9700    void CG_ScanForCrosshairEntity()
+inline void CG_ScanForCrosshairEntity() {
+    ASM_CALL(RETURN_VOID, 0x004c9700, 0);
+}
+
+// Model (DObj) of the client entity, NULL if it has none. Inlined in the Windows build:
+// objBuf[clientObjMap[cent->dobj * 0x480 + number]], index 0 = no model.
+inline void* Com_GetClientDObj(int handle, int localClientNum) {
+    uint16_t index = ((uint16_t*)0x00c5bc80)[localClientNum * 0x480 + handle];
+    return index ? (void*)(0x00c29c00 + index * 0x64) : NULL;
+}
+
+// Tag name "j_head" (script string), used for the icons over the head
+#define scr_const_j_head    (*((uint16_t*)0x019439b6))
+
+// Position of the tag (bone, like scr_const_j_head) of the entity model in the world. Returns 0 if the model has no such tag.
+// 004cce70    int32_t CG_DObjGetWorldTagPos(int32_t tagName @ eax, void* dobj @ ecx, struct centity_t* cent, float* pos)
+inline int32_t CG_DObjGetWorldTagPos(int32_t tagName, void* dobj, centity_t* cent, float* pos) {
+    int32_t ret;
+    ASM_CALL(RETURN(ret), 0x004cce70, 2, EAX(tagName), ECX(dobj), PUSH(cent), PUSH(pos));
+    return ret;
+}
+
 #endif

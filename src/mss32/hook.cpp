@@ -31,6 +31,7 @@
 #include "vmix.h"
 #include "debug.h"
 #include "module_detection.h"
+#include "xray.h"
 #include "../shared/iwd.h"
 #include "../shared/common.h"
 #include "../shared/server.h"
@@ -96,6 +97,7 @@ void hook_Com_Frame()
             radar_unload();
             demo_unload();
             text_unload();
+            xray_unload();
 
             hotreload_loadDLL();
             hook_insideComFrame = false;
@@ -108,6 +110,7 @@ void hook_Com_Frame()
         text_frame();
         competitive_frame();
         cgame_frame();
+        xray_frame();
     }
 
     // Shared & Server
@@ -157,6 +160,7 @@ int hook_gfxDll() {
 
     window_rendered();
     updater_renderer();
+    xray_rendered();
 
     // Fix LOD
     //r_lodScale = Dvar_RegisterFloat("r_lodScale", 1f, 1f, 4f, DVAR_CHEAT | DVAR_RENDERER);
@@ -210,6 +214,7 @@ void hook_CL_Init() {
     radar_init();
     demo_init();
     vmix_init();
+    xray_init();
     
     if (!DLL_HOTRELOAD) {
         ASM_CALL(RETURN_VOID, 0x00410a10);
@@ -333,6 +338,7 @@ bool hook_patch() {
     radar_patch();
     demo_patch();
     vmix_patch();
+    xray_patch();
 
     weapons_patch();
     // Patch server side

@@ -153,10 +153,6 @@ void CG_RegisterItems() {
 
 
 
-void CG_TraceCapsule(trace_t *result, const vec3_t start, const vec3_t mins, const vec3_t maxs, const vec3_t end, int skipNumber, int mask) {
-    ASM_CALL(RETURN_VOID, 0x004de690, 7, PUSH(result), PUSH(start), PUSH(mins), PUSH(maxs), PUSH(end), PUSH(skipNumber), PUSH(mask));
-}
-
 void CG_OffsetThirdPersonView( void ) {
 
     // Use the original function if not connected to cod2x server, unless the player is in the new third person mode
