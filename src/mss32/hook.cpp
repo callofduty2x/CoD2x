@@ -10,6 +10,7 @@
 #include "registry.h"
 #include "url_protocol.h"
 #include "affinity.h"
+#include "timer.h"
 #include "hotreload.h"
 #include "exception.h"
 #include "freeze.h"
@@ -132,6 +133,7 @@ void hook_Com_Frame()
     radar_frame();
     demo_frame();
     vmix_frame();
+    timer_frame();
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x00434f70);
@@ -276,6 +278,7 @@ void hook_Com_Init(const char* cmdline) {
     exception_init();   // sending thru NET will work after Com_Init is called and updater is initialized
     module_detection_init();
     affinity_init();
+    timer_init();
     debug_init();
     admin_init();      // Must be called before file system initialization
     registry_init();   // Must be called before cdkey registry reading
