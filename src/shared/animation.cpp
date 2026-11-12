@@ -134,18 +134,18 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 	if (player_offsetNeutral->value.boolean && sv_running->value.boolean) {
 		playerState_t* ps = SV_GetPlayerStateByNum(es->clientNum);
 
-		ps->torsoAnim = 0 | ((ps->torsoAnim & 0x200) ^ 0x200);
-		ps->legsAnim = 0 | ((ps->legsAnim & 0x200) ^ 0x200);
+		ps->torsoAnim = 0 | ((ps->torsoAnim & ANIM_TOGGLEBIT) ^ ANIM_TOGGLEBIT);
+		ps->legsAnim = 0 | ((ps->legsAnim & ANIM_TOGGLEBIT) ^ ANIM_TOGGLEBIT);
 
-		es->torsoAnim = 0 | ((es->torsoAnim & 0x200) ^ 0x200);
-		es->legsAnim = 0 | ((es->legsAnim & 0x200) ^ 0x200);
+		es->torsoAnim = 0 | ((es->torsoAnim & ANIM_TOGGLEBIT) ^ ANIM_TOGGLEBIT);
+		es->legsAnim = 0 | ((es->legsAnim & ANIM_TOGGLEBIT) ^ ANIM_TOGGLEBIT);
 
 		return;
 	}
 	// CoD2x: end
 
 
-	if ( (es->eFlags & ENTITY_FLAG_MG) != 0 )
+	if ( (es->eFlags & EF_TURRET_ACTIVE) != 0 )
 		return;
 
 	float movementYawAngle = ci->movementYaw;
@@ -162,7 +162,7 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 	{
 		vTorsoAngles[0] = ci->torso.pitchAngle;
 
-		if ( (es->eFlags & ENTITY_FLAG_PRONE) != 0 )
+		if ( (es->eFlags & EF_PRONE) != 0 )
 		{
 			vTorsoAngles[0] = AngleNormalize180(vTorsoAngles[0]);
 
@@ -183,7 +183,7 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 
 	if ( fLeanFrac != 0.0 )
 	{
-		if ( (es->eFlags & ENTITY_FLAG_CROUCH) != 0 )
+		if ( (es->eFlags & EF_CROUCHING) != 0 )
 		{
 			if ( fLeanFrac <= 0.0 )
 				control->tag_origin_offset[1] = -fLeanFrac * 12.5 + control->tag_origin_offset[1];
@@ -200,11 +200,11 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 		}
 	}
 
-	if ( (es->eFlags & ENTITY_FLAG_DEAD) == 0 )
+	if ( (es->eFlags & EF_DEAD) == 0 )
 		control->tag_origin_angles[1] = AngleSubtract(control->tag_origin_angles[1], ci->playerAngles[1]);
 
 	// Prone
-	if ( (es->eFlags & ENTITY_FLAG_PRONE) != 0 )
+	if ( (es->eFlags & EF_PRONE) != 0 )
 	{
 		if ( fLeanFrac != 0.0 )
 			vHeadAngles[2] = vHeadAngles[2] * 0.5;
@@ -241,7 +241,7 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 		if ( fLeanFrac != 0.0 )
 		{
 			// Crouch
-			if ( (es->eFlags & ENTITY_FLAG_CROUCH) != 0 )
+			if ( (es->eFlags & EF_CROUCHING) != 0 )
 			{
 				if ( fLeanFrac <= 0.0 )
 				{
@@ -299,8 +299,8 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 		// Determine current moving states
 		bool isMovingFW = BG_GetConditionValue(ci, ANIM_COND_MOVETYPE, 0) & (1<<ANIM_MT_RUN | 1<<ANIM_MT_WALK | 1<<ANIM_MT_RUNCR | 1<<ANIM_MT_WALKCR | 1<<ANIM_MT_WALKPRONE);
 		bool isMovingBW = BG_GetConditionValue(ci, ANIM_COND_MOVETYPE, 0) & (1<<ANIM_MT_RUNBK | 1<<ANIM_MT_WALKBK | 1<<ANIM_MT_RUNCRBK | 1<<ANIM_MT_WALKCRBK | 1<<ANIM_MT_WALKPRONEBK);	
-		bool isMovingLeft = level_bgs->animData.animScriptData.animations[es->legsAnim & 0xFFFFFDFF].flags & 0x10;
-		bool isMovingRight = level_bgs->animData.animScriptData.animations[es->legsAnim & 0xFFFFFDFF].flags & 0x20;
+		bool isMovingLeft = level_bgs->animData.animScriptData.animations[es->legsAnim & ~ANIM_TOGGLEBIT].flags & 0x10;
+		bool isMovingRight = level_bgs->animData.animScriptData.animations[es->legsAnim & ~ANIM_TOGGLEBIT].flags & 0x20;
 
 		// Set current controller movement type
 		// This is used to determine if moving type changed so individual controller offsets could be time-lerped
@@ -323,9 +323,9 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 	
 
 		// Stand or crouch
-		if ((es->eFlags & ENTITY_FLAG_PRONE) == 0){
+		if ((es->eFlags & EF_PRONE) == 0){
 
-			animationPlayerData[dataIndex].controllerMovementType |= (es->eFlags & ENTITY_FLAG_CROUCH) ? CONTROLLER_CROUCH : CONTROLLER_STAND;
+			animationPlayerData[dataIndex].controllerMovementType |= (es->eFlags & EF_CROUCHING) ? CONTROLLER_CROUCH : CONTROLLER_STAND;
 			animationPlayerData[dataIndex].controllerMovementTime = 250;
 	
 			// Moving to left side while leaning left - move the player a bit to the left 
@@ -333,7 +333,7 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 				float offset = -fLeanFrac;
 
 				// Crouch
-				if (es->eFlags & ENTITY_FLAG_CROUCH) {
+				if (es->eFlags & EF_CROUCHING) {
 					control->tag_origin_angles[0] += offset * 3.8f; // forward
 					control->tag_origin_angles[2] -= offset * 3.8f; // left
 
@@ -349,7 +349,7 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 			}
 
 			// Leaning left in crouch, rotate torso so the head is more down then before
-			if ((es->eFlags & ENTITY_FLAG_CROUCH) && fLeanFrac < 0.0 && (isMovingFW || isMovingBW)) {
+			if ((es->eFlags & EF_CROUCHING) && fLeanFrac < 0.0 && (isMovingFW || isMovingBW)) {
 				control->tag_back_low_angles[0] += 40 * -fLeanFrac;
 				control->tag_back_low_angles[1] += 30 * -fLeanFrac;
 				control->tag_back_mid_angles[0] += -20 * -fLeanFrac;
@@ -480,12 +480,12 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 		if (animation_isServer() && ci->legs.animation != nullptr) {
 
 			// Playing stand grenade throw anim but player is in crouch or prone
-			if (strcmp(ci->legs.animation->name, "pb_stand_grenade_throw") == 0 && ((es->eFlags & ENTITY_FLAG_PRONE) || (es->eFlags & ENTITY_FLAG_CROUCH)))
+			if (strcmp(ci->legs.animation->name, "pb_stand_grenade_throw") == 0 && ((es->eFlags & EF_PRONE) || (es->eFlags & EF_CROUCHING)))
 			{
 				playerState_t* ps = SV_GetPlayerStateByNum(es->clientNum);
 				ps->legsTimer = 0;
 			}
-			if (strcmp(ci->legs.animation->name, "pb_crouch_grenade_throw") == 0 && (es->eFlags & ENTITY_FLAG_CROUCH) == 0)
+			if (strcmp(ci->legs.animation->name, "pb_crouch_grenade_throw") == 0 && (es->eFlags & EF_CROUCHING) == 0)
 			{
 				playerState_t* ps = SV_GetPlayerStateByNum(es->clientNum);
 				ps->legsTimer = 0;
@@ -615,9 +615,9 @@ void BG_Player_DoControllersInternal(entityState_s *es, clientInfo_t *ci, client
 			stringOrigin[2] -= 5;
 			CL_AddDebugString(stringOrigin, color, .25, bufferMoveType, isServer);		
 			stringOrigin[2] -= 10;
-			CL_AddDebugString(stringOrigin, color, .25, ci->torso.animation ? va("%i %s (0x%x)", ci->torso.animationNumber, ci->torso.animation->name, level_bgs->animData.animScriptData.animations[es->torsoAnim & 0xFFFFFDFF].flags) : "-no torso anim-", isServer);
+			CL_AddDebugString(stringOrigin, color, .25, ci->torso.animation ? va("%i %s (0x%x)", ci->torso.animationNumber, ci->torso.animation->name, level_bgs->animData.animScriptData.animations[es->torsoAnim & ~ANIM_TOGGLEBIT].flags) : "-no torso anim-", isServer);
 			stringOrigin[2] -= 5;
-			CL_AddDebugString(stringOrigin, color, .25, ci->legs.animation ? va("%i %s (0x%x)", ci->legs.animationNumber, ci->legs.animation->name, level_bgs->animData.animScriptData.animations[es->legsAnim & 0xFFFFFDFF].flags) : "-no torso anim-", isServer);
+			CL_AddDebugString(stringOrigin, color, .25, ci->legs.animation ? va("%i %s (0x%x)", ci->legs.animationNumber, ci->legs.animation->name, level_bgs->animData.animScriptData.animations[es->legsAnim & ~ANIM_TOGGLEBIT].flags) : "-no torso anim-", isServer);
 
 			if (sv_running->value.boolean) {
 				playerState_t* ps = SV_GetPlayerStateByNum(es->clientNum);
@@ -873,7 +873,7 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 	VectorClear(legsAngles);
 	VectorClear(torsoAngles);
 
-	if ( (es->eFlags & ENTITY_FLAG_MG) != 0 )
+	if ( (es->eFlags & EF_TURRET_ACTIVE) != 0 )
 	{
 		ci->torso.yawing = 1;
 		ci->torso.pitching = 1;
@@ -885,7 +885,7 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 		ci->torso.pitching = 1;
 		ci->legs.yawing = 1;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_MANTLE) != 0 )
+	else if ( (es->eFlags & EF_MANTLE) != 0 )
 	{
 		ci->torso.yawing = 1;
 		ci->torso.pitching = 1;
@@ -914,7 +914,7 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 	/*
 	 Torso swing YAW (left-right)
 	*/
-	if ( (es->eFlags & ENTITY_FLAG_DEAD) != 0 )
+	if ( (es->eFlags & EF_DEAD) != 0 )
 	{
 		legsAngles[1] = playerAngles[1];
 		torsoAngles[1] = playerAngles[1];
@@ -925,24 +925,24 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 		torsoAngles[1] = legsAngles[1];
 		clampTolerance = 0.0;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_MANTLE) != 0 )
+	else if ( (es->eFlags & EF_MANTLE) != 0 )
 	{
 		torsoAngles[1] = playerAngles[1];
 		legsAngles[1] = playerAngles[1];
 		torsoAngles[0] = 90.0;
 		clampTolerance = 90.0;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_PRONE) != 0 )
+	else if ( (es->eFlags & EF_PRONE) != 0 )
 	{
 		torsoAngles[1] = playerAngles[1];
 		clampTolerance = 90.0;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_FIRING) != 0 )
+	else if ( (es->eFlags & EF_FIRING) != 0 )
 	{
 		torsoAngles[1] = playerAngles[1];
 		clampTolerance = 45.0;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_ADS) != 0 ) 
+	else if ( (es->eFlags & EF_AIMDOWNSIGHT) != 0 ) 
 	{
 		torsoAngles[1] = playerAngles[1];
 		clampTolerance = 90.0;
@@ -967,11 +967,11 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 	 Legs swing YAW (left-right)
 	*/
 	clampTolerance = 150.0;
-	if ( (es->eFlags & ENTITY_FLAG_DEAD) != 0 )
+	if ( (es->eFlags & EF_DEAD) != 0 )
 	{
 		swingTolerance = 0.0;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_PRONE) != 0 )
+	else if ( (es->eFlags & EF_PRONE) != 0 )
 	{
 		ci->legs.yawing = 0;
 		ci->legs.yawAngle = playerAngles[1] + legsYawDirection; // set to disable swing
@@ -988,7 +988,7 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 		swingTolerance = 1.0;
 	}
 	// Going left or right directly
-	else if ( (level_bgs->animData.animScriptData.animations[es->legsAnim & 0xFFFFFDFF].flags & 0x30) != 0 )
+	else if ( (level_bgs->animData.animScriptData.animations[es->legsAnim & ~ANIM_TOGGLEBIT].flags & 0x30) != 0 )
 	{
 		ci->legs.yawing = 0;
 		legsAngles[1] = playerAngles[1];
@@ -1016,7 +1016,7 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 	/*
 	  Override yaw angles for MG and climbing
 	 */
-	if ( (es->eFlags & ENTITY_FLAG_MG) != 0 )
+	if ( (es->eFlags & EF_TURRET_ACTIVE) != 0 )
 	{
 		ci->torso.yawAngle = playerAngles[1];
 		ci->legs.yawAngle = playerAngles[1];
@@ -1031,11 +1031,11 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 	/*
 	 Torso swing PITCH (up-down)
 	*/
-	if ( (es->eFlags & ENTITY_FLAG_DEAD) != 0 )
+	if ( (es->eFlags & EF_DEAD) != 0 )
 	{
 		destination = 0.0;
 	}
-	else if ( (es->eFlags & ENTITY_FLAG_MG) != 0 )
+	else if ( (es->eFlags & EF_TURRET_ACTIVE) != 0 )
 	{
 		destination = 0.0;
 	}
@@ -1043,7 +1043,7 @@ void BG_PlayerAngles(const entityState_s *es, clientInfo_t *ci)
 	{
 		destination = 0.0;
 	}
-	else if ( es->eFlags == ENTITY_FLAG_MANTLE )
+	else if ( es->eFlags == EF_MANTLE )
 	{
 		destination = 0.0;
 	}
@@ -1101,7 +1101,7 @@ animation_s *BG_GetAnimationForIndex(int client, unsigned int index)
 /** Checks if animation movetype is CROUCH. CoD2x added additional crouch movetypes */
 int BG_IsCrouchingAnim(const clientInfo_t *ci, int animNum) // 0x004f9750, 0x080d9c02
 {
-	animation_s *index = BG_GetAnimationForIndex(ci->clientNum, animNum & 0xFFFFFDFF);
+	animation_s *index = BG_GetAnimationForIndex(ci->clientNum, animNum & ~ANIM_TOGGLEBIT);
 	int64_t animTypes = 1<<ANIM_MT_IDLECR | 1<<ANIM_MT_WALKCR | 1<<ANIM_MT_WALKCRBK; // original
 	// CoD2x: added additional crouch movetypes
 	animTypes |= 1LL<<ANIM_MT_RUNCR | 1LL<<ANIM_MT_RUNCRBK | 1LL<<ANIM_MT_TURNRIGHTCR | 1LL<<ANIM_MT_TURNLEFTCR | 1LL<<ANIM_MT_STUMBLE_CROUCH_FORWARD | 1LL<<ANIM_MT_STUMBLE_CROUCH_BACKWARD; // CoD2x
@@ -1111,7 +1111,7 @@ int BG_IsCrouchingAnim(const clientInfo_t *ci, int animNum) // 0x004f9750, 0x080
 /** Checks if animation movetype is PRONE. Its the same as original function */
 int BG_IsProneAnim(const clientInfo_t *ci, int animNum) // 0x004f97b0, 0x080d9c58
 {
-	animation_s *index = BG_GetAnimationForIndex(ci->clientNum, animNum & 0xFFFFFDFF);
+	animation_s *index = BG_GetAnimationForIndex(ci->clientNum, animNum & ~ANIM_TOGGLEBIT);
 	return ((int64_t)index->movetype & (1<<ANIM_MT_IDLEPRONE | 1<<ANIM_MT_WALKPRONE | 1<<ANIM_MT_WALKPRONEBK)) != 0;
 }
 
@@ -1166,7 +1166,7 @@ void BG_SetNewAnimation(lerpFrame_t* lf, clientInfo_t* ci, int iAnimNumNew, int3
 	
 	pAnimCurrent = lf->animation;
 	iAnimNumCurrent = lf->animationNumber;
-	iAnimIndexNew = iAnimNumNew & 0xFFFFFDFF; // 512bit stores some flag
+	iAnimIndexNew = iAnimNumNew & ~ANIM_TOGGLEBIT;
 	
     //Com_Printf("BG_SetNewAnimation: %i -> %i, time: %i\n", iAnimNumCurrent, iAnimNumNew, level_bgs->time);
     
@@ -1302,7 +1302,7 @@ void PM_SetMovementDir(pmove_t *pm, pml_t *pml)
 
 	ps = pm->ps;
 
-	if ( (ps->pm_flags & PMF_PRONE) == 0 || (ps->eFlags & ENTITY_FLAG_MG) != 0 )
+	if ( (ps->pm_flags & PMF_PRONE) == 0 || (ps->eFlags & EF_TURRET_ACTIVE) != 0 )
 	{
 		// This part of original logic is never called because there is another function for ladder
 		/*if ( (ps->pm_flags & PMF_LADDER) != 0 )

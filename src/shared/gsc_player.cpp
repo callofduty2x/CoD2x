@@ -161,7 +161,7 @@ void gsc_player_isUsingTurret(scr_entref_t ref) {
 
 	gentity_t* ent = &g_entities[id];
 
-	if (ent->s.eFlags & ENTITY_FLAG_MG)
+	if (ent->s.eFlags & EF_TURRET_ACTIVE)
 		Scr_AddBool(true);
 	else
 		Scr_AddBool(false);

@@ -1380,7 +1380,7 @@ static void Text_AddKillfeedIcons(const char* iconName, float iconWidth, float i
     const entityState_t* es = text_obituaryState;
 
     // The fields are set only by servers since TEXT_PROTOCOL (g_cod2x), older servers might leave something else in them
-    if (!es || !es->dmgFlags || g_cod2x->value.integer < TEXT_PROTOCOL) {
+    if (!es || !es->obituaryIcons || g_cod2x->value.integer < TEXT_PROTOCOL) {
         Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
         return;
     }
@@ -1397,7 +1397,7 @@ static void Text_AddKillfeedIcons(const char* iconName, float iconWidth, float i
     Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
 
     for (int i = 0; i < 4; i++) {
-        int shaderIndex = (es->dmgFlags >> (8 * i)) & 0xff;
+        int shaderIndex = (es->obituaryIcons >> (8 * i)) & 0xff;
         if (!shaderIndex)
             continue;
         const char* shader = CL_GetConfigString(CS_SHADERS + shaderIndex);

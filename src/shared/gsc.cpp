@@ -268,7 +268,7 @@ bool gsc_beforeMapChangeOrRestart(bool fromScript, bool bComplete, bool shutdown
 // Only the mod turns it on: without icons (old mods) the event is left as vanilla and every client shows the
 // vanilla killfeed. Vanilla clients do not read the fields:
 //   es->weapon      (7 bits)  weapon index, also when eventParm is 0x80 + means of death (melee, headshot, ...)
-//   es->dmgFlags    (32 bits) shader index (CS_SHADERS, 1 .. 127) of the icons, 8 bits each, icon1 in the lowest
+//   es->obituaryIcons (dmgFlags, 32 bits) shader index (CS_SHADERS, 1 .. 127) of the icons, 8 bits each, icon1 in the lowest
 #define OBITUARY_ICONS_MAX 4
 
 static void Obituary_SetExtendedIcons(gentity_t* ent)
@@ -289,7 +289,7 @@ static void Obituary_SetExtendedIcons(gentity_t* ent)
 		return;
 
 	ent->s.weapon = G_GetWeaponIndexForName(Scr_GetString(2)) & 0x7f;
-	ent->s.dmgFlags = icons;
+	ent->s.obituaryIcons = icons;
 }
 
 // 0050ff70    struct gentity_s* G_TempEntity(float const* origin, int32_t event)

@@ -46,9 +46,6 @@ dvar_t* cg_debugBullets = NULL;
 #define centity_dobj(cent)     (*(int*)((char*)(cent) + 0x220))    // handle for Com_GetClientDObj
 #define centity_voiceIconTime(cent) (*(int*)((char*)(cent) + 0x218))  // the talking icon (material at + 0x214) is shown until this time (CG_PlayerSprites)
 
-// Entity events with the offhand weapon in eventParm (CG_EntityEvent plays their sound only for the followed player, but they come for all players)
-#define EV_PREP_OFFHAND         0xa5    // grenade pulled
-#define EV_USE_OFFHAND          0xa6    // grenade thrown
 #define HEAD_OFFHAND_TIME   5000    // the pulled grenade is forgotten after this time (ms), if the throw event is lost
 
 // Elements of the head info, from the bottom up, and the states of the viewer. Value of the element cvars:
@@ -122,7 +119,7 @@ static int Head_HeldWeapon(centity_t* cent, clientInfo_t* ci) {
     if (head_offhand[clientNum].weapon && cg.time >= head_offhand[clientNum].time && cg.time - head_offhand[clientNum].time < HEAD_OFFHAND_TIME)
         return head_offhand[clientNum].weapon;
 
-    if (cent->currentState.eFlags & (ENTITY_FLAG_MG | ENTITY_FLAG_MANTLE))
+    if (cent->currentState.eFlags & (EF_TURRET_ACTIVE | EF_MANTLE))
         return 0;
     if (BG_GetConditionValue(ci, ANIM_COND_MOVETYPE, 0) & (1 << ANIM_MT_CLIMBUP | 1 << ANIM_MT_CLIMBDOWN))
         return 0;
@@ -163,7 +160,7 @@ static bool Head_GetInfo(centity_t* cent, headInfo_t* info) {
     else return false;
 
     clientInfo_t* ci = &clientInfo[cent->currentState.clientNum];
-    if (cent->currentState.eType != ET_PLAYER || !(cent->currentValid & 1) || (cent->currentState.eFlags & ENTITY_FLAG_DEAD))
+    if (cent->currentState.eType != ET_PLAYER || !(cent->currentValid & 1) || (cent->currentState.eFlags & EF_DEAD))
         return false;
     if (ci->infoValid != qtrue || ci->team == TEAM_SPECTATOR)
         return false;
@@ -253,9 +250,9 @@ static float Head_GameIconsTop(centity_t* cent, const vec3_t head) {
     int team = clientInfo[cent->nextState.clientNum].team;
     int eFlags = cent->nextState.eFlags;
     float size = -1;
-    if (eFlags & ENTITY_FLAG_NO_COMMUNICATION)     // connection problem icon (CG_PlayerSprites 004dbdcc: test al, al / jns)
+    if (eFlags & EF_CONNECTION)     // connection problem icon (CG_PlayerSprites 004dbdcc: test al, al / jns)
         size = Head_GameDvarFloat(&cg_connectionIconSize, "cg_connectionIconSize", 0);
-    else if ((team == viewTeam || viewTeam == TEAM_SPECTATOR) && (centity_voiceIconTime(cent) > cg.time || (eFlags & ENTITY_FLAG_MENU)))
+    else if ((team == viewTeam || viewTeam == TEAM_SPECTATOR) && (centity_voiceIconTime(cent) > cg.time || (eFlags & EF_TALK)))
         size = Head_GameDvarFloat(&cg_voiceIconSize, "cg_voiceIconSize", 0);
     float scale = cg_headIconScale->value.decimal;
     if (size < 0 || scale <= 0)

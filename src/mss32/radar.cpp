@@ -432,7 +432,7 @@ void radar_draw()
 		if((
 			cent->currentState.eType == ET_PLAYER && 
 			!(cent->currentState.eFlags & 1) &&
-            !(cent->currentState.eFlags & 0x20000) && // dead and in dead session
+            !(cent->currentState.eFlags & EF_DEAD) && // dead and in dead session
             (cent->currentValid & 1) && // dead and spectator mode
 
 			ci->infoValid == qtrue &&
