@@ -299,7 +299,13 @@ client predicts - must behave like the connected server, or prediction and the p
   (`BG_PlayerAngles_Win32` reads `ci` from `edi`, `BG_PlayerAngles_Linux` gets it on the stack). Code
   running on both sides of a listen server keeps per-side state (`animation_isServer()`,
   `animation_getIndexForPlayerData`).
-- Not needed for pure client features (HUD, text, console) or server-only code (commands, GSC, network).
+- Client features that change what a player sees or reads **on a server** follow the server too, so older and
+  vanilla servers look like vanilla: new text codes (`$1` would eat "$5 per map"), name rules, x-ray / head info,
+  new data read from entity states. Gate them with `g_cod2x->value.integer >= N` too (it is 0 in the menus,
+  add `clientState < CLIENT_STATE_CONNECTING` if the feature must work there) - see `TEXT_PROTOCOL` in
+  `text.cpp` and `XRAY_PROTOCOL` in `xray.cpp`.
+- Not needed for personal settings that only change how the player's own screen looks (HUD position, film
+  tweaks, console) or server-only code (commands, GSC, network, sv_* gameplay cvars).
 
 ---
 

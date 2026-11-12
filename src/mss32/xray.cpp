@@ -10,6 +10,11 @@
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_client.h"
 
+extern dvar_t* g_cod2x;
+
+// Protocol of the server that introduced x-ray and head info (1.4.7.x)
+#define XRAY_PROTOCOL 7
+
 #define g_TeamColor_Allies      (*((dvar_t**)0x017d03bc))
 #define g_TeamColor_Axis        (*((dvar_t**)0x01897e1c))
 
@@ -1235,7 +1240,12 @@ void xray_frame() {
     xray_viewer = XRAY_VIEWER_NONE;
     xray_mode = 0;
     xray_visibleParts = false;
-    if (clientState == CLIENT_STATE_ACTIVE && cg.snap) {
+
+    // X-ray and head info are used only on servers since XRAY_PROTOCOL (1.4.7.x), on older servers spectators and dead
+    // players see the game like vanilla. Always with sv_cheats, in demo playback and in debug build.
+    bool allowed = XRAY_ALWAYS_ALLOWED || demo_isPlaying || sv_cheats->value.boolean || g_cod2x->value.integer >= XRAY_PROTOCOL;
+
+    if (allowed && clientState == CLIENT_STATE_ACTIVE && cg.snap) {
         int team = clientInfo[cg.clientNum].team;
         // Spectating = following somebody else or flying free; a playing player is never a spectator, even if his client info still says so
         bool spectating = cg.snap->ps.clientNum != cg.clientNum || (cg.snap->ps.pm_flags & PMF_SPECTATING);

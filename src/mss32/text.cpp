@@ -19,6 +19,8 @@
  * so it shows in the team or default color. A double code ("^^11", "$$11", ...) works like the single one
  * on the scoreboard, older names made for the killfeed keep their colors there.
  * To show a code as text, put another code between its characters: "$^75" shows "$5".
+ * All of this is used in the menus and on servers since 1.4.7.x (TEXT_PROTOCOL). On older and vanilla servers only "^0" .. "^9"
+ * are codes and names are shown like vanilla, so their texts look as they were made ("Rank #1", "$5 per map").
  * ('%' can not be a prefix, the network layer turns every '%' into '.' in MSG_ReadString.)
  *
  * Implementation:
@@ -51,6 +53,15 @@ dvar_t* cg_gameMessageOffsetX = NULL;
 dvar_t* cg_gameMessageOffsetY = NULL;
 dvar_t* cg_gameMessageScale = NULL;
 extern bool cgame_hideServerIp;
+extern dvar_t* g_cod2x;
+
+// Protocol of the server that introduced the CoD2x codes and name rules (1.4.7.x)
+#define TEXT_PROTOCOL 7
+
+// The CoD2x codes ($N #N @N, styles) and name rules (names without codes, "^^11" on the scoreboard) are used in the menus
+// and on servers since TEXT_PROTOCOL (g_cod2x). Texts of older servers were not made for them ("Rank #1", "$5 per map"),
+// so there only the vanilla "^N" colors are read and names are cleaned like vanilla. Updated every frame in text_frame.
+static bool text_cod2xCodes = true;
 
 
 
@@ -256,6 +267,10 @@ static int Text_ParseCode(const char* p, char* code)
         return 2;
     }
 
+    // Older server: '$', '#' and '@' are plain characters, like vanilla
+    if (!text_cod2xCodes)
+        return 0;
+
     int shade;
     if (p[0] == '$')
         shade = 0;
@@ -331,10 +346,10 @@ static void Text_GetColor(char code, const float* baseColor, float* out)
 
 // Vanilla double colors like "^^11Name" were made for the killfeed and chat, which stripped one level of
 // codes ("^^11" -> "^1"). On the scoreboard vanilla shows them as "^1Name"; CoD2x resolves them the same
-// way, so they color the name there. Returns text if nothing changed.
+// way, so they color the name there. Returns text if nothing changed. Older servers keep the vanilla look.
 static const char* Text_ResolveDoubleColors(const char* text, char* buffer, size_t size)
 {
-    if (!strstr(text, "^^"))
+    if (!text_cod2xCodes || !strstr(text, "^^"))
         return text;
 
     bool changed = false;
@@ -1282,9 +1297,9 @@ uint32_t CL_ConsolePrint_AddLine_Win32(int32_t channel, int32_t duration, int32_
 void CL_AddDeathMessageText(const char* str, int32_t color)
 {
     // CoD2x: player names are colored only on the scoreboard - also the double codes ("^^11" would leave
-    // "^1" in the name) and the CoD2x codes are removed
+    // "^1" in the name) and the CoD2x codes are removed. Older servers: vanilla, only the "^N" codes are skipped below.
     char cleanName[256];
-    if (color >= 0) {
+    if (color >= 0 && text_cod2xCodes) {
         strip_text_codes(str, cleanName, sizeof(cleanName));
         str = cleanName;
     }
@@ -1364,7 +1379,8 @@ static void Text_AddKillfeedIcons(const char* iconName, float iconWidth, float i
 {
     const entityState_t* es = text_obituaryState;
 
-    if (!es || !es->dmgFlags) {
+    // The fields are set only by servers since TEXT_PROTOCOL (g_cod2x), older servers might leave something else in them
+    if (!es || !es->dmgFlags || g_cod2x->value.integer < TEXT_PROTOCOL) {
         Text_AddKillfeedIcon(iconName, iconWidth, iconHeight, iconColor, horzFlipIcon);
         return;
     }
@@ -1422,8 +1438,8 @@ void CL_DeathMessagePrint(const char* attackerName, const float* attackerColor, 
     int32_t lineLimit = cl_consoleBufferSize;
 
     // CoD2x: a line of the game messages keeps only 78 cells (like CL_ConsolePrint_AddLine), the victim name goes to
-    // the next line instead of being cut off when the extra icons make the line longer
-    if (lineLimit > 78)
+    // the next line instead of being cut off when the extra icons make the line longer (older servers: vanilla)
+    if (lineLimit > 78 && text_cod2xCodes)
         lineLimit = 78;
     // CoD2x: End
 
@@ -1458,21 +1474,28 @@ void CL_DeathMessagePrint(const char* attackerName, const float* attackerColor, 
     CL_AddConsoleInfoColor(10, victimColor);
 
     // CoD2x: the name is measured without codes (CL_AddDeathMessageText removes them), it also goes to the next
-    // line when the line would be wider than cg_gameMessageWidth
+    // line when the line would be wider than cg_gameMessageWidth. Older servers: vanilla.
     /*
     if ((int32_t)(strlen(victimName) + cl_consoleBufferPos + 3) >= lineLimit) {
     */
     char cleanVictimName[256];
-    strip_text_codes(victimName, cleanVictimName, sizeof(cleanVictimName));
-    int32_t victimLen = (int32_t)strlen(cleanVictimName);
-    if (victimLen + (int32_t)cl_consoleBufferPos + 3 >= lineLimit ||
-        Text_KillfeedLineWidth() + victimLen > cg_gameMessageWidth->value.integer) {
+    bool wrap;
+    if (text_cod2xCodes) {
+        strip_text_codes(victimName, cleanVictimName, sizeof(cleanVictimName));
+        victimName = cleanVictimName;
+        int32_t victimLen = (int32_t)strlen(victimName);
+        wrap = victimLen + (int32_t)cl_consoleBufferPos + 3 >= lineLimit ||
+               Text_KillfeedLineWidth() + victimLen > cg_gameMessageWidth->value.integer;
+    } else {
+        wrap = (int32_t)(strlen(victimName) + cl_consoleBufferPos + 3) >= lineLimit;
+    }
+    if (wrap) {
     // CoD2x: End
         Con_Linefeed(1, duration);
         CL_AddConsoleInfoColor(10, victimColor);
     }
 
-    CL_AddDeathMessageText(cleanVictimName, ColorIndex('7'));
+    CL_AddDeathMessageText(victimName, ColorIndex('7'));
     Con_Linefeed(1, duration);
     cl_consoleActiveType = 1;
 }
@@ -1563,6 +1586,10 @@ void CG_DrawGameMessages()
 // The leading team color and the message are kept.
 static void Text_StripChatNameCodes(char* line)
 {
+    // Older servers: the name is kept as the server sent it, like vanilla
+    if (!text_cod2xCodes)
+        return;
+
     char* nameEnd = strstr(line, "^7: ");
     if (!nameEnd)
         return;
@@ -1873,6 +1900,7 @@ char* SEH_LocalizeTextMessage(const char* pszInputBuffer, const char* pszMessage
 // ======================================================================================================
 
 // Player names are colored only on the scoreboard, the HUD texts below show them without codes.
+// Older servers (text_cod2xCodes is false): the names are left as vanilla shows them.
 
 // 0044a8d0    void I_CleanStr(char* string @ eax)
 // Hooked only in CG_DrawCrosshairNames, for the name of the player under the crosshair.
@@ -1880,7 +1908,8 @@ char* SEH_LocalizeTextMessage(const char* pszInputBuffer, const char* pszMessage
 void CG_DrawCrosshairNames_I_CleanStr(char* name)
 {
     // CoD2x: all codes are removed, also the double ones and the CoD2x codes
-    strip_text_codes(name, name, strlen(name) + 1);
+    if (text_cod2xCodes)
+        strip_text_codes(name, name, strlen(name) + 1);
     // CoD2x: End
 
     // Call the original function
@@ -1899,24 +1928,33 @@ void CG_DrawCrosshairNames_I_CleanStr_Win32()
 char* CG_Obituary_va(const char* format, const char* name, const char* teammate)
 {
     char cleanName[64];
-    strip_text_codes(name, cleanName, sizeof(cleanName));
-    return va(format, cleanName, teammate);
+    if (text_cod2xCodes) {
+        strip_text_codes(name, cleanName, sizeof(cleanName));
+        name = cleanName;
+    }
+    return va(format, name, teammate);
 }
 
 // The killer name for "Fragged by %s" in the killcam menu (ownerdraw CG_KILLER), copied in CG_Obituary
 char* CG_Obituary_strncpy(char* dest, const char* name, size_t count)
 {
     char cleanName[64];
-    strip_text_codes(name, cleanName, sizeof(cleanName));
-    return strncpy(dest, cleanName, count); // CG_Obituary terminates it
+    if (text_cod2xCodes) {
+        strip_text_codes(name, cleanName, sizeof(cleanName));
+        name = cleanName;
+    }
+    return strncpy(dest, name, count); // CG_Obituary terminates it
 }
 
 // "Following" + name of the spectated player, in CG_DrawFollow (codes are not counted in the width the name is centered by)
 void CG_DrawFollow_UI_DrawText(const char* text, int len, fontHandle_t* font, float x, float y, horizontalAlign_e horzAlign, verticalAlign_e vertAlign, float scale, vec4_t color, textStyle_e style)
 {
     char cleanName[64];
-    strip_text_codes(text, cleanName, sizeof(cleanName));
-    UI_DrawText(cleanName, len, font, x, y, horzAlign, vertAlign, scale, color, style);
+    if (text_cod2xCodes) {
+        strip_text_codes(text, cleanName, sizeof(cleanName));
+        text = cleanName;
+    }
+    UI_DrawText(text, len, font, x, y, horzAlign, vertAlign, scale, color, style);
 }
 
 // 005322c0    void UI_DrawText(char* text, int32_t len, void* font @ esi, float x, float y, int32_t horzAlign @ edi, int32_t vertAlign @ ebx, float scale, float* color, int32_t style)
@@ -1933,9 +1971,13 @@ char* CG_PlayerRenamed_va(const char* format, const char* oldName, const char* r
 {
     char cleanOldName[64];
     char cleanNewName[64];
-    strip_text_codes(oldName, cleanOldName, sizeof(cleanOldName));
-    strip_text_codes(newName, cleanNewName, sizeof(cleanNewName));
-    return va(format, cleanOldName, renamedTo, cleanNewName);
+    if (text_cod2xCodes) {
+        strip_text_codes(oldName, cleanOldName, sizeof(cleanOldName));
+        strip_text_codes(newName, cleanNewName, sizeof(cleanNewName));
+        oldName = cleanOldName;
+        newName = cleanNewName;
+    }
+    return va(format, oldName, renamedTo, newName);
 }
 
 
@@ -1967,6 +2009,9 @@ static void Text_HookRenderer()
 /** Called every frame on frame start, and after the client is initialized. */
 void text_frame() {
     Text_HookRenderer();
+
+    // In the menus g_cod2x is 0 (reset on disconnect), but no text comes from a server there
+    text_cod2xCodes = clientState < CLIENT_STATE_CONNECTING || g_cod2x->value.integer >= TEXT_PROTOCOL;
 }
 
 /** Called before the DLL is unloaded (hot reload). */
