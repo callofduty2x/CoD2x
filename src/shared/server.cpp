@@ -16,6 +16,7 @@
 #include "gsc_http.h"
 #include "gsc_websocket.h"
 #include "match.h"
+#include "playerinfo.h"
 #if COD2X_WIN32
 #include "../mss32/updater.h"
 #endif
@@ -1298,6 +1299,9 @@ void G_RunFrame(int time) {
     ASM_CALL(RETURN_VOID, ADDR(0x004fd1b0, 0x0810a13a), WL(0, 1), WL(EAX, PUSH)(time));
 
 	server_ignoreMapChangeThisFrame = false;
+
+	// Health, weapons and grenades of all players into their entity states, for CoD2x clients (x-ray health fill) and demos
+	PlayerInfo_ServerFrame();
 
 	// Update rate limiter statistics (request count and unique IPs in last second)
 	SVC_UpdateRateLimiterStats();

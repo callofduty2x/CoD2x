@@ -201,8 +201,13 @@ typedef struct entityState_s
 	int groundEntityNum;	// 0x7c  10 bits, entity standing on, ENTITYNUM_NONE in the air
 	int constantLight;		// 0x80  32 bits, dynamic light: r | g << 8 | b << 16 | (intensity / 4) << 24 (script movers "light" / "color", CG_EntityEffects)
 	int loopSound;			// 0x84  8 bits, looping sound alias, configstring CS_SOUND_ALIASES + n (playLoopSound, turret fire), 0 = none
-	int surfType;			// 0x88  8 bits, SURF_TYPE_* of an impact (bullet hit, grenade, explosion events / exploded missile).
+	union {
+		int surfType;		// 0x88  8 bits, SURF_TYPE_* of an impact (bullet hit, grenade, explosion events / exploded missile).
 							//       In archivedEntityFields too, like dmgFlags (killcam keeps the value)
+		// CoD2x: for ET_PLAYER the server reuses this field for the player's health (see playerinfo.h)
+		int playerHealth;	//       ET_PLAYER: health 0..255, sent as 8 bits
+		// CoD2x: End
+	};
 	union {
 		int index;			// 0x8c  10 bits, model index
 		int brushmodel;		//       solid == SOLID_BMODEL: brush model number (inline model)
@@ -232,7 +237,8 @@ typedef struct entityState_s
 	union {
 		int dmgFlags;		// 0xdc  32 bits, original netfield name; in 1.3 used only as cursorHint, never as damage flags
 		int cursorHint;		//       usable entities: HINT_* (GScr_SetCursorHint, trigger_use_shared), read only by the server
-		// CoD2x: extended obituary
+		// CoD2x: for ET_PLAYER the server reuses this field for weapons and grenades (see playerinfo.h)
+		int playerInfo;		//       ET_PLAYER: packed weapons and grenades, 0xC1 in the top byte
 		int obituaryIcons;	//       EV_OBITUARY: shader indexes (CS_SHADERS + n) of up to 4 extra killfeed icons, 8 bits each (gsc.cpp)
 		// CoD2x: End
 	};
@@ -244,10 +250,10 @@ typedef struct entityState_s
 static_assert(sizeof(entityState_t) == 0xf0, "entityState_t");
 static_assert(offsetof(entityState_t, pos) == 0x0c && offsetof(entityState_t, apos) == 0x30, "entityState_t::pos");
 static_assert(offsetof(entityState_t, time) == 0x54 && offsetof(entityState_t, otherEntityNum) == 0x74, "entityState_t::time");
-static_assert(offsetof(entityState_t, surfType) == 0x88 && offsetof(entityState_t, index) == 0x8c, "entityState_t::surfType");
+static_assert(offsetof(entityState_t, playerHealth) == 0x88 && offsetof(entityState_t, index) == 0x8c, "entityState_t::playerHealth");
 static_assert(offsetof(entityState_t, solid) == 0x9c && offsetof(entityState_t, events) == 0xa8, "entityState_t::solid");
 static_assert(offsetof(entityState_t, weapon) == 0xc8 && offsetof(entityState_t, leanf) == 0xd4, "entityState_t::weapon");
-static_assert(offsetof(entityState_t, scale) == 0xd8 && offsetof(entityState_t, dmgFlags) == 0xdc, "entityState_t::dmgFlags");
+static_assert(offsetof(entityState_t, scale) == 0xd8 && offsetof(entityState_t, playerInfo) == 0xdc, "entityState_t::playerInfo");
 static_assert(offsetof(entityState_t, fWaistPitch) == 0xec, "entityState_t::fWaistPitch");
 
 typedef struct

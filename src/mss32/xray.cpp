@@ -36,6 +36,9 @@ extern dvar_t* g_cod2x;
 // CoD2x: players tagged for x-ray, the renderer does not use bits 24..31
 #define RF_XRAY             0x01000000
 #define RF_XRAY_TEAM_SHIFT  25      // 2 bits with team_t of the player
+#define RF_XRAY_HEALTH_SHIFT 27     // 5 bits with the health level of a hurt player (in XRAY_HEALTH_UNIT world units over the origin), 0 = none
+#define RF_XRAY_HEALTH_MASK 0x1f
+#define XRAY_HEALTH_UNIT    2.5f    // world units of one health level, 31 levels = 77.5 units (a standing player is ~70)
 
 // Modes
 #define XRAY_THROUGH_WALLS  1       // players are drawn over the world
@@ -61,6 +64,8 @@ extern dvar_t* g_cod2x;
 #define XRAY_STENCIL_VISIBLE        (XRAY_STENCIL_VISIBLE_ALLIES | XRAY_STENCIL_VISIBLE_AXIS)
 #define XRAY_STENCIL_ALL            0xf0
 #define XRAY_STENCIL_HEAD           0x08    // head info: the head point is in front of the world (set by Xray_HeadDepthMark, see xray_headDepthTest)
+#define XRAY_STENCIL_HEALTH         0x08    // health fill: the part of a hurt player under its health level. The same bit as the head info, which uses it
+                                            // only in the 2D drawing after the scene and clears it (Xray_HeadDepthReset runs before every pass).
 #define XRAY_MAX_SURFS      4096
 
 struct GfxEntity {
@@ -101,6 +106,9 @@ dvar_t* cg_xrayGlowCoreIntensity;   // glow: strength of the lighter glow on top
 dvar_t* cg_xrayHiddenThreshold;     // a part of a player is hidden only when it's this many units behind the world (feet in the ground are not hidden)
 dvar_t* cg_xrayColorAllies;         // color of allies ("r g b" 0..1), empty = g_TeamColor_Allies
 dvar_t* cg_xrayColorAxis;           // color of axis and free-for-all players, empty = g_TeamColor_Axis
+dvar_t* cg_xrayHealth;              // health fill: the inside of a hurt player is filled from the bottom up to its health (100 = top), CoD2x servers only
+dvar_t* cg_xrayHealthColor;         // color of the health fill ("r g b" 0..1), empty = red
+dvar_t* cg_xrayHealthAlpha;         // opacity of the health fill
 
 xrayViewer_e xray_viewer = XRAY_VIEWER_NONE;
 static bool xray_showTeam[4];       // team_t of players that are shown
@@ -111,6 +119,10 @@ static bool xray_depthBias = false; // the GPU supports D3DRS_DEPTHBIAS (checked
 static bool xray_blendMax = false;  // the GPU supports D3DBLENDOP_MAX (checked when the state block is created)
 static vec4_t xray_teamColorVec[4]; // color of team_t
 static D3DCOLOR xray_teamColor[4];  // the same as D3D color
+static D3DCOLOR xray_healthColor;   // health fill color, premultiplied by its alpha
+static bool xray_healthMarked = false;  // a hurt player was marked for the health fill in this lit pass
+static bool xray_healthFill = false;    // health fill is on in this frame: cg_xrayHealth, chams / outline / glow and the server sends the player info
+static bool xray_playerInfoSeen = false;    // a player with player info was in a snapshot since the client became active (see Xray_PlayerInfoAvailable)
 
 static int xray_mode = 0;                       // XRAY_* flags, 0 = off
 static bool xray_hasStencil = false;            // the depth buffer of the last lit pass has 8 stencil bits (see Xray_HasStencil)
@@ -558,6 +570,42 @@ static void Xray_SortPlayersLast(GfxDrawSurf* drawSurfs, int count) {
 }
 
 /**
+ * Scissor rectangle of the health fill of the player: the rows of the screen under its health level (the point of the level over the origin projected
+ * with the view and projection matrix of the scene). The cut is horizontal on the screen, so the fill goes from the bottom of the player up. False if
+ * nothing is under the level on the screen or the point is behind the camera.
+ */
+static bool Xray_HealthScissor(IDirect3DDevice9* device, GfxEntity* ent, int level, RECT* rect) {
+    char* viewParms = backEnd_viewParms;
+    D3DVIEWPORT9 viewport;
+    if (!viewParms || FAILED(device->GetViewport(&viewport)))
+        return false;
+
+    // Row vector times the D3D view and projection matrix (players are skinned in world space)
+    const float (*view)[4] = (const float (*)[4])(viewParms + 0x48);
+    const float (*proj)[4] = (const float (*)[4])(viewParms + 0x88);
+    float point[3] = { ent->origin[0], ent->origin[1], ent->origin[2] + level * XRAY_HEALTH_UNIT };
+    float v[4];
+    for (int c = 0; c < 4; c++)
+        v[c] = point[0] * view[0][c] + point[1] * view[1][c] + point[2] * view[2][c] + view[3][c];
+    float clipY = v[0] * proj[0][1] + v[1] * proj[1][1] + v[2] * proj[2][1] + v[3] * proj[3][1];
+    float clipW = v[0] * proj[0][3] + v[1] * proj[1][3] + v[2] * proj[2][3] + v[3] * proj[3][3];
+    if (clipW <= 0)
+        return false;
+
+    // Rows from the level down to the bottom of the view
+    float y = viewport.Y + (1.0f - clipY / clipW) * 0.5f * viewport.Height;
+    LONG top = (LONG)viewport.Y;
+    LONG bottom = (LONG)(viewport.Y + viewport.Height);
+    if (y > top)
+        top = y >= bottom ? bottom : (LONG)ceilf(y);
+    rect->left = (LONG)viewport.X;
+    rect->right = (LONG)(viewport.X + viewport.Width);
+    rect->top = top;
+    rect->bottom = bottom;
+    return top < bottom;
+}
+
+/**
  * Called after a draw call of a player is drawn. Marks in the stencil where the player is visible (passes the depth test, also against
  * its own just written depth) and where it is hidden behind the world or players drawn before. The colors are drawn by these marks in Xray_DrawPlayersEnd.
  */
@@ -576,7 +624,7 @@ static void Xray_MarkPlayer(GfxDrawPrimArgs* args, GfxEntity* ent, int team) {
     if (!xray_playersDrawn) {
         xray_playersDrawn = true;
         xray_maskUsesStencil = Xray_PrepareMask(device, xray_mode & XRAY_MASK);
-        Xray_ClearStencil(device, XRAY_STENCIL_ALL);
+        Xray_ClearStencil(device, XRAY_STENCIL_ALL | (xray_healthFill ? XRAY_STENCIL_HEALTH : 0));
 
         // Back to the vertex shader, declaration and stream of the player
         Xray_RestoreState(device);
@@ -616,6 +664,27 @@ static void Xray_MarkPlayer(GfxDrawPrimArgs* args, GfxEntity* ent, int team) {
     device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_KEEP);
     device->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_REPLACE);
     DRAW();
+
+    // Health fill of a hurt player - the whole silhouette (also behind walls) under its health level, cut by the scissor rectangle.
+    // The fill is drawn by this mark in Xray_DrawPlayersEnd.
+    int healthLevel = (int)(((uint32_t)ent->renderfx >> RF_XRAY_HEALTH_SHIFT) & RF_XRAY_HEALTH_MASK);
+    RECT healthRect;
+    if (healthLevel && Xray_HealthScissor(device, ent, healthLevel, &healthRect)) {
+        RECT savedRect;
+        bool hasSavedRect = SUCCEEDED(device->GetScissorRect(&savedRect));
+        device->SetScissorRect(&healthRect);
+        device->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
+        device->SetRenderState(D3DRS_ZENABLE, FALSE);
+        device->SetRenderState(D3DRS_STENCILREF, XRAY_STENCIL_HEALTH);
+        device->SetRenderState(D3DRS_STENCILWRITEMASK, XRAY_STENCIL_HEALTH);
+        device->SetRenderState(D3DRS_STENCILPASS, D3DSTENCILOP_REPLACE);
+        device->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
+        DRAW();
+        device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+        if (hasSavedRect)
+            device->SetScissorRect(&savedRect);
+        xray_healthMarked = true;
+    }
 
     // Multisampled screen - the mask texture can not use the stencil, the whole player silhouette is drawn into it (visible parts too)
     if ((xray_mode & XRAY_MASK) && !xray_maskUsesStencil && xray_mask) {
@@ -845,6 +914,38 @@ static void Xray_DrawMask(IDirect3DDevice9* device, IDirect3DSurface9* screen, I
     Xray_SetCenterFade(device, false);
 }
 
+/**
+ * Health fill: the color over the parts of hurt players under their health level (marked by Xray_MarkPlayer). Like the outline / glow: the hidden parts,
+ * faded near the screen center, and the visible parts only with cg_xrayVisible* of the state.
+ */
+static void Xray_DrawHealth(IDirect3DDevice9* device) {
+    Xray_SetFlatColor(device);
+    device->SetRenderState(D3DRS_ZENABLE, FALSE);
+    device->SetRenderState(D3DRS_TEXTUREFACTOR, xray_healthColor);
+    // The color is premultiplied by its alpha, the center fade multiplies both
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    device->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
+    device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+
+    // Hidden parts: under the health level and no player visible there
+    bool fade = xray_centerFadeEnabled() && Xray_PrepareFadeTexture(device);
+    Xray_SetStencilTest(device, XRAY_STENCIL_HEALTH, XRAY_STENCIL_HEALTH | XRAY_STENCIL_VISIBLE);
+    Xray_SetCenterFade(device, fade);
+    Xray_DrawQuad(device, 0, 0);
+    Xray_SetCenterFade(device, false);
+
+    // Visible parts: under the health level and a player of any team visible there (each pixel once)
+    if (xray_visibleParts) {
+        static const DWORD visible[3] = { XRAY_STENCIL_VISIBLE_ALLIES, XRAY_STENCIL_VISIBLE_AXIS, XRAY_STENCIL_VISIBLE };
+        for (int i = 0; i < 3; i++) {
+            Xray_SetStencilTest(device, XRAY_STENCIL_HEALTH | visible[i], XRAY_STENCIL_HEALTH | XRAY_STENCIL_VISIBLE);
+            Xray_DrawQuad(device, 0, 0);
+        }
+    }
+
+    device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+}
+
 /** Called after all players are drawn. Draws chams and outline by the stencil marks, then clears the marks. */
 static void Xray_DrawPlayersEnd() {
     IDirect3DDevice9* device = d3d9_device;
@@ -885,13 +986,54 @@ static void Xray_DrawPlayersEnd() {
         if (depth) depth->Release();
     }
 
+    // Health fill over the inside of hurt players (over the chams too), the outline / glow is drawn only outside of players
+    if (xray_healthMarked)
+        Xray_DrawHealth(device);
+
     Xray_SetFlatColor(device);
-    Xray_ClearStencil(device, XRAY_STENCIL_ALL);
+    Xray_ClearStencil(device, XRAY_STENCIL_ALL | (xray_healthMarked ? XRAY_STENCIL_HEALTH : 0));
+    xray_healthMarked = false;
 
     Xray_RestoreState(device);
 }
 
 
+
+/**
+ * Health level of the player for the health fill (RF_XRAY_HEALTH_SHIFT): its health part of the player height in XRAY_HEALTH_UNIT units over the origin,
+ * 0 if it has full health or the server does not send the health (xray_healthFill is off then, see Xray_PlayerInfoAvailable). The height is the top of the head (the head bone follows
+ * the stance, lean and animations), or by the stance if the model has no head.
+ */
+static int Xray_HealthLevel(void* obj, centity_t* cent) {
+    int clientNum = cent->nextState.clientNum;
+    int health;
+    playerInfo_t info;
+    if (cg.snap && clientNum == cg.snap->ps.clientNum)
+        health = cg.snap->ps.stats[0];     // the followed player is rebuilt from the playerState (stats[0] = health), it has no player info.
+                                            // Only with a server that sends the player info of the others, so all players are filled the same way.
+    else if (xray_getPlayerInfo(clientNum, &info))
+        health = info.health;
+    else
+        return 0;
+    if (health <= 0 || health >= PLAYERINFO_MAX_HEALTH)
+        return 0;
+
+    float height;
+    vec3_t head;
+    if (obj && CG_DObjGetWorldTagPos(scr_const_j_head, obj, cent, head))
+        height = head[2] + 7.0f - cent->lerpOrigin[2];
+    else if (cent->nextState.eFlags & EF_PRONE)
+        height = 20.0f;
+    else if (cent->nextState.eFlags & EF_CROUCHING)
+        height = 50.0f;
+    else
+        height = 70.0f;
+    if (height < 10.0f)
+        height = 10.0f;
+
+    int level = (int)(height * health / PLAYERINFO_MAX_HEALTH / XRAY_HEALTH_UNIT + 0.5f);
+    return level < 1 ? 1 : level > RF_XRAY_HEALTH_MASK ? RF_XRAY_HEALTH_MASK : level;
+}
 
 // 004ce000    void* CG_AddCEntityToScene(struct GfxEntity* ent @ ecx, struct DObj* obj @ eax, struct centity_t* cent @ esi)
 static void* CG_AddCEntityToScene(GfxEntity* ent, void* obj, centity_t* cent)
@@ -904,6 +1046,10 @@ static void* CG_AddCEntityToScene(GfxEntity* ent, void* obj, centity_t* cent)
         // Players are drawn with depth range 0..0.5, so their depth is lower than the depth of the world in front of them
         if (xray_mode & XRAY_THROUGH_WALLS)
             ent->renderfx |= RF_DEPTHHACK_HALF;
+
+        // Health fill of a hurt player (needs the stencil marks of chams / outline / glow)
+        if (xray_healthFill)
+            ent->renderfx = (int32_t)((uint32_t)ent->renderfx | ((uint32_t)Xray_HealthLevel(obj, cent) << RF_XRAY_HEALTH_SHIFT));
     }
     // CoD2x: End
 
@@ -1228,6 +1374,42 @@ void xray_getTeamColor(int team, vec4_t color) {
     memcpy(color, xray_teamColorVec[team & 3], sizeof(vec4_t));
 }
 
+/**
+ * Health, weapons and grenades of the player from its entity state in the current snapshot (sent by CoD2x servers, also in demos recorded on them,
+ * see playerinfo.h). False if the player is not in the snapshot or the server does not send it.
+ * Our own player (or the followed one) is rebuilt from the playerState by the client, use cg.snap->ps for it.
+ * Sent since protocol 7; not gated by g_cod2x (0 in demo playback), the 0xC1 signature tells the data apart.
+ */
+bool xray_getPlayerInfo(int clientNum, playerInfo_t* info) {
+    if (clientNum < 0 || clientNum >= 64)
+        return false;
+    centity_t* cent = &cg_entities[clientNum];
+    if (!(cent->currentValid & 1) || cent->currentState.eType != ET_PLAYER)
+        return false;
+    return PlayerInfo_Unpack(&cent->currentState, info);
+}
+
+/**
+ * True if the server sends the player info (CoD2x protocol 7+), so the health fill is used. Older CoD2x servers and stock servers do not send it - then
+ * no player is filled, not even the followed one (its health is in the playerState), so x-ray looks the same for all players and as before the fill.
+ * Live it's known by the protocol of the server (g_cod2x); in demo playback (g_cod2x is 0) by a player with player info in a snapshot since the client
+ * became active (connect, map change and demo start go through the loading states).
+ */
+static bool Xray_PlayerInfoAvailable() {
+    if (clientState != CLIENT_STATE_ACTIVE) {
+        xray_playerInfoSeen = false;
+        return false;
+    }
+    if (g_cod2x && g_cod2x->value.integer >= PLAYERINFO_PROTOCOL)
+        return true;
+    if (!xray_playerInfoSeen) {
+        playerInfo_t info;
+        for (int i = 0; i < 64 && !xray_playerInfoSeen; i++)
+            xray_playerInfoSeen = xray_getPlayerInfo(i, &info);
+    }
+    return xray_playerInfoSeen;
+}
+
 /** Called every frame on frame start. */
 void xray_frame() {
     // cg_xray: 1 = players through walls, 2 = chams, 3 = outline, 4 = glow
@@ -1300,6 +1482,16 @@ void xray_frame() {
     memcpy(xray_teamColorVec[TEAM_SPECTATOR], xray_teamColorVec[TEAM_ALLIES], sizeof(vec4_t));
     for (int i = 0; i < 4; i++)
         xray_teamColor[i] = D3DCOLOR_COLORVALUE(xray_teamColorVec[i][0], xray_teamColorVec[i][1], xray_teamColorVec[i][2], 1.0f);
+
+    // Health fill: only with chams / outline / glow (it uses their stencil marks) and with a server that sends the health
+    bool playerInfo = Xray_PlayerInfoAvailable();   // every frame, it resets when the client is not active
+    xray_healthFill = playerInfo && cg_xrayHealth->value.boolean && (xray_mode & (XRAY_CHAMS | XRAY_MASK));
+
+    // Health fill color, premultiplied by its alpha
+    vec4_t health;
+    Xray_ReadColor(cg_xrayHealthColor, NULL, 1.0f, 0.0f, 0.0f, health);
+    float alpha = cg_xrayHealthAlpha->value.decimal;
+    xray_healthColor = D3DCOLOR_COLORVALUE(health[0] * alpha, health[1] * alpha, health[2] * alpha, alpha);
 }
 
 // Calls in the renderer DLL replaced by x-ray (offsets from the DLL base)
@@ -1363,6 +1555,10 @@ void xray_init() {
     cg_xrayGlowCoreIntensity =  Dvar_RegisterFloat("cg_xrayGlowCoreIntensity", 0.5f, 0.0f, 2.0f, flags);
     cg_xrayColorAllies =        Dvar_RegisterString("cg_xrayColorAllies", "", flags);
     cg_xrayColorAxis =          Dvar_RegisterString("cg_xrayColorAxis", "", flags);
+    // Health fill: the inside of a hurt player is filled from the bottom up to its health (CoD2x servers send the health of all players)
+    cg_xrayHealth =             Dvar_RegisterBool("cg_xrayHealth", true, flags);
+    cg_xrayHealthColor =        Dvar_RegisterString("cg_xrayHealthColor", "", flags);
+    cg_xrayHealthAlpha =        Dvar_RegisterFloat("cg_xrayHealthAlpha", 0.8f, 0.0f, 1.0f, flags);
 
     // The device can not be reset or destroyed while we hold its objects
     Renderer_AddReleaseCallback(Xray_ReleaseResources);

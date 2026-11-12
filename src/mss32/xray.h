@@ -3,6 +3,7 @@
 
 #include "shared.h"
 #include "../shared/cod2_definitions.h"
+#include "../shared/playerinfo.h"
 
 // Who is watching the game
 enum xrayViewer_e {
@@ -17,6 +18,7 @@ extern xrayViewer_e xray_viewer;
 void xray_getTeamColor(int team, vec4_t color);
 bool xray_centerFadeEnabled();
 float xray_centerFadeAlpha(float x0, float y0, float x1, float y1);
+bool xray_getPlayerInfo(int clientNum, playerInfo_t* info);
 
 bool xray_headDepthAvailable();
 bool xray_headDepthTest(const vec3_t point, bool* marked);
