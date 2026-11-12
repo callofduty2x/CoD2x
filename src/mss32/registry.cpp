@@ -152,6 +152,8 @@ void registry_init() {
                 if (version_compare(regVersion, APP_VERSION) > 0) {
                     registry_version_downgrade = true; // Version has been downgraded
 
+                    // In debug builds the version is often switched between branches, don't annoy with the dialog
+                    #if !DEBUG
                     char msg[512];
                     snprintf(msg, sizeof(msg),
                         "The CoD2x has been downgraded from a newer version.\n\n"
@@ -161,6 +163,7 @@ void registry_init() {
                         "If you are having issues with the newer version, please contact the developers.",
                         APP_VERSION, regVersion);
                     MessageBoxA(NULL, msg, "Version downgrade", MB_OK | MB_ICONWARNING | MB_TOPMOST);
+                    #endif
                 }
             }
         }
