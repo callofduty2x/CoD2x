@@ -6,24 +6,19 @@
 #include "shared.h"
 #include "hook.h"
 #include "drawing.h"
+#include "renderer.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_client.h"
 
-#define sv_cheats               (*((dvar_t**)0x00c5c5cc))
 #define g_TeamColor_Allies      (*((dvar_t**)0x017d03bc))
 #define g_TeamColor_Axis        (*((dvar_t**)0x01897e1c))
 
-// Renderer (gfx dll)
-#define d3d9_device             (*((IDirect3DDevice9**)(gfx_module_addr + 0x001d1bf8)))
+// Renderer (gfx dll), the common globals are in renderer.h
 #define sceneEntities           (*((GfxEntity**)(gfx_module_addr + 0x008cc310)))   // entities of the scene being built (front end)
 #define backEnd_entities        (*((GfxEntity**)(gfx_module_addr + 0x00981bc4)))   // backEnd + 0x3c4, entities of the scene being drawn (RB_RenderDrawSurfList)
 #define backEnd_currentEntity   (*((GfxEntity**)(gfx_module_addr + 0x00981c40)))  // NULL outside of RB_RenderDrawSurfList
 #define backEnd_viewParms       (*((char**)(gfx_module_addr + 0x00981bc8)))       // backEnd + 0x3c8, view of the drawn scene (+0x48 view matrix, +0x88 projection
                                                                                     // matrix), also used by the sprites among the 2D commands (RB_DrawSpriteCmd)
-#define tess_numIndexes         (*((int*)(gfx_module_addr + 0x009817d0)))         // tess + 0x14, quads collected for the current material
-#define tess_field_24           (*((int*)(gfx_module_addr + 0x009817e0)))         // tess + 0x24, other primitives collected (RB_EndSurface draws both)
-#define s_cmdlist               (*((char**)(gfx_module_addr + 0x00438780)))       // render commands being added: commands at 0, +0x30000 used bytes, +0x30004 extra size
-#define rb_renderCommandTable   ((void**)(gfx_module_addr + 0x00190518))           // backend functions by command id (RB_ExecuteRenderCommands)
 
 #define RC_STRETCH_PIC          0x0f    // render command of R_AddCmdDrawStretchPic
 
@@ -1005,19 +1000,6 @@ static void R_DrawIndexedPrimitive_Win32() {
 }
 
 
-// 10012270 (gfx)    void R_ReleaseForShutdownOrReset()
-static void R_ReleaseForShutdownOrReset()
-{
-    // CoD2x: The device can not be reset or destroyed while we hold its objects
-    Xray_ReleaseResources();
-    // CoD2x: End
-
-    // Call the original function
-    ASM_CALL(RETURN_VOID, (gfx_module_addr + 0x00012270), 0);
-}
-
-
-
 // ======================================================================================================
 // Head info depth test - elements of the head info set to "when visible" (cg_head* = 1) are hidden behind the world per pixel, like the 3D
 // nation icon of the game (a sprite drawn with the depth test, RB_DrawSpriteCmd). The 2D elements are drawn by the game as usual (CG_DrawRotatedPic,
@@ -1047,12 +1029,6 @@ static const DWORD xray_headTestValues[] = { TRUE, D3DCMP_EQUAL, XRAY_STENCIL_HE
 #define XRAY_HEAD_TEST_STATES   (int)(sizeof(xray_headTestStates) / sizeof(xray_headTestStates[0]))
 static DWORD xray_headTestSaved[XRAY_HEAD_TEST_STATES];
 
-
-/** Draws the quads collected by the renderer, so they use the current states (the check before RB_EndSurface is inlined in the render commands). */
-static void Xray_EndSurface() {
-    if (tess_numIndexes || tess_field_24)
-        RB_EndSurface();
-}
 
 /** Puts back the stencil states saved by TEST_ON, only those the engine did not change since (its state cache must stay right). */
 static void Xray_HeadTestOff(IDirect3DDevice9* device) {
@@ -1122,7 +1098,7 @@ static void Xray_HeadDepthReset() {
     if (!xray_headTestOn && !xray_headStencilUsed)
         return;
     IDirect3DDevice9* device = d3d9_device;
-    Xray_EndSurface();
+    Renderer_FlushTess();
     Xray_HeadTestOff(device);
     Xray_HeadDepthClear(device);
 }
@@ -1132,7 +1108,7 @@ static void Xray_HeadDepthCmd(int op, float x, float y, float z) {
     IDirect3DDevice9* device = d3d9_device;
 
     // The quads collected before the step are drawn with the states before it
-    Xray_EndSurface();
+    Renderer_FlushTess();
 
     switch (op) {
         case XRAY_HEAD_MARK:
@@ -1205,7 +1181,7 @@ bool xray_headDepthTest(const vec3_t point, bool* marked) {
     char* list = s_cmdlist;
     if (!xray_headDepthAvailable() || !list)
         return false;
-    int space = 0x30000 - *(int*)(list + 0x30000) + *(int*)(list + 0x30004) - 0x2000;
+    int space = CMDLIST_SIZE - *(int*)(list + CMDLIST_SIZE) + *(int*)(list + CMDLIST_SIZE + 4) - 0x2000;
     if (space < XRAY_HEAD_ELEMENT_SPACE)
         return false;
 
@@ -1322,8 +1298,6 @@ static const struct { unsigned int offset; void* hook; } xray_gfxCalls[] = {
     { 0x0002fd89, (void*)RB_RenderDrawSurfList_Win32 },     // 1002fd89  e8c2faffff  call RB_RenderDrawSurfList   (in RB_DrawSurfsCmd)
     { 0x0003a554, (void*)R_DrawIndexedPrimitive_Win32 },    // 1003a554  e817e5ffff  call R_DrawIndexedPrimitive   (in RB_DrawTechnique)
     { 0x0003a56c, (void*)R_DrawIndexedPrimitive_Win32 },    // 1003a56c  e8ffe4ffff  call R_DrawIndexedPrimitive   (in RB_DrawTechnique)
-    { 0x00012e70, (void*)R_ReleaseForShutdownOrReset },     // 10012e70  e8fbf3ffff  call R_ReleaseForShutdownOrReset   (device shutdown)
-    { 0x0001385b, (void*)R_ReleaseForShutdownOrReset },     // 1001385b  e810eaffff  call R_ReleaseForShutdownOrReset   (lost device reset)
 };
 #define XRAY_GFX_CALLS  (int)(sizeof(xray_gfxCalls) / sizeof(xray_gfxCalls[0]))
 static void* xray_gfxOriginal[XRAY_GFX_CALLS];      // original targets of the calls, put back on unload
@@ -1346,10 +1320,8 @@ void xray_rendered() {
     xray_headTestOn = false;
 }
 
-/** Called before the DLL is unloaded (hot reload). Releases the D3D objects (the device could not be reset with them) and puts back the renderer patches. */
+/** Called before the DLL is unloaded (hot reload), after renderer_unload (it released the D3D objects). Puts back the renderer patches. */
 void xray_unload() {
-    Xray_ReleaseResources();
-
     if (xray_gfxPatched && xray_gfxPatched == gfx_module_addr) {
         for (int i = 0; i < XRAY_GFX_CALLS; i++)
             patch_call(gfx_module_addr + xray_gfxCalls[i].offset, (unsigned int)xray_gfxOriginal[i]);
@@ -1381,6 +1353,9 @@ void xray_init() {
     cg_xrayGlowCoreIntensity =  Dvar_RegisterFloat("cg_xrayGlowCoreIntensity", 0.5f, 0.0f, 2.0f, flags);
     cg_xrayColorAllies =        Dvar_RegisterString("cg_xrayColorAllies", "", flags);
     cg_xrayColorAxis =          Dvar_RegisterString("cg_xrayColorAxis", "", flags);
+
+    // The device can not be reset or destroyed while we hold its objects
+    Renderer_AddReleaseCallback(Xray_ReleaseResources);
 }
 
 /** Called before the entry point is called. Used to patch the memory. */

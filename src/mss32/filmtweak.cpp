@@ -15,11 +15,9 @@
  *   contrast + brightness 0.43 0.31 0.19, luminance 0.332, saturation 0.381 0.321 0.261
  *
  * How it works (renderer DLL gfx_d3d_mp_x86_s.dll):
- *   - The frontend R_RenderScene (gfx_funcs slot, called once per frame by CG_DrawActive) adds the render commands of the 3D scene.
- *     After it we add our own command FILMTWEAK_CMD_ID. Render commands run in order in the backend, so ours runs after the whole
- *     scene (sky, world, effects, DX9 glow and sun flare) and before the HUD, console and menus that are added later.
- *   - The command id 34 is free: rb_renderCommandTable has the commands 0 .. 33 followed by zeros, and the backend
- *     (RB_ExecuteRenderCommands) calls rb_renderCommandTable[id] without a range check.
+ *   - After the frontend R_RenderScene (scene callback of renderer.cpp) we add our render command (Renderer_AddCmd).
+ *     Render commands run in order in the backend, so ours runs after the whole scene (sky, world, effects, DX9 glow and
+ *     sun flare) and before the HUD, console and menus that are added later.
  *   - The backend function copies the back buffer to a texture with StretchRect (also resolves MSAA) and draws it back over the
  *     scene viewport with our ps_2_0 shader (filmtweak.hlsl). Both DX9 and DX7 (r_rendererPreference) use the same IDirect3DDevice9,
  *     DX7 only selects other material techniques of the game, so both go through exactly the same code.
@@ -28,13 +26,14 @@
  *     the depth test LESSEQUAL only on the sky pixels with the sky saturation, with GREATER on the world with the world saturation.
  *     (Marking the sky in stencil would not work - the sky is drawn before the world, the marks would stay under the world too.)
  *   - All values are computed in the frontend and stored in the command, the backend reads only the command.
+ *   - The D3D objects are released before the device is reset or destroyed (release callback of renderer.cpp).
  *   - When everything is neutral, or r_filmTweakEnable is 0, no command is added (zero cost).
  *
  * r_gamma (game cvar, 0.5 .. 3, 1 = unchanged) uses the same pass over the whole frame:
  *   - The game sets r_gamma as the hardware gamma ramp of the device (RB_EndFrame -> RB_SetGammaRamp). That works only in
  *     fullscreen, changes the whole monitor and stays changed when the game crashes. CoD2x keeps the hardware ramp identity
- *     and the frontend R_EndFrame (gfx_funcs slot, called once per frame after all drawing) adds our command with only the
- *     gamma as the last command of the frame, so it covers the scene, HUD, menus and console - in fullscreen and windowed
+ *     and before the frontend R_EndFrame (end frame callback of renderer.cpp, after all drawing) adds our command with only
+ *     the gamma as the last command of the frame, so it covers the scene, HUD, menus and console - in fullscreen and windowed
  *     mode, without touching the monitor. Screenshots include it, as they read the back buffer after the commands.
  *   Example: r_gamma 1.5, pixel 0.20 -> pow(0.20, 1 / 1.5) = 0.34, pixel 0.80 -> 0.86 (dark parts get brighter the most).
  */
@@ -47,7 +46,7 @@
 
 #include "shared.h"
 #include "hook.h"
-#include "drawing.h"
+#include "renderer.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_client.h"
 #include "filmtweak_ps.h"
@@ -69,35 +68,9 @@ dvar_t* r_filmTweakLightTint;
 // Engine
 // ======================================================================================================
 
-// Renderer (gfx dll)
-#define d3d9_device             (*((IDirect3DDevice9**)(gfx_module_addr + 0x001d1bf8)))
-#define tess_numIndexes         (*((int*)(gfx_module_addr + 0x009817d0)))         // tess + 0x14, quads collected for the current material
-#define tess_field_24           (*((int*)(gfx_module_addr + 0x009817e0)))         // tess + 0x24, other primitives collected (RB_EndSurface draws both)
-#define s_cmdlist               (*((char**)(gfx_module_addr + 0x00438780)))       // render commands being added: commands at 0, +0x30000 used bytes, +0x30004 extra size, +0x30008 last command
-#define rb_renderCommandTable   ((void**)(gfx_module_addr + 0x00190518))           // backend functions by command id (RB_ExecuteRenderCommands)
-#define rg_registered           (*((bool*)(gfx_module_addr + 0x001d4d00)))       // rg, first byte: renderer initialized (R_EndFrame does nothing without it)
+// Renderer (gfx dll), the other globals are in renderer.h
 #define r_gamma                 (*((dvar_t**)(gfx_module_addr + 0x001ce62c)))
 #define r_ignoreHwGamma         (*((dvar_t**)(gfx_module_addr + 0x001ce700)))
-
-#define CMDLIST_SIZE            0x30000
-
-// Our render command, the first free id after the 34 commands of the game (0 = end of the list .. 33 = RB_TouchAllImagesCmd)
-#define FILMTWEAK_CMD_ID        34
-
-// Renderer functions, copied by the engine into the table gfx_funcs (0x0068a1e8) after the renderer is loaded
-typedef void (__cdecl *R_RenderScene_t)(refdef_t* refdef);
-#define gfx_funcs_R_RenderScene (*((R_RenderScene_t*)0x0068a27c))
-
-typedef void (__cdecl *R_EndFrame_t)();
-#define gfx_funcs_R_EndFrame    (*((R_EndFrame_t*)0x0068a2ac))
-
-// Original renderer functions, saved when ours are put into gfx_funcs
-static R_RenderScene_t filmtweak_R_RenderScene = NULL;
-static R_EndFrame_t filmtweak_R_EndFrame = NULL;
-
-// 100122a5  e8a6160100  call R_ShutdownRenderTargets   (in R_ReleaseForShutdownOrReset, before the device is reset or destroyed)
-#define FILMTWEAK_SHUTDOWN_CALL 0x000122a5
-#define FILMTWEAK_SHUTDOWN_FUNC 0x00023950
 
 // 10033fd5  e866ccffff  call RB_SetGammaRamp   (in RB_EndFrame, when r_gamma or r_ignorehwgamma changed, the only call in use)
 #define FILMTWEAK_GAMMARAMP_CALL 0x00033fd5
@@ -119,16 +92,14 @@ struct FilmTweakConstants {
 };
 
 struct FilmTweakCmd {
-    uint16_t id;            // FILMTWEAK_CMD_ID
-    uint16_t byteCount;     // size of the command, the backend moves to the next command by it
     int32_t x, y, width, height;        // viewport of the scene in pixels (refdef)
     int32_t splitSky;       // 1 = separate passes for the sky and the world, 0 = one pass with the world constants
     FilmTweakConstants world;
     FilmTweakConstants sky;
 };
 
-static bool filmtweak_installed = false;        // our command, R_RenderScene and the shutdown hook are in the renderer
-static unsigned int filmtweak_installedGfx = 0; // gfx_module_addr the hooks were installed into
+static int filmtweak_cmdType = -1;             // our render command (Renderer_RegisterCmd)
+static unsigned int filmtweak_patchedGfx = 0;   // gfx_module_addr the gamma ramp hook is in, 0 = none
 
 // D3D objects, released before the device is reset or destroyed
 static IDirect3DTexture9* filmtweak_texture = NULL;     // copy of the back buffer
@@ -387,16 +358,9 @@ static void FilmTweak_Apply(IDirect3DDevice9* device, const FilmTweakCmd* cmd) {
 }
 
 
-/** Backend function of our render command, called by RB_ExecuteRenderCommands in the order of the commands. */
-static void FilmTweak_Cmd(void** execState) {
-    const FilmTweakCmd* cmd = (const FilmTweakCmd*)*execState;
-    *execState = (void*)((const char*)cmd + cmd->byteCount);
-
-    // The quads collected before the command are drawn first, with their states (the check before RB_EndSurface is inlined in the render commands)
-    if (tess_numIndexes || tess_field_24)
-        RB_EndSurface();
-
-    FilmTweak_Apply(d3d9_device, cmd);
+/** Backend function of our render command, called in the order of the commands after the collected quads were drawn. */
+static void FilmTweak_Cmd(const void* data) {
+    FilmTweak_Apply(d3d9_device, (const FilmTweakCmd*)data);
 }
 
 
@@ -410,7 +374,7 @@ static void FilmTweak_SetConstants(FilmTweakConstants* c, float contrast, float 
                                    const float* color, const float* darkTint, const float* lightTint) {
     if (gamma < 0.5f)   // also protects against division by zero
         gamma = 0.5f;
-    // The command is zeroed by FilmTweak_AllocCmd
+    // The command is zeroed by Renderer_AddCmd
     for (int i = 0; i < 3; i++) {
         c->contrast[i] = contrast;
         c->bias[i] = brightness + 0.5f - 0.5f * contrast;
@@ -425,32 +389,9 @@ static bool FilmTweak_IsOne(const float* v) {
     return v[0] == 1.0f && v[1] == 1.0f && v[2] == 1.0f;
 }
 
-/**
- * Space for our command at the end of the render command list, NULL if it is full. Like R_AddCmd* of the game, but 4 bytes
- * are always left for the end of the list that R_EndFrame_Internal adds.
- */
-static FilmTweakCmd* FilmTweak_AllocCmd() {
-    char* list = s_cmdlist;
-    if (!list)
-        return NULL;
-    int used = *(int*)(list + CMDLIST_SIZE);
-    int size = (int)sizeof(FilmTweakCmd);
-    if (CMDLIST_SIZE - used < size + 4)
-        return NULL;
-    FilmTweakCmd* cmd = (FilmTweakCmd*)(list + used);
-    *(int*)(list + CMDLIST_SIZE) = used + size;
-    *(int*)(list + CMDLIST_SIZE + 4) += size;
-    *(char**)(list + CMDLIST_SIZE + 8) = (char*)cmd;
-
-    memset(cmd, 0, sizeof(*cmd));
-    cmd->id = FILMTWEAK_CMD_ID;
-    cmd->byteCount = (uint16_t)size;
-    return cmd;
-}
-
-/** Adds the r_gamma pass over the whole frame, if r_gamma changes anything. */
+/** End frame callback (renderer.cpp): adds the r_gamma pass over the whole frame, if r_gamma changes anything. */
 static void FilmTweak_AddGammaCmd() {
-    if (!filmtweak_installed || !r_gamma || filmtweak_supported == 0)
+    if (!r_gamma || filmtweak_supported == 0)
         return;
     if (r_ignoreHwGamma && r_ignoreHwGamma->value.boolean)   // the game ignores r_gamma with it
         return;
@@ -459,7 +400,7 @@ static void FilmTweak_AddGammaCmd() {
     if (gamma == 1.0f)
         return;
 
-    FilmTweakCmd* cmd = FilmTweak_AllocCmd();
+    FilmTweakCmd* cmd = (FilmTweakCmd*)Renderer_AddCmd(filmtweak_cmdType, sizeof(FilmTweakCmd));
     if (!cmd)
         return;
 
@@ -469,9 +410,9 @@ static void FilmTweak_AddGammaCmd() {
     FilmTweak_SetConstants(&cmd->world, 1.0f, 0.0f, gamma, 1.0f, filmtweak_one, filmtweak_one, filmtweak_one);
 }
 
-/** Adds our render command after the scene, if the film tweaks change anything. */
-static void FilmTweak_AddSceneCmd(const refdef_t* refdef) {
-    if (!r_filmTweakEnable || !r_filmTweakEnable->value.boolean || !filmtweak_installed)
+/** Scene callback (renderer.cpp): adds our render command after the scene, if the film tweaks change anything. */
+static void FilmTweak_SceneRendered(const refdef_t* refdef) {
+    if (!r_filmTweakEnable || !r_filmTweakEnable->value.boolean)
         return;
 
     float contrast = r_filmTweakContrast->value.decimal;
@@ -488,7 +429,7 @@ static void FilmTweak_AddSceneCmd(const refdef_t* refdef) {
         FilmTweak_IsOne(color) && FilmTweak_IsOne(darkTint) && FilmTweak_IsOne(lightTint))
         return;
 
-    FilmTweakCmd* cmd = FilmTweak_AllocCmd();
+    FilmTweakCmd* cmd = (FilmTweakCmd*)Renderer_AddCmd(filmtweak_cmdType, sizeof(FilmTweakCmd));
     if (!cmd)
         return;
 
@@ -502,42 +443,13 @@ static void FilmTweak_AddSceneCmd(const refdef_t* refdef) {
 }
 
 
-// 10025b90 (gfx)    void R_RenderScene(struct refdef_t* refdef)
-static void R_RenderScene(refdef_t* refdef)
-{
-    // CoD2x: the scene adds no commands when the renderer skips it (r_norefresh, no world), the pass is added only after a scene
-    char* list = s_cmdlist;
-    int usedBefore = list ? *(int*)(list + CMDLIST_SIZE) : 0;
-    // CoD2x: End
-
-    filmtweak_R_RenderScene(refdef);
-
-    // CoD2x: color pass over the finished 3D scene, before the 2D drawing
-    if (list && list == s_cmdlist && *(int*)(list + CMDLIST_SIZE) != usedBefore)
-        FilmTweak_AddSceneCmd(refdef);
-    // CoD2x: End
-}
-
-
-// 10022390 (gfx)    void R_EndFrame()
-static void R_EndFrame()
-{
-    // CoD2x: r_gamma over the whole frame - the last command, after the scene, HUD, menus and console
-    if (rg_registered)
-        FilmTweak_AddGammaCmd();
-    // CoD2x: End
-
-    filmtweak_R_EndFrame();
-}
-
-
 // 10030c40 (gfx)    void RB_SetGammaRamp(uint16_t* ramp @ eax)
 static void RB_SetGammaRamp(uint16_t* ramp)
 {
     // CoD2x: the hardware ramp stays identity, r_gamma is applied by the shader pass (R_EndFrame).
-    // Without the pass (no pixel shader 2.0) the game ramp is kept, so r_gamma still works in fullscreen.
+    // Without the pass (no pixel shader 2.0, no CoD2x render commands) the game ramp is kept, so r_gamma still works in fullscreen.
     uint16_t identity[256];
-    filmtweak_hwGammaRamp = (filmtweak_supported == 0);
+    filmtweak_hwGammaRamp = (filmtweak_supported == 0 || !Renderer_CmdsAvailable());
     if (!filmtweak_hwGammaRamp) {
         for (int i = 0; i < 256; i++)
             identity[i] = (uint16_t)((i << 8) | i);
@@ -558,69 +470,21 @@ static void RB_SetGammaRamp_Win32()
 }
 
 
-// 10023950 (gfx)    void R_ShutdownRenderTargets()
-static void R_ShutdownRenderTargets()
-{
-    // CoD2x: The device can not be reset or destroyed while we hold its objects (called by R_ReleaseForShutdownOrReset)
-    FilmTweak_ReleaseResources();
-    // CoD2x: End
-
-    // Call the original function
-    ASM_CALL(RETURN_VOID, (gfx_module_addr + FILMTWEAK_SHUTDOWN_FUNC), 0);
-}
-
-
-
 // ======================================================================================================
 // Module
 // ======================================================================================================
 
-/**
- * Puts our command into the renderer and R_RenderScene into the renderer function table. The engine loads the renderer
- * and fills the table at game start and vid_restart, so it is checked every frame.
- */
-static void FilmTweak_HookRenderer()
-{
-    if (!gfx_module_addr || !gfx_funcs_R_RenderScene)
-        return;
-
-    // Renderer DLL loaded again (vid_restart, often at the same address) - our patches are not in it.
-    // The D3D objects of the previous device were released by R_ShutdownRenderTargets before it was destroyed.
-    void** slot = &rb_renderCommandTable[FILMTWEAK_CMD_ID];
-    if (*slot != (void*)FilmTweak_Cmd) {
-        filmtweak_installed = false;
-        filmtweak_installedGfx = gfx_module_addr;
-        if (*slot == NULL) {
-            patch_int32((unsigned int)slot, (int32_t)FilmTweak_Cmd);
-            patch_call(gfx_module_addr + FILMTWEAK_SHUTDOWN_CALL, (unsigned int)R_ShutdownRenderTargets);
-            patch_call(gfx_module_addr + FILMTWEAK_GAMMARAMP_CALL, (unsigned int)RB_SetGammaRamp_Win32);
-            // The next RB_EndFrame sets the identity ramp, in case the game set the gamma before the hook (fullscreen)
-            if (r_gamma)
-                r_gamma->modified = true;
-            filmtweak_installed = true;
-        } else {
-            static bool logged = false;
-            if (!logged) {
-                logged = true;
-                logger_add("Film tweaks: render command 34 is already used");
-            }
-        }
-    }
-
-    if (filmtweak_installed && gfx_funcs_R_RenderScene != R_RenderScene) {
-        filmtweak_R_RenderScene = gfx_funcs_R_RenderScene;
-        gfx_funcs_R_RenderScene = R_RenderScene;
-    }
-    if (filmtweak_installed && gfx_funcs_R_EndFrame && gfx_funcs_R_EndFrame != R_EndFrame) {
-        filmtweak_R_EndFrame = gfx_funcs_R_EndFrame;
-        gfx_funcs_R_EndFrame = R_EndFrame;
-    }
+/** Called when the game loaded the renderer DLL (game start, vid_restart). */
+void filmtweak_rendered() {
+    patch_call(gfx_module_addr + FILMTWEAK_GAMMARAMP_CALL, (unsigned int)RB_SetGammaRamp_Win32);
+    filmtweak_patchedGfx = gfx_module_addr;
+    // The next RB_EndFrame sets the identity ramp, in case the game set the gamma before the hook (fullscreen)
+    if (r_gamma)
+        r_gamma->modified = true;
 }
 
 /** Called every frame on frame start. */
 void filmtweak_frame() {
-    FilmTweak_HookRenderer();
-
     // Failure of the backend (render thread), printed on the main thread
     const char* reason = filmtweak_failureReason;
     if (reason) {
@@ -629,30 +493,15 @@ void filmtweak_frame() {
     }
 }
 
-/** Called before the DLL is unloaded (hot reload). */
+/** Called before the DLL is unloaded (hot reload), after renderer_unload (it released the D3D objects of the pass). */
 void filmtweak_unload() {
-    bool patched = filmtweak_installed && gfx_module_addr == filmtweak_installedGfx;
-
-    // The render thread may still draw the previous frame with our command - wait for it before the command is removed
-    if (patched)
-        R_SyncRenderThread();
-
-    if (gfx_funcs_R_RenderScene == R_RenderScene)
-        gfx_funcs_R_RenderScene = filmtweak_R_RenderScene;
-    if (gfx_funcs_R_EndFrame == R_EndFrame)
-        gfx_funcs_R_EndFrame = filmtweak_R_EndFrame;
-
-    if (patched) {
-        FilmTweak_ReleaseResources();
-        patch_int32((unsigned int)&rb_renderCommandTable[FILMTWEAK_CMD_ID], 0);
-        patch_call(gfx_module_addr + FILMTWEAK_SHUTDOWN_CALL, gfx_module_addr + FILMTWEAK_SHUTDOWN_FUNC);
+    if (filmtweak_patchedGfx && filmtweak_patchedGfx == gfx_module_addr) {
         patch_call(gfx_module_addr + FILMTWEAK_GAMMARAMP_CALL, gfx_module_addr + FILMTWEAK_GAMMARAMP_FUNC);
         // The hardware ramp is identity and the gamma pass is gone - the next RB_EndFrame puts r_gamma into the ramp again
         if (r_gamma)
             r_gamma->modified = true;
     }
-    filmtweak_installed = false;
-    filmtweak_installedGfx = 0;
+    filmtweak_patchedGfx = 0;
 }
 
 /** Called only once on game start after common initialization. */
@@ -669,4 +518,9 @@ void filmtweak_init() {
     r_filmTweakColor =          Dvar_RegisterVec3("r_filmTweakColor", 1.0f, 1.0f, 1.0f, 0.0f, 2.0f, flags);
     r_filmTweakDarkTint =       Dvar_RegisterVec3("r_filmTweakDarkTint", 1.0f, 1.0f, 1.0f, 0.0f, 2.0f, flags);
     r_filmTweakLightTint =      Dvar_RegisterVec3("r_filmTweakLightTint", 1.0f, 1.0f, 1.0f, 0.0f, 2.0f, flags);
+
+    filmtweak_cmdType = Renderer_RegisterCmd(FilmTweak_Cmd);
+    Renderer_AddSceneCallback(FilmTweak_SceneRendered);
+    Renderer_AddEndFrameCallback(FilmTweak_AddGammaCmd);
+    Renderer_AddReleaseCallback(FilmTweak_ReleaseResources);
 }

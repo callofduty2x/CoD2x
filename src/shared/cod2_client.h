@@ -11,6 +11,7 @@
 
 #define clientState                   (*((clientState_e*)0x00609fe0))
 #define demo_isPlaying                (*((int*)0x0064a170))
+#define sv_cheats                     (*((dvar_t**)0x00c5c5cc))
 
 #define com_playerProfile (*(dvar_t **)(0x00c23f1c))
 
@@ -320,6 +321,14 @@ inline void CL_RegisterHudMsgIconMaterial(const char* name) {
 // 00406a20    void Con_DrawMessageWindow(struct notifyBufferItem* msgwnd, int32_t x, int32_t y @ eax, int32_t mode @ ecx, int32_t charHeight, enum horizontalAlign_e horzAlign, enum verticalAlign_e vertAlign, float alpha, float scale)
 inline void Con_DrawMessageWindow(void* msgwnd, int32_t x, int32_t y, int32_t mode, int32_t charHeight, int32_t horzAlign, int32_t vertAlign, float alpha, float scale) {
     ASM_CALL(RETURN_VOID, 0x00406a20, 7, PUSH(msgwnd), PUSH(x), EAX(y), ECX(mode), PUSH(charHeight), PUSH(horzAlign), PUSH(vertAlign), PUSH(alpha), PUSH(scale));
+}
+
+// Sets the camera of the effects system (FxHelper::AdjustCamera): the position, the frustum planes the effects are culled by
+// and the scale of the field of view, from the refdef (with the near plane of the renderer). The effects drawn by the renderer
+// R_RenderScene (FX_DrawScheduledEffects) face this camera. CG_DrawActiveFrame sets it once per frame from cg.refdef.
+// 00402650    void CL_FX_AdjustCamera(struct refdef_t* refdef @ esi)
+inline void CL_FX_AdjustCamera(const refdef_t* refdef) {
+    ASM_CALL(RETURN_VOID, 0x00402650, 0, ESI(refdef));
 }
 
 // Traces a capsule (mins, maxs) from start to end against the world (CM_Trace) and then the entities, skipping the entity skipNumber.

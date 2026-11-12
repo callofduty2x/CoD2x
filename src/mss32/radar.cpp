@@ -15,7 +15,6 @@
 #define mouse_offset_y              (((int*)0x0098fdb0))
 #define mapName                     (*((char(*)[0x3f])0x0196ffa0))
 #define gameType                    (*((char(*)[0x3f])0x019953b0))
-#define sv_cheats                   (*((dvar_t**)0x00c5c5cc))
 #define demo_isPlaying              (*((int*)0x0064a170))
 #define cg_hudCompassSize           (*((dvar_t**)0x0166bb34))
 #define g_TeamColor_Allies          (*((dvar_t**)0x017d03bc))

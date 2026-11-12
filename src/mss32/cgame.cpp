@@ -11,7 +11,6 @@
 
 
 #define clientState                   (*((clientState_e*)0x00609fe0))
-#define sv_cheats                     (*((dvar_t**)0x00c5c5cc))
 #define cg_thirdperson                (*((dvar_t**)0x014b5bdc))
 #define cg_thirdPersonAngle           (*((dvar_t**)0x0166e024))
 #define cg_thirdPersonRange           (*((dvar_t**)0x0166baa0))

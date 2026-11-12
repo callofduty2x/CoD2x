@@ -24,6 +24,7 @@
 #include "radar.h"
 #include "drawing.h"
 #include "text.h"
+#include "renderer.h"
 #include "filmtweak.h"
 #include "master_server.h"
 #include "error.h"
@@ -98,6 +99,7 @@ void hook_Com_Frame()
             radar_unload();
             demo_unload();
             text_unload();
+            renderer_unload();      // first of the renderer modules - waits for the render thread and removes the hooks
             xray_unload();
             filmtweak_unload();
 
@@ -110,6 +112,7 @@ void hook_Com_Frame()
     // Only for client
     if (dedicated->value.integer == 0) {
         text_frame();
+        renderer_frame();
         filmtweak_frame();
         competitive_frame();
         cgame_frame();
@@ -163,7 +166,9 @@ int hook_gfxDll() {
 
     window_rendered();
     updater_renderer();
+    renderer_rendered();
     xray_rendered();
+    filmtweak_rendered();
 
     // Fix LOD
     //r_lodScale = Dvar_RegisterFloat("r_lodScale", 1f, 1f, 4f, DVAR_CHEAT | DVAR_RENDERER);

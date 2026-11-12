@@ -156,24 +156,6 @@ inline void R_AddCmdDrawStretchPic(float x, float y, float width, float height, 
     ASM_CALL(RETURN_VOID, address, 10, PUSH(x), PUSH(y), PUSH(width), PUSH(height), PUSH(s1), PUSH(t1), PUSH(s2), PUSH(t2), PUSH(color), PUSH(material));
 }
 
-/**
- * Renderer backend: draws the quads collected for the current material (tess) with its render states and empties the collection.
- * The render commands call it when the material changes, or before they change the device state.
- */
-// 1003ad30 (gfx)    struct shaderCommands_t* RB_EndSurface()
-inline void RB_EndSurface() {
-    ASM_CALL(RETURN_VOID, (gfx_module_addr + 0x0003ad30), 0);
-}
-
-/**
- * Renderer frontend: waits until the render thread (r_smp_backend) has finished the frame it is drawing, once per frame
- * (the engine's wait function, cod2_funcs, at most 4 s). Does nothing before the renderer is initialized.
- */
-// 10020fc0 (gfx)    void R_SyncRenderThread()
-inline void R_SyncRenderThread() {
-    ASM_CALL(RETURN_VOID, (gfx_module_addr + 0x00020fc0), 0);
-}
-
 void drawing_frame();
 void drawing_init();
 void drawing_patch();
