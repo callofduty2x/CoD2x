@@ -124,19 +124,6 @@ static void iwd_cleanupCoD2xIwdFiles() {
         }
 
         if (shouldDelete(name)) {
-            #if COD2X_WIN32 && DEBUG
-                // Confirm on Windows
-                if (IDYES != MessageBoxA(
-                        NULL,
-                        va("Found newer or testing CoD2x IWD that needs to be deleted:\n%s\n\nProceed with deletion?", fullPath),
-                        "Confirm Deletion",
-                        MB_ICONWARNING | MB_YESNO)) {
-                    closedir(dir);
-                    exit(0);
-                    return;
-                }
-            #endif
-
             if (remove(fullPath) == 0) {
                 Com_Printf("Deleted CoD2x IWD: %s\n", fullPath);
             } else {
