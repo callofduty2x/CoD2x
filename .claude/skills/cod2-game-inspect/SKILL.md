@@ -58,8 +58,9 @@ Symbols: `mss32.dll` (debug build) - nm + addr2line of the loaded DLL, `function
   `-exec info signals` / look at the stop reason in VS Code, or `-exec bt`, `-exec info registers` in the Debug
   Console.
 - A running (not stopped) game gives a moving snapshot - registers and stack of a thread can disagree.
-- Seen once (2026-11-12): the main thread in PunkBuster (`pbcl.dll`, called from `WinMain+0x292` every frame, also
-  with `cl_punkbuster 0`), jumped into reserved memory (`0x00200212`) through a register. Probably a deliberate
-  exception PunkBuster handles itself (anti-debug) that gdb stops on as first-chance - not confirmed; check whether
-  Continue in VS Code goes on, and update this note. No CoD2x frame in the chain = not our code.
+- Seen (2026-11-12): the main thread in PunkBuster (`pbcl.dll`, called from `WinMain+0x292` every frame, also
+  with `cl_punkbuster 0`), jumped into reserved memory (`0x00200212`) through a register. Fatal - Continue in VS Code
+  does not recover. No CoD2x frame in the chain = not our code. Versions after 1.4.7.1-test.1 never load PunkBuster
+  (`src/shared/punkbuster.cpp`), so `pbcl.dll` / `pbsv.dll` must not be in the module list - if they are, the
+  game runs an older mss32.dll.
 - Report plainly: where each relevant thread is, what is ours and what is not, what can not be known from a snapshot.

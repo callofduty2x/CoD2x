@@ -44,6 +44,7 @@
 #include "../shared/gsc.h"
 #include "../shared/match.h"
 #include "../shared/weapons.h"
+#include "../shared/punkbuster.h"
 
 HMODULE hModule;
 unsigned int gfx_module_addr;
@@ -358,8 +359,9 @@ bool hook_patch() {
     animation_patch();
     gsc_patch();
     iwd_patch();
+    punkbuster_patch();
 
-    
+
     // Patch black screen / long loading on game startup
     // Caused by Windows Mixer loading
     // For some reason function mixerGetLineInfoA() returns a lot of connections, causing it to loop for a long time

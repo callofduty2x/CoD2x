@@ -13,6 +13,7 @@
 #include "../shared/animation.h"
 #include "../shared/gsc.h"
 #include "../shared/match.h"
+#include "../shared/punkbuster.h"
 #include "updater.h"
 #include "exception.h"
 #include "error.h"
@@ -105,6 +106,7 @@ bool hook_patch() {
     gsc_patch();
     match_patch();
     iwd_patch();
+    punkbuster_patch();
 
     return true;
 }
