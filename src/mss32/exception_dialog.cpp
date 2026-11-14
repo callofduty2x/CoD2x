@@ -8,19 +8,33 @@
 #include "shared.h"
 
 // ---------------------------------------------------------------------------
-// Custom crash dialog - modern dark theme
+// Custom crash dialog - looks like a standard Windows dialog (MessageBox / TaskDialog):
+// white content area, gray footer band with the buttons
 // ---------------------------------------------------------------------------
 
-#define CLR_WIN_BG          RGB(30,  30,  30)   // Neutral dark
-#define CLR_EDIT_BG         RGB(18,  18,  18)   // Neutral dark keeps text readable
-#define CLR_EDIT_FG         RGB(212, 212, 212)
-#define CLR_BTN_RESTART_N   RGB(0,   120, 212)   // Windows blue
-#define CLR_BTN_RESTART_P   RGB(0,   90,  160)
-#define CLR_BTN_DUMP_N      RGB(68,  68,  68)    // Neutral gray
-#define CLR_BTN_DUMP_P      RGB(45,  45,  45)
-#define CLR_BTN_EXIT_N      RGB(180, 40,  40)    // Red
-#define CLR_BTN_EXIT_P      RGB(140, 20,  20)    // Darker red
-#define CLR_BTN_TEXT        RGB(255, 255, 255)
+#define CLR_WIN_BG          RGB(255, 255, 255)   // content area
+#define CLR_FOOTER_BG       RGB(240, 240, 240)   // button band (COLOR_3DFACE)
+#define CLR_FOOTER_LINE     RGB(223, 223, 223)
+#define CLR_TEXT            RGB(0,   0,   0)
+#define CLR_TEXT_MUTED      RGB(90,  90,  90)
+#define CLR_HEADING         RGB(0,   51,  153)   // main instruction of TaskDialog
+#define CLR_LINK            RGB(0,   102, 204)
+#define CLR_EDIT_BG         RGB(246, 246, 246)
+#define CLR_EDIT_FG         RGB(30,  30,  30)
+#define CLR_BTN_PRIMARY_N   RGB(0,   95,  184)   // Windows accent blue (default button)
+#define CLR_BTN_PRIMARY_P   RGB(0,   75,  150)
+#define CLR_BTN_PRIMARY_TXT RGB(255, 255, 255)
+#define CLR_BTN_N           RGB(253, 253, 253)
+#define CLR_BTN_P           RGB(229, 229, 229)
+#define CLR_BTN_BORDER      RGB(204, 204, 204)
+#define CLR_BTN_TXT         RGB(0,   0,   0)
+#define CLR_BTN_DISABLED    RGB(245, 245, 245)
+#define CLR_BTN_DISABLED_BORDER RGB(220, 220, 220)
+#define CLR_BTN_DISABLED_TXT    RGB(160, 160, 160)
+
+// Buttons and closing are blocked for the first moments, so a key or mouse button the player was pressing
+// when the game crashed (Enter, a click where the buttons appear) does not restart or close the game
+#define CRASH_INPUT_GUARD_MS 3000
 
 #define IDC_CRASH_EDIT      2001
 #define IDC_BTN_RESTART     2002
@@ -62,6 +76,10 @@ struct CrashDialogData {
     int               compactHeight;
     int               expandedWidth;
     int               expandedHeight;
+    HBRUSH            hBrushFooter;
+    int               footerTop;        // client y where the gray button band starts
+    DWORD             inputEnableTime;  // GetTickCount when the buttons and closing are allowed
+    bool              inputEnabled;
 };
 
 
@@ -98,8 +116,14 @@ static void exception_updateSendLabel(HWND hwnd, CrashDialogData* data) {
                 g_crashSendError[0] ? g_crashSendError : "unknown error");
             break;
         default:
+            #if DEBUG && !EXCEPTION_TEST
+            snprintf(status, sizeof(status),
+                "Debug build: the crash report is NOT sent to CoD2x developers, it is only saved to the file above.\n"
+                "(Build with EXCEPTION_TEST to test the sending.)");
+            #else
             snprintf(status, sizeof(status),
                 "Crash report will be sent to CoD2x developers for analysis.");
+            #endif
             break;
     }
 
@@ -110,14 +134,45 @@ static void exception_updateSendLabel(HWND hwnd, CrashDialogData* data) {
 // Crash dialog
 // ---------------------------------------------------------------------------
 
+// Work area (without the taskbar) of the monitor, or of the primary monitor
+static RECT exception_monitorWorkArea(HMONITOR hMonitor) {
+    MONITORINFO mi;
+    ZeroMemory(&mi, sizeof(mi));
+    mi.cbSize = sizeof(mi);
+    if (hMonitor && GetMonitorInfoA(hMonitor, &mi))
+        return mi.rcWork;
+    RECT rc = {0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    return rc;
+}
+
+// Moves (and shrinks if needed) the window so it is fully inside the work area of one monitor - the given one, or the
+// monitor the window is mostly on. Also keeps it topmost (the fullscreen game window is topmost too).
+static void exception_fitToMonitor(HWND hwnd, HMONITOR hMonitor) {
+    RECT wr;
+    if (!GetWindowRect(hwnd, &wr))
+        return;
+    if (!hMonitor)
+        hMonitor = MonitorFromRect(&wr, MONITOR_DEFAULTTONEAREST);
+    RECT wa = exception_monitorWorkArea(hMonitor);
+
+    int w = wr.right - wr.left;
+    int h = wr.bottom - wr.top;
+    if (w > wa.right - wa.left) w = wa.right - wa.left;
+    if (h > wa.bottom - wa.top) h = wa.bottom - wa.top;
+
+    int x = wr.left;
+    int y = wr.top;
+    if (x + w > wa.right)  x = wa.right - w;
+    if (y + h > wa.bottom) y = wa.bottom - h;
+    if (x < wa.left) x = wa.left;
+    if (y < wa.top)  y = wa.top;
+
+    SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
+}
+
 static void exception_resizeDialogClient(HWND hwnd, int clientW, int clientH, bool keepCentered) {
     if (clientW < CRASH_MIN_CLIENT_W) clientW = CRASH_MIN_CLIENT_W;
     if (clientH < CRASH_MIN_CLIENT_H) clientH = CRASH_MIN_CLIENT_H;
-
-    const int maxClientW = GetSystemMetrics(SM_CXSCREEN) - 80;
-    const int maxClientH = GetSystemMetrics(SM_CYSCREEN) - 120;
-    if (clientW > maxClientW) clientW = maxClientW;
-    if (clientH > maxClientH) clientH = maxClientH;
 
     DWORD style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
     DWORD exStyle = (DWORD)GetWindowLongPtr(hwnd, GWL_EXSTYLE);
@@ -133,24 +188,16 @@ static void exception_resizeDialogClient(HWND hwnd, int clientW, int clientH, bo
     if (keepCentered) {
         RECT oldWr = {};
         GetWindowRect(hwnd, &oldWr);
-        int centerX = (oldWr.left + oldWr.right) / 2;
-        int centerY = (oldWr.top + oldWr.bottom) / 2;
-        newX = centerX - newW / 2;
-        newY = centerY - newH / 2;
-
-        int screenW = GetSystemMetrics(SM_CXSCREEN);
-        int screenH = GetSystemMetrics(SM_CYSCREEN);
-        if (newX < 0) newX = 0;
-        if (newY < 0) newY = 0;
-        if (newX + newW > screenW) newX = screenW - newW;
-        if (newY + newH > screenH) newY = screenH - newH;
-        if (newX < 0) newX = 0;
-        if (newY < 0) newY = 0;
+        newX = (oldWr.left + oldWr.right) / 2 - newW / 2;
+        newY = (oldWr.top + oldWr.bottom) / 2 - newH / 2;
     } else {
         flags |= SWP_NOMOVE;
     }
 
+    // The monitor the dialog is on now, the new size is fitted into it below
+    HMONITOR hMonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
     SetWindowPos(hwnd, NULL, newX, newY, newW, newH, flags);
+    exception_fitToMonitor(hwnd, hMonitor);
 }
 
 static void exception_layoutCrashDlg(HWND hwnd, int w, int h) {
@@ -191,14 +238,19 @@ static void exception_layoutCrashDlg(HWND hwnd, int w, int h) {
     if (showDetails) {
         btnY = h - margin - btnH;
         editY = sendStatusY + sendStatusH + gap;
-        editH = btnY - gap - editY;
+        editH = btnY - margin - gap - editY; // ends above the footer band
         if (editH < 120) {
             editH = 120;
-            btnY = editY + editH + gap;
+            btnY = editY + editH + gap + margin;
         }
     } else {
-        btnY = sendStatusY + sendStatusH + 10;
+        // Buttons at the bottom, in the footer band under the send status
+        btnY = h - margin - btnH;
+        if (btnY < sendStatusY + sendStatusH + 24)
+            btnY = sendStatusY + sendStatusH + 24;
     }
+    if (data)
+        data->footerTop = btnY - margin;
 
     HWND hIcon     = GetDlgItem(hwnd, IDC_CRASH_ICON);
     HWND hHeading  = GetDlgItem(hwnd, IDC_CRASH_HEADING);
@@ -256,6 +308,7 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
 
         data->hBrushBg        = CreateSolidBrush(CLR_WIN_BG);
         data->hBrushEdit      = CreateSolidBrush(CLR_EDIT_BG);
+        data->hBrushFooter    = CreateSolidBrush(CLR_FOOTER_BG);
         data->hLinkCursor     = LoadCursor(NULL, IDC_HAND);
         data->hEditOrigProc   = NULL;
         data->hLinkFont       = NULL;
@@ -364,16 +417,17 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
         ShowWindow(hEdit, SW_HIDE);
 
         // --- Buttons ---
+        // Disabled until CRASH_INPUT_GUARD_MS passed (see WM_TIMER), a click or Enter from the game does not press them
         CreateWindowEx(0, "BUTTON", "Restart Game",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            WS_CHILD | WS_VISIBLE | WS_DISABLED | BS_OWNERDRAW,
             btnX, btnY, btnW, btnH,
             hwnd, (HMENU)IDC_BTN_RESTART, GetModuleHandle(NULL), NULL);
         CreateWindowEx(0, "BUTTON", "Generate Full Dump",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            WS_CHILD | WS_VISIBLE | WS_DISABLED | BS_OWNERDRAW,
             btnX + (btnW + gap), btnY, btnW, btnH,
             hwnd, (HMENU)IDC_BTN_DUMP, GetModuleHandle(NULL), NULL);
         CreateWindowEx(0, "BUTTON", "Exit",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+            WS_CHILD | WS_VISIBLE | WS_DISABLED | BS_OWNERDRAW,
             btnX + (btnW + gap) * 2, btnY, btnW, btnH,
             hwnd, (HMENU)IDC_BTN_EXIT, GetModuleHandle(NULL), NULL);
 
@@ -387,6 +441,18 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
         RECT rc2;
         GetClientRect(hwnd, &rc2);
         FillRect(hdc, &rc2, data->hBrushBg);
+
+        // Gray footer band with a separator line, like the button area of a Windows dialog
+        if (data->footerTop > 0 && data->footerTop < rc2.bottom) {
+            RECT footer = rc2;
+            footer.top = data->footerTop;
+            FillRect(hdc, &footer, data->hBrushFooter);
+            RECT line = footer;
+            line.bottom = line.top + 1;
+            HBRUSH hLine = CreateSolidBrush(CLR_FOOTER_LINE);
+            FillRect(hdc, &line, hLine);
+            DeleteObject(hLine);
+        }
         return 1;
     }
     case WM_CTLCOLOREDIT:
@@ -402,55 +468,79 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
             SetTextColor(hdc, CLR_EDIT_FG);
             return (LRESULT)data->hBrushEdit;
         }
-        // Heading: bright white text on dark red tint background
+        // Heading: main instruction blue, like TaskDialog
         if (ctlId == IDC_CRASH_HEADING) {
             SetBkColor(hdc, CLR_WIN_BG);
-            SetTextColor(hdc, RGB(255, 255, 255));
+            SetTextColor(hdc, CLR_HEADING);
             return (LRESULT)data->hBrushBg;
         }
         if (ctlId == IDC_LNK_DETAILS) {
             SetBkColor(hdc, CLR_WIN_BG);
-            SetTextColor(hdc, RGB(120, 180, 255));
+            SetTextColor(hdc, CLR_LINK);
             return (LRESULT)data->hBrushBg;
         }
         if (ctlId == IDC_CRASH_SENDSTATUS) {
             SetBkColor(hdc, CLR_WIN_BG);
             LONG sendState = InterlockedCompareExchange(&g_crashSendState, 0, 0);
             if (sendState == CRASH_SEND_SUCCESS)
-                SetTextColor(hdc, RGB(90, 210, 90));   // green: sent ok
+                SetTextColor(hdc, RGB(16, 124, 16));   // green: sent ok
             else if (sendState == CRASH_SEND_FAILED)
-                SetTextColor(hdc, RGB(255, 90, 70));   // red: failed
+                SetTextColor(hdc, RGB(196, 43, 28));   // red: failed
             else if (sendState == CRASH_SEND_SENDING)
-                SetTextColor(hdc, RGB(220, 190, 70));  // amber: in progress
+                SetTextColor(hdc, RGB(157, 93, 0));    // amber: in progress
             else
-                SetTextColor(hdc, RGB(160, 140, 140)); // grey: idle
+                SetTextColor(hdc, CLR_TEXT_MUTED);     // grey: idle (not sent in debug build)
             return (LRESULT)data->hBrushBg;
         }
-        // Subtitle / icon / save path: muted light text
+        // Save path: regular text
         SetBkColor(hdc, CLR_WIN_BG);
-        SetTextColor(hdc, RGB(170, 170, 170));
+        SetTextColor(hdc, CLR_TEXT);
         return (LRESULT)data->hBrushBg;
     }
     case WM_DRAWITEM: {
         if (!data) break;
         DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lParam;
         bool pressed = (dis->itemState & ODS_SELECTED) != 0;
-        COLORREF clrBg;
-        if (dis->CtlID == IDC_BTN_RESTART)
-            clrBg = pressed ? CLR_BTN_RESTART_P : CLR_BTN_RESTART_N;
-        else if (dis->CtlID == IDC_BTN_DUMP)
-            clrBg = pressed ? CLR_BTN_DUMP_P    : CLR_BTN_DUMP_N;
-        else
-            clrBg = pressed ? CLR_BTN_EXIT_P    : CLR_BTN_EXIT_N;
+        bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+        bool primary = dis->CtlID == IDC_BTN_RESTART;
+
+        // Flat buttons like Windows 11: "Restart Game" is the accent (default) button, the others light with a border
+        COLORREF clrBg, clrBorder, clrText;
+        if (disabled) {
+            clrBg = CLR_BTN_DISABLED;
+            clrBorder = CLR_BTN_DISABLED_BORDER;
+            clrText = CLR_BTN_DISABLED_TXT;
+        } else if (primary) {
+            clrBg = pressed ? CLR_BTN_PRIMARY_P : CLR_BTN_PRIMARY_N;
+            clrBorder = clrBg;
+            clrText = CLR_BTN_PRIMARY_TXT;
+        } else {
+            clrBg = pressed ? CLR_BTN_P : CLR_BTN_N;
+            clrBorder = CLR_BTN_BORDER;
+            clrText = CLR_BTN_TXT;
+        }
 
         HBRUSH hBrush = CreateSolidBrush(clrBg);
         FillRect(dis->hDC, &dis->rcItem, hBrush);
         DeleteObject(hBrush);
+        HBRUSH hBorder = CreateSolidBrush(clrBorder);
+        FrameRect(dis->hDC, &dis->rcItem, hBorder);
+        DeleteObject(hBorder);
 
         char text[64] = {0};
         GetWindowTextA(dis->hwndItem, text, sizeof(text));
+
+        // Seconds until the buttons work, "Restart Game (3)"
+        if (disabled && !data->inputEnabled) {
+            LONG left = (LONG)(data->inputEnableTime - GetTickCount());
+            if (left > 0) {
+                size_t len = strlen(text);
+                snprintf(text + len, sizeof(text) - len, " (%ld)", (left + 999) / 1000);
+            }
+        }
+
         SetBkMode(dis->hDC, TRANSPARENT);
-        SetTextColor(dis->hDC, CLR_BTN_TEXT);
+        SetTextColor(dis->hDC, clrText);
         HFONT oldFont = (HFONT)SelectObject(dis->hDC, data->hBtnFont);
         DrawTextA(dis->hDC, text, -1, &dis->rcItem, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         SelectObject(dis->hDC, oldFont);
@@ -474,6 +564,7 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
                 data->compactHeight = clientH;
             }
             exception_layoutCrashDlg(hwnd, clientW, clientH);
+            InvalidateRect(hwnd, NULL, TRUE); // the footer band moved
         }
         return 0;
     case WM_GETMINMAXINFO: {
@@ -533,6 +624,8 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
                 GetClientRect(hwnd, &rc);
                 exception_layoutCrashDlg(hwnd, rc.right, rc.bottom);
             }
+        } else if (data && !data->inputEnabled) {
+            // Buttons are not allowed yet (they are disabled, this only guards any other way to send the command)
         } else if (LOWORD(wParam) == IDC_BTN_RESTART) {
             if (data) data->wantRestart = true;
             PostQuitMessage(0);
@@ -567,9 +660,28 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
     case WM_TIMER:
         if (wParam == 1 && data) {
             exception_updateSendLabel(hwnd, data);
+
+            // Input guard: enable the buttons once CRASH_INPUT_GUARD_MS passed, until then redraw the countdown.
+            // No button gets the focus, so a held Enter does not press one either.
+            if (!data->inputEnabled) {
+                const int buttons[] = { IDC_BTN_RESTART, IDC_BTN_DUMP, IDC_BTN_EXIT };
+                bool enable = (LONG)(GetTickCount() - data->inputEnableTime) >= 0;
+                if (enable)
+                    data->inputEnabled = true;
+                for (int id : buttons) {
+                    HWND hBtn = GetDlgItem(hwnd, id);
+                    if (!hBtn) continue;
+                    if (enable)
+                        EnableWindow(hBtn, TRUE);
+                    InvalidateRect(hBtn, NULL, TRUE);
+                }
+            }
         }
         return 0;
     case WM_CLOSE:
+        // Input guard: Alt+F4 or the close button right after the crash are ignored
+        if (data && !data->inputEnabled)
+            return 0;
         if (data) data->wantRestart = false;
         PostQuitMessage(0);
         return 0;
@@ -582,6 +694,7 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
             if (data->hHeadingFont) { DeleteObject(data->hHeadingFont); data->hHeadingFont = NULL; }
             if (data->hBrushBg)     { DeleteObject(data->hBrushBg);     data->hBrushBg = NULL; }
             if (data->hBrushEdit)   { DeleteObject(data->hBrushEdit);   data->hBrushEdit = NULL; }
+            if (data->hBrushFooter) { DeleteObject(data->hBrushFooter); data->hBrushFooter = NULL; }
         }
         return 0;
     }
@@ -589,7 +702,8 @@ static LRESULT CALLBACK exception_crashDlgProc(HWND hwnd, UINT msg, WPARAM wPara
 }
 
 /**
- * Show the crash dialog with a dark-themed scrollable report.
+ * Show the crash dialog (Windows dialog look, the report in a scrollable box under "Show crash details"),
+ * fully on the monitor of the game, topmost, with buttons and closing blocked for CRASH_INPUT_GUARD_MS.
  * Returns true if the user chose to restart the game.
  */
 bool exception_showCrashDialog(const char* content, EXCEPTION_POINTERS* pExInfo, DWORD crashThreadId, const char* savePath) {
@@ -603,8 +717,11 @@ bool exception_showCrashDialog(const char* content, EXCEPTION_POINTERS* pExInfo,
     wc.hIcon         = LoadIcon(NULL, IDI_ERROR);
     RegisterClassEx(&wc);
 
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    // The dialog is shown on the monitor of the window that was in front - the game - fully inside its work area
+    HMONITOR hMonitor = MonitorFromWindow(GetForegroundWindow(), MONITOR_DEFAULTTOPRIMARY);
+    RECT workArea = exception_monitorWorkArea(hMonitor);
+    int screenW = workArea.right - workArea.left;
+    int screenH = workArea.bottom - workArea.top;
     int compactClientW = (CRASH_COMPACT_CLIENT_W < screenW - 80) ? CRASH_COMPACT_CLIENT_W : (screenW - 80);
     int compactClientH = (CRASH_COMPACT_CLIENT_H < screenH - 120) ? CRASH_COMPACT_CLIENT_H : (screenH - 120);
     int expandedClientW = (CRASH_EXPANDED_CLIENT_W < screenW - 80) ? CRASH_EXPANDED_CLIENT_W : (screenW - 80);
@@ -617,8 +734,8 @@ bool exception_showCrashDialog(const char* content, EXCEPTION_POINTERS* pExInfo,
 
     int dlgW = compactRect.right - compactRect.left;
     int dlgH = compactRect.bottom - compactRect.top;
-    int dlgX    = (screenW - dlgW) / 2;
-    int dlgY    = (screenH - dlgH) / 2;
+    int dlgX    = workArea.left + (screenW - dlgW) / 2;
+    int dlgY    = workArea.top + (screenH - dlgH) / 2;
 
     CrashDialogData data = {
         content, savePath, pExInfo, crashThreadId, false,
@@ -626,7 +743,9 @@ bool exception_showCrashDialog(const char* content, EXCEPTION_POINTERS* pExInfo,
         NULL, NULL, NULL, NULL,
         false,
         compactClientW, compactClientH,
-        expandedClientW, expandedClientH
+        expandedClientW, expandedClientH,
+        NULL, 0,
+        GetTickCount() + CRASH_INPUT_GUARD_MS, false
     };
 
     HWND hwnd = CreateWindowEx(
@@ -637,7 +756,10 @@ bool exception_showCrashDialog(const char* content, EXCEPTION_POINTERS* pExInfo,
         NULL, NULL, GetModuleHandle(NULL), &data);
 
     if (hwnd) {
+        // Fully on the monitor and above the game (its fullscreen window is topmost too)
+        exception_fitToMonitor(hwnd, hMonitor);
         SetForegroundWindow(hwnd);
+        BringWindowToTop(hwnd);
         MSG wmsg;
         while (GetMessage(&wmsg, NULL, 0, 0) > 0) {
             TranslateMessage(&wmsg);
