@@ -16,4 +16,6 @@ typedef vec_t vec5_t[5];
 #define YAW                 1       // left / right
 #define ROLL                2       // fall over
 
+#define SHORT2ANGLE(x)      ((x) * (360.0f / 65536))   // 16-bit angle of usercmd / delta_angles to degrees
+
 #endif

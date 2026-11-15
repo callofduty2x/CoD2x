@@ -43,7 +43,6 @@ dvar_t* cg_debugBullets = NULL;
 
 #define cg_drawCrosshairNames   (*((dvar_t**)0x0166bad8))   // bool, name of the teammate under the crosshair (CG_DrawCrosshairNames)
 
-#define centity_dobj(cent)     (*(int*)((char*)(cent) + 0x220))    // handle for Com_GetClientDObj
 #define centity_voiceIconTime(cent) (*(int*)((char*)(cent) + 0x218))  // the talking icon (material at + 0x214) is shown until this time (CG_PlayerSprites)
 
 #define HEAD_OFFHAND_TIME   5000    // the pulled grenade is forgotten after this time (ms), if the throw event is lost

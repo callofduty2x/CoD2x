@@ -9,6 +9,7 @@
 #include "demo.h"
 #include "../shared/cod2_dvars.h"
 #include "../shared/cod2_client.h"
+#include "../shared/cod2_menu.h"
 
 
 
@@ -35,17 +36,14 @@
 #define mouse_offset_y_arr          (((int*)0x0098fdb0))
 #define mouse_offset_index          (*((int*)0x0098fdb8))
 
-#define menu_cursorX                (*((int*)0x01978034))
-#define menu_cursorY                (*((int*)0x01978038))
-#define menu_opened                 (*((bool*)0x01978254))
+#define menu_cursorX                DISPLAYCONTEXT_CURSOR_X(ui_displayContext)
+#define menu_cursorY                DISPLAYCONTEXT_CURSOR_Y(ui_displayContext)
+#define menu_loaded                 (DISPLAYCONTEXT_MENUCOUNT(ui_displayContext) > 0)  // menus are loaded (Q3 UI_MouseEvent: Menu_Count() > 0)
 
 #define win_hwnd                    (*((HWND*)0x00d7713c))
 #define win_isActivated             (*((int*)0x00d77144))
 #define win_isMinimized             (*((int*)0x00d77148))
 #define win_wheelRool               (*((UINT*)0x00d7712c))
-
-#define input_mode                  (*((int*)0x0096b654))
-#define clientState                 (*((clientState_e*)0x00609fe0))
 
 dvar_t* m_debug;
 dvar_t* m_enable = NULL;    // 1 = allow moving ingame and menu mouse cursor; 0 = bypass mouse movement, but still process the system cursor and mouse events
@@ -92,9 +90,9 @@ void Mouse_SetMenuCursorPos(int x, int y) {
     menu_cursorX = x;
     menu_cursorY = y;
 
-    if (menu_opened) {
+    if (menu_loaded) {
         // Original function to process mouse movement
-        ((void (__cdecl*)(void* data, void* arg2, int32_t x, int32_t y))0x00542d60)(*((void**)0x005dcb10), nullptr, x, y);                  
+        Display_MouseMove(ui_displayContext, nullptr, x, y);
     }
 }
 
@@ -112,7 +110,7 @@ void Mouse_ProcessMovement() {
     GetClientRect(win_hwnd, &clientRect); // Get the inner area of the window
 
     // in_menu = if we control menu cursor
-    bool in_menu = ((input_mode & 8) != 0 && !cl_bypassMouseInput->value.boolean && m_enable->value.boolean) || clientState < CLIENT_STATE_PRIMED;
+    bool in_menu = ((cls_keyCatchers & KEYCATCH_UI) != 0 && !cl_bypassMouseInput->value.boolean && m_enable->value.boolean) || clientState < CLIENT_STATE_PRIMED;
     bool menu_changed = in_menu != in_menu_last;
     in_menu_last = in_menu;
 

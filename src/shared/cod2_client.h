@@ -10,6 +10,7 @@
 #define clientInfo          (*((clientInfo_t (*)[64])0x015CF994)) // client side info
 
 #define clientState                   (*((clientState_e*)0x00609fe0))
+#define clc_serverAddress             (*((struct netaddr_s*)0x00609ff4)) // address of the server the client connects / is connected to (needs cod2_net.h)
 #define demo_isPlaying                (*((int*)0x0064a170))
 #define sv_cheats                     (*((dvar_t**)0x00c5c5cc))
 
@@ -354,8 +355,59 @@ inline void* Com_GetClientDObj(int handle, int localClientNum) {
     return index ? (void*)(0x00c29c00 + index * 0x64) : NULL;
 }
 
+// Animation state of the client game (cg + 0x2cd18). CG_DrawActiveFrame (004cfea3) points level_bgs to it while cgame code runs and
+// sets level_bgs back to NULL when the frame is done - code outside the cgame frame that poses player models (CG_DObjGetWorldTagPos,
+// traces against players) must do the same, BG_Player_DoControllers reads level_bgs.
+#define cg_bgs                        ((bgs_t*)((char*)&cg + 0x2cd18))
+
+// Handle of the entity model for Com_GetClientDObj (centity_t field at 0x220)
+#define centity_dobj(cent)     (*(int*)((char*)(cent) + 0x220))
+
 // Tag name "j_head" (script string), used for the icons over the head
 #define scr_const_j_head    (*((uint16_t*)0x019439b6))
+
+// Script string index of an existing string (like a bone name "j_spine4"), 0 if the string is not in the
+// script string table - a bone of a loaded model always is. Windows only.
+// 00477410    uint32_t SL_FindString(char* str @ edx)
+inline uint32_t SL_FindString(const char* str) {
+    ASM_CALL_RETURN(uint32_t, 0x00477410, 0, EDX(str));
+}
+
+// View angles the client sends to the server (pitch, yaw, roll) - CL_AdjustAngles / CL_MouseMove change them, CL_CreateCmd
+// puts them into the usercmd. The player looks at SHORT2ANGLE(cmd.angles + ps.delta_angles), so they differ from
+// cg.predictedPlayerState.viewangles by the delta angles of the player state.
+#define cl_viewangles                 ((float*)0x0098fdec)
+
+// Key catchers - who gets key and char events (CL_KeyEvent, CL_CharEvent)
+#define cls_keyCatchers               (*((int*)0x0096b654))
+#define KEYCATCH_CONSOLE              0x1
+#define KEYCATCH_UI                   0x8     // a menu
+#define KEYCATCH_MESSAGE              0x10    // chat field (chatmodepublic / chatmodeteam)
+
+enum sysEventType_e {
+    SE_NONE = 0,    // end of the queue
+    SE_KEY = 1,     // value = key number, value2 = down (1) / up (0)
+    SE_CHAR = 2,    // value = character typed (console, chat field, menu edit field)
+    SE_MOUSE = 3,   // ignored by Com_EventLoop in CoD2 (the cursor is moved by Mouse_Loop)
+    SE_CONSOLE = 4, // ptr = Z_Malloc'ed text executed with Cbuf_AddText
+    SE_PACKET = 5,
+};
+
+// Adds an event to the system event queue (256 events), handled by Com_EventLoop at the start of the next frame
+// exactly like Windows input: SE_KEY goes to CL_KeyEvent (binds, menus, console), SE_CHAR to CL_CharEvent.
+// time 0 = now (Sys_Milliseconds). value2 / len / ptr are 0 for keys and chars.
+// 00465b70    int32_t Sys_QueEvent(int32_t time @ eax, enum sysEventType_e type, int32_t value, int32_t value2, int32_t len, void* ptr)
+inline void Sys_QueEvent(int32_t time, int32_t type, int32_t value, int32_t value2, int32_t len, void* ptr) {
+    ASM_CALL(RETURN_VOID, 0x00465b70, 5, EAX(time), PUSH(type), PUSH(value), PUSH(value2), PUSH(len), PUSH(ptr));
+}
+
+// Key number of a key name as used by bind: one character is itself ("a", "1"), "0x1f" is hex, otherwise the
+// keynames table (005cdd38) case-insensitively - "ENTER", "ESCAPE", "TAB", "SPACE", "MOUSE1", "UPARROW", "F1" ...
+// Returns -1 if the name is unknown.
+// 0040aed0    int32_t Key_StringToKeynum(char* str @ edi)
+inline int32_t Key_StringToKeynum(const char* str) {
+    ASM_CALL_RETURN(int32_t, 0x0040aed0, 0, EDI(str));
+}
 
 // Position of the tag (bone, like scr_const_j_head) of the entity model in the world. Returns 0 if the model has no such tag.
 // 004cce70    int32_t CG_DObjGetWorldTagPos(int32_t tagName @ eax, void* dobj @ ecx, struct centity_t* cent, float* pos)

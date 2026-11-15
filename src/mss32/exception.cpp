@@ -16,6 +16,8 @@
 
 #include "shared.h"
 #include "main.h"
+#include "debug_pipe.h"
+#include "../shared/cod2_cmd.h"
 #include "../shared/cod2_shared.h"
 #include "../shared/logger.h"
 #include "../shared/exception.h"
@@ -523,18 +525,47 @@ static DWORD WINAPI exception_resendPendingThread(LPVOID) {
 
 static char exception_minimalBuffer[16 * 1024];
 
+// Where the fault is and what it is, without heap allocations (minimal report, control pipe of debug builds)
+struct exceptionFault_t {
+    unsigned int addr;
+    char moduleName[MAX_PATH];
+    unsigned int moduleBase;    // 0 if the module is unknown
+    char fault[512];            // exception_describeFault, "" if there is nothing to add
+};
+
+static void exception_getFault(const EXCEPTION_RECORD* rec, exceptionFault_t* f) {
+    f->addr = (unsigned int)(uintptr_t)rec->ExceptionAddress;
+    f->moduleName[0] = '\0';
+    f->moduleBase = 0;
+    exception_getModuleForAddress(f->addr, f->moduleName, sizeof(f->moduleName), &f->moduleBase);
+    exception_describeFault(rec, f->fault, sizeof(f->fault));
+}
+
+#if DEBUG
+/**
+ * One line about the fault, without heap allocations (for the control pipe of debug builds):
+ * "ACCESS_VIOLATION at 0x7A5E7EFE (mss32.dll+0x7EFE): Write to address 0x00000000 (NULL pointer + 0x0)"
+ */
+static void exception_faultSummary(const EXCEPTION_RECORD* rec, char* out, size_t outSize) {
+    exceptionFault_t f;
+    exception_getFault(rec, &f);
+    snprintf(out, outSize, "%s at 0x%08X (%s+0x%X)%s%s", exception_getText(rec->ExceptionCode), f.addr,
+        f.moduleName[0] ? f.moduleName : "unknown module", f.moduleBase ? f.addr - f.moduleBase : 0, f.fault[0] ? ": " : "", f.fault);
+}
+#endif
+
 static void exception_writeMinimalReport(EXCEPTION_POINTERS* pEx, DWORD crashThreadId) {
     char* buf = exception_minimalBuffer;
     const size_t size = sizeof(exception_minimalBuffer);
     size_t pos = 0;
 
     const EXCEPTION_RECORD* rec = pEx->ExceptionRecord;
-    unsigned int addr = (unsigned int)(uintptr_t)rec->ExceptionAddress;
-    char moduleName[MAX_PATH] = {0};
-    unsigned int moduleBase = 0;
-    exception_getModuleForAddress(addr, moduleName, sizeof(moduleName), &moduleBase);
-    char fault[512];
-    exception_describeFault(rec, fault, sizeof(fault));
+    exceptionFault_t f;
+    exception_getFault(rec, &f);
+    unsigned int addr = f.addr;
+    const char* moduleName = f.moduleName;
+    unsigned int moduleBase = f.moduleBase;
+    const char* fault = f.fault;
 
     exception_bufAppend(buf, size, &pos,
         "=== CRASH INFO (minimal report, the full report was not completed) ===\r\n"
@@ -605,6 +636,16 @@ static LONG exception_handleCrash(EXCEPTION_POINTERS* pExceptionInfo, DWORD cras
     // Stage 1: the essentials, without heap allocations, in case the rest of the handler fails
     exception_stage = "minimal report";
     exception_writeMinimalReport(pExceptionInfo, crashThreadId);
+
+    // Debug builds: tell the test script on the control pipe about the crash now, not after the dialog
+    #if DEBUG
+    {
+        char summary[512], text[1024];
+        exception_faultSummary(pExceptionInfo->ExceptionRecord, summary, sizeof(summary));
+        snprintf(text, sizeof(text), "%s, report %s", summary, exception_reportPath);
+        debug_pipe_crash(text);
+    }
+    #endif
 
     // Stage 2: small minidump, before collecting changes anything
     exception_stage = "minidump";
@@ -1062,8 +1103,39 @@ static void exception_writeTestInitMarker(int mode) {
 }
 #endif
 
+#if DEBUG
+static bool exception_debugCrashPlanned = false;
+static DWORD exception_debugCrashTime = 0;     // GetTickCount when debug_crash <ms> crashes
+
+static void exception_debugCrashNow() {
+    Com_Printf("debug_crash: writing to a NULL pointer\n");
+    volatile int* nullPointer = NULL;
+    *nullPointer = 0xDEAD;
+}
+
+// debug_crash [ms] - crashes the main thread on purpose (NULL pointer write), now or ms later in a frame (outside any command),
+// to test the crash handling with the dialog (the EXCEPTION_TEST scenarios exit without it). Debug builds only.
+static void exception_debugCrash_cmd() {
+    int ms = Cmd_Argc() > 1 ? atoi(Cmd_Argv(1)) : 0;
+    if (ms <= 0) {
+        exception_debugCrashNow();
+        return;
+    }
+    exception_debugCrashPlanned = true;
+    exception_debugCrashTime = GetTickCount() + ms;
+    Com_Printf("debug_crash: crash in %d ms\n", ms);
+}
+#endif
+
 /** Called every frame. The unhandled exception filter is checked every few seconds, other DLLs (overlays, drivers) may replace it. */
 void exception_frame() {
+    #if DEBUG
+    if (exception_debugCrashPlanned && (int)(GetTickCount() - exception_debugCrashTime) >= 0) {
+        exception_debugCrashPlanned = false;
+        exception_debugCrashNow();
+    }
+    #endif
+
     static DWORD lastCheck = 0;
     DWORD now = GetTickCount();
     if (now - lastCheck < 5000)
@@ -1087,6 +1159,9 @@ void exception_unload() {
     }
     SetUnhandledExceptionFilter(NULL);
     signal(SIGABRT, SIG_DFL);
+    #if DEBUG
+    Cmd_RemoveCommand("debug_crash");
+    #endif
 }
 
 /** Called only once on game start after common inicialization. Used to initialize variables, cvars, etc. */
@@ -1095,6 +1170,10 @@ void exception_init() {
 
     // The game CRT installed __CxxUnhandledExceptionFilter on top of our filter during its startup, replace it.
     SetUnhandledExceptionFilter(exception_handler);
+
+    #if DEBUG
+    Cmd_AddCommand("debug_crash", exception_debugCrash_cmd);
+    #endif
 
     // Remove old crash files, keep the newest ones
     exception_cleanupOldFiles("CoD2MP_s.exe.crash.*.dmp", EXCEPTION_KEEP_DUMPS);

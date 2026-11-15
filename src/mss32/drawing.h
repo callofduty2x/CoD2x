@@ -156,6 +156,15 @@ inline void R_AddCmdDrawStretchPic(float x, float y, float width, float height, 
     ASM_CALL(RETURN_VOID, address, 10, PUSH(x), PUSH(y), PUSH(width), PUSH(height), PUSH(s1), PUSH(t1), PUSH(s2), PUSH(t2), PUSH(color), PUSH(material));
 }
 
+/**
+ * Converts a rectangle of the virtual 640x480 screen into real screen pixels (in place).
+ * The aligns pick the edge the rectangle is relative to and how it is scaled (see horizontalAlign_e / verticalAlign_e).
+ */
+// 0044be80    int32_t CalcScreenPlacement(float* x, float* y, float* w @ eax, float* h @ edx, enum horizontalAlign_e horzAlign @ edi, enum verticalAlign_e vertAlign @ ebx)
+inline void CalcScreenPlacement(float* x, float* y, float* w, float* h, int horzAlign, int vertAlign) {
+    ASM_CALL(RETURN_VOID, 0x0044be80, 2, PUSH(x), PUSH(y), EAX(w), EDX(h), EDI(horzAlign), EBX(vertAlign));
+}
+
 void drawing_frame();
 void drawing_init();
 void drawing_patch();

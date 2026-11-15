@@ -32,6 +32,8 @@
 #include "demo.h"
 #include "vmix.h"
 #include "debug.h"
+#include "debug_pipe.h"
+#include "debug_input.h"
 #include "module_detection.h"
 #include "xray.h"
 #include "../shared/iwd.h"
@@ -95,6 +97,8 @@ void hook_Com_Frame()
             updater_unload();
             exception_unload();
             debug_unload();
+            debug_pipe_unload();
+            debug_input_unload();
             common_unload();
             weapons_unload();
             radar_unload();
@@ -118,6 +122,7 @@ void hook_Com_Frame()
         competitive_frame();
         cgame_frame();
         xray_frame();
+        debug_input_frame();    // debug builds only
     }
 
     // Shared & Server
@@ -136,6 +141,7 @@ void hook_Com_Frame()
     radar_frame();
     demo_frame();
     vmix_frame();
+    debug_pipe_frame();     // last: a Com_Error in a pipe command does not skip the other modules (debug builds only)
 
     // Call the original function
     ASM_CALL(RETURN_VOID, 0x00434f70);
@@ -225,7 +231,8 @@ void hook_CL_Init() {
     demo_init();
     vmix_init();
     xray_init();
-    
+    debug_input_init(); // debug builds only: test input commands (aim, move, key, type, click)
+
     if (!DLL_HOTRELOAD) {
         ASM_CALL(RETURN_VOID, 0x00410a10);
     }
@@ -283,6 +290,7 @@ void hook_Com_Init(const char* cmdline) {
     module_detection_init();
     affinity_init();
     debug_init();
+    debug_pipe_init();  // debug builds only: control pipe for automated tests
     admin_init();      // Must be called before file system initialization
     registry_init();   // Must be called before cdkey registry reading
     url_protocol_init(); // Must be called before reading cmdline, so we can handle cod2x:// URL protocol
@@ -339,6 +347,7 @@ bool hook_patch() {
     mouse_patch();
     competitive_patch();
     console_patch();
+    debug_pipe_patch(); // debug builds only
     cgame_patch();
     updater_patch();
     master_server_patch();

@@ -162,7 +162,8 @@ a module `.cpp`:
 | `src/shared/cod2_dvars.h`, `cod2_cmd.h`, `cod2_net.h`, `cod2_player.h` | dvars, commands, network, player |
 | `src/shared/cod2_shared.h` | `Info_*`, `Q_*` and other shared utilities |
 | `src/shared/cod2_client.h` | `CL_*`, `CG_*`, `Con_*` of the Windows client |
-| `src/mss32/drawing.h` | `UI_*` / drawing (needs `fontHandle_t`, `materialHandle_t`) |
+| `src/mss32/drawing.h` | `UI_*` / drawing (needs `fontHandle_t`, `materialHandle_t`), `CalcScreenPlacement` |
+| `src/shared/cod2_menu.h` | UI menus: display context, `menuDef` / `itemDef` fields (`DISPLAYCONTEXT_*`, `WINDOWDEF_*`, `MENUDEF_*`, `ITEMDEF_*`), menu keys `K_*`, `Menu_*` / `Item_*` / `Display_*` |
 
 Rules for a wrapper:
 - **Exact engine name** and the clean argument list - calling it reads like calling the original.

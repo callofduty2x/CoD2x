@@ -157,5 +157,16 @@ inline void Dvar_StringToColor(struct dvar_s* dvar, float (*vec4)[4]) {
     ASM_CALL(RETURN_VOID, 0x00437640, 0, EAX(dvar), EDI(vec4));
 }
 
+// Formats a value of the dvar's type as text: bool "0" / "1", int "%i", float / vectors "%g", enum its string,
+// string the value itself, color its components. Returns a va() buffer (overwritten by later va() calls) or a
+// constant string - copy it before the next engine call. Windows only.
+// 00435fc0    char* Dvar_ValueToString(struct dvar_s* dvar @ ecx, int32_t value)
+inline const char* Dvar_ValueToString(struct dvar_s* dvar, dvarValue_t value) {
+    const char* ret;
+    int32_t raw = value.integer;
+    ASM_CALL(RETURN(ret), 0x00435fc0, 1, ECX(dvar), PUSH(raw));
+    return ret;
+}
+
 
 #endif
