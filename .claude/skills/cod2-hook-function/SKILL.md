@@ -25,7 +25,7 @@ All four are 32-bit x86, CoD2 1.3, under `D:/CoD2x-Decompilation/bin/`:
 | `windows/CoD2MP_s.exe.bndb` | Windows client + listen server, base `0x400000` | **Maintained.** Target of `src/mss32` and the Windows half of `src/shared`. No symbols - every name is ours. Register arguments (`@ eax`), many inlined helpers. |
 | `windows/gfx_d3d_mp_x86_s.dll.bndb` | Windows renderer DLL, base `0x10000000` | **Maintained** for what we touch. Reached only through the exe's `gfx_funcs` table (`0x0068a1e8`). |
 | `linux/cod2_lnxded.bndb` | Linux dedicated server, base `0x8048000` | **Maintained.** Target of the Linux half of `src/shared`. Original C symbols for most functions, all arguments on the stack - the easiest place to read a shared function and its argument order. |
-| `mac/Call of Duty 2 Multiplayer 1.3.bndb` | Mac client, base `0x1000` | **Reference only, never patched.** Real C++ symbols with argument types - the best source of names, types and struct names. Static functions have no symbol; the IDA dump `src/other/Call_of_Duty_2_Multiplayer_MAC_1.3.c` (search `Name/*DEFINITION*/`) names some of them. Addresses, registers and SSE code are Mac specific. |
+| `mac/Call of Duty 2 Multiplayer 1.3.bndb` | Mac client, base `0x1000` | **Reference only, never patched.** Real C++ symbols with argument types - the best source of names, types and struct names. Static functions have no symbol. Addresses, registers and SSE code are Mac specific. |
 
 ### Before you start: are the right databases open?
 Call `bn_open_item_list` before the first Binary Ninja step and check the task's needs:
@@ -62,11 +62,12 @@ and variable names. Leave unrelated code alone.
    usually mean an inlined helper or a compiler quirk, not different logic.
 
 3. **Find the real name** (best source first):
-   - Mac symbols (database or IDA dump), then Linux symbols.
+   - Mac database symbols, then Linux database symbols.
    - Quake 3 / Enemy Territory (id-Software/Enemy-Territory, ioq3) and CoD4 - many functions are
      near copies (`Conbuf_AppendText`, `Cmd_TokenizeStringInternal`).
-   - `src/other/CoD2MP_s.c` (old IDA decompile) and `src/other/*.bndb_pseudo_c.txt` - snapshots,
-     the live database wins.
+   - Never the decompile dumps in `src/other` (`CoD2MP_s.c`, `Call_of_Duty_2_Multiplayer_MAC_1.3.c`,
+     `*.bndb_pseudo_c*.txt`) - old snapshots with guessed names; the Binary Ninja databases are the
+     only source, also for a quick lookup of a string or a function.
 
 4. **Set the prototype** (`bn_function_prototype_set`) in Windows **and** Linux, so the decompile
    reads like source:
