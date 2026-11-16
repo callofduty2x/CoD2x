@@ -12,6 +12,7 @@
 #include <cstring>      // strerror
 #include <cstdarg>      // va_list
 #include <string>       // std::string
+#include <vector>       // std::vector
 
 #include "cod2_common.h"
 #include "cod2_dvars.h"
@@ -300,6 +301,27 @@ static void iwd_processedList_Rotate() {
     fs_processedListCurrent.clear();
 }
 
+// Set while the map / devmap command starts the server of this game (listen server), see iwd_beforeMapCommand
+static bool iwd_listenServerStarting = false;
+
+// Splits the space separated IWD names of sv_iwdNames ("zpam_maps_v7 zpam412 iw_15 ...", at most 1024).
+// Not with Cmd_TokenizeString: Sys_ListFiles runs in FS_Restart, which can be called inside a command
+// (map / devmap, disconnect) - the engine has one tokenized string and the command would lose its arguments.
+static std::vector<std::string> iwd_splitNames(const char* names) {
+    std::vector<std::string> result;
+    const char* p = names ? names : "";
+    while (*p && result.size() < 1024) {
+        while (*p && isspace((unsigned char)*p))
+            p++;
+        const char* start = p;
+        while (*p && !isspace((unsigned char)*p))
+            p++;
+        if (p > start)
+            result.push_back(std::string(start, p - start));
+    }
+    return result;
+}
+
 // Console command "fs_processedList": print the previous and the current
 // processed-file logs.
 static void iwd_processedList_Cmd() {
@@ -394,7 +416,8 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
 
             // Is running listen server, this function is called with clientState == CLIENT_STATE_CHALLENGING
             // When disconnecting from listen server, sv_running will still be true, so we need to check clientState != DISCONNECTED
-            bool isListenServer = (COD2X_WIN32 && sv_running && sv_running->value.boolean && clientState != CLIENT_STATE_DISCONNECTED);
+            // The map / devmap command starting the listen server loads its files before the map is checked (iwd_beforeMapCommand)
+            bool isListenServer = (COD2X_WIN32 && sv_running && sv_running->value.boolean && clientState != CLIENT_STATE_DISCONNECTED) || iwd_listenServerStarting;
 
             // We need to decide if we will load CoD2x IWD files or not
             // We might be connecting to older server that does not have newer CoD2x IWD files, causing impure client error because client has loaded files that server does not have
@@ -416,11 +439,10 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
 
                 // Print each file required by the server on its own line, quoted, so the
                 // exact tokens are visible (this is what the loaded files are matched against)
-                Cmd_TokenizeString((sv_iwdNames && sv_iwdNames[0]) ? sv_iwdNames : "");
-                int reqCount = Cmd_Argc();
-                iwd_processedLog("  Required by server: ^9%d file(s)^7\n", reqCount);
-                for (int j = 0; j < reqCount; j++) {
-                    iwd_processedLog("    ^9\"%s\"^7\n", Cmd_Argv(j));
+                std::vector<std::string> required = iwd_splitNames(sv_iwdNames);
+                iwd_processedLog("  Required by server: ^9%d file(s)^7\n", (int)required.size());
+                for (const std::string& name : required) {
+                    iwd_processedLog("    ^9\"%s\"^7\n", name.c_str());
                 }
             }
 
@@ -457,15 +479,13 @@ char** Sys_ListFiles(char* extension, int32_t* numFiles, int32_t wantsubs) {
                     const char* systeminfo = CL_GetConfigString(CS_SYSTEMINFO);
                     const char* sv_iwdNames = Info_ValueForKey(systeminfo, "sv_iwdNames"); // "zpam_maps_v4 zpam334 iw_16 iw_15 iw_14 iw_13 iw_12 iw_11 iw_10 iw_09 iw_08 iw_07 iw_06 iw_05 iw_04 iw_03 iw_02 iw_01".
 
-                    Cmd_TokenizeString(sv_iwdNames);
+                    std::vector<std::string> required = iwd_splitNames(sv_iwdNames);
 
-                    int count = Cmd_Argc();
-                    if (count > 1024)
-                        count = 1024;
+                    int count = (int)required.size();
                     if (count > 0) {
                         // Check if this iwd is in the list
                         for (int j = 0; j < count; j++) {
-                            const char* demoIwdName = Cmd_Argv(j); // "zpam334"
+                            const char* demoIwdName = required[j].c_str(); // "zpam334"
                             // If demo iwd name starts with currently processed iwd file
                             // demoIwdName might be "zpam_maps_v4"
                             // result[i] might be "zpam_maps_v4.iwd" or "zpam_maps_v4.8bb28f35.iwd" (use both)
@@ -674,6 +694,46 @@ void FS_AddCommands() {
     ASM_CALL(RETURN_VOID, 0x0043bd30);
 }
 
+
+
+// Called by the map / devmap command before it checks the map (cmd_map in server.cpp).
+// Without a running server the client has loaded only the original and CoD2x IWD files (see Sys_ListFiles). When
+// the command starts the server of this game (listen server), the files of the listen server (newest zPAM and
+// zPAM maps) are loaded first, so the map, the gametype (checked in SV_SpawnServer before its FS_Restart) and the
+// scripts are found already for the first map: +set g_gametype strat +devmap mp_carentan_fix
+// Only from the menu: connected to another server or playing a demo, a map that is not found would leave the
+// client there with different files.
+void iwd_beforeMapCommand() {
+    if (dedicated->value.integer != 0 || sv_running->value.boolean || clientState != CLIENT_STATE_DISCONNECTED || demo_isPlaying)
+        return;
+
+    iwd_listenServerStarting = true;
+    FS_Restart(0);
+}
+
+void iwd_afterMapCommand() {
+    iwd_listenServerStarting = false;
+}
+
+// 0043c550    void FS_PureServerSetLoadedIwds(char* iwdSums @ ecx, char* iwdNames)
+inline void FS_PureServerSetLoadedIwds(const char* iwdSums, const char* iwdNames) {
+    ASM_CALL(RETURN_VOID, 0x0043c550, 1, ECX(iwdSums), PUSH(iwdNames));
+}
+
+// 00425920    FS_Restart(int checksumFeed) - called in SV_SpawnServer
+void SV_SpawnServer_FS_Restart(int checksumFeed) {
+    // CoD2x: listen server - the host client still has the pure IWD list of the previous map from its
+    // systeminfo. FS_Restart would load only those IWD files and loose files from folders (main/*.gsc of a mod
+    // in development, _callback_tests.gsc) could not be opened, so every map change while the host was
+    // connected ended with "Could not find script". Cleared like on disconnect, the host gets the list of the
+    // new map again when it connects.
+    if (dedicated->value.integer == 0)
+        FS_PureServerSetLoadedIwds("", "");
+    // CoD2x: End
+
+    FS_Restart(checksumFeed);
+}
+
 #endif // COD2X_WIN32
 
 
@@ -730,6 +790,9 @@ void iwd_frame() {
     zpam_frame();
 
     #if COD2X_WIN32
+        // Also when the map command ended with Com_Error and iwd_afterMapCommand was not called
+        iwd_listenServerStarting = false;
+
         static int iwd_clientStateLast = -1;
 
         // Player disconnects (from the server, demo, etc)
@@ -783,6 +846,7 @@ void iwd_patch() {
     patch_call(0x004229db, (unsigned int)FS_BuildOSPath_Internal_FS_Read); // FS_BuildOSPath_Internal in FS_FOpenFileRead
     patch_call(0x004227ec, (unsigned int)FS_BuildOSPath_Internal_FS_Read); // FS_BuildOSPath_Internal in FS_FOpenFileRead
     patch_call(0x0042572f, (unsigned int)FS_AddCommands); // in FS_Startup
+    patch_call(0x00458cd3, (unsigned int)SV_SpawnServer_FS_Restart); // FS_Restart in SV_SpawnServer
 
     patch_call(0x00434b6a, (unsigned int)Com_WriteConfigToFile); // in Com_WriteConfigOnChange
     #endif

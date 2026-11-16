@@ -126,6 +126,14 @@ A crash never makes a test wait for its timeout:
 - `debug_crash [ms]` (debug builds) crashes the game on purpose - at once, or ms later in a frame (outside any request).
 - After a crash: read the report, inspect with `cod2-game-inspect` if needed, then stop the process (the dialog waits).
 
+### Listen server with zPAM / test scripts
+`+set g_gametype strat +devmap mp_carentan_fix` works on a listen server (the map command loads the listen server
+iwds first, `iwd_beforeMapCommand`), and map changes while connected keep loose scripts like
+`main/_callback_tests.gsc` (`SV_SpawnServer_FS_Restart`, iwd.cpp). The
+listen server loads from `main` only the original, CoD2x and newest zPAM iwds - put test scripts as loose files in
+`main` (or in an `fs_game` folder), a test iwd in `main` is ignored. `+set fs_homepath <scratchpad>\home` keeps the
+config and logs out of `bin/windows`.
+
 ## Notes
 - `line of fire: clear` is a good sign, not a guarantee - the client trace uses player bounding boxes and the server may
   still hit thin geometry first (with `sv_wallbang 1` the hit then has `iDFlags:96` and little damage).

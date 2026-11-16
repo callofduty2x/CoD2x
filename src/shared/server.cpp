@@ -17,6 +17,7 @@
 #include "gsc_websocket.h"
 #include "match.h"
 #include "playerinfo.h"
+#include "iwd.h"
 #if COD2X_WIN32
 #include "../mss32/updater.h"
 #endif
@@ -1214,7 +1215,16 @@ void cmd_map() {
 	cmd_map_called = true;
 	bool sv_cheats = Dvar_GetDvarByName("sv_cheats")->value.boolean;
 
+	#if COD2X_WIN32
+		// Listen server: load its IWD files before the map is checked
+		iwd_beforeMapCommand();
+	#endif
+
 	ASM_CALL(RETURN_VOID, ADDR(0x00451b60, 0x0808bd46), 0);
+
+	#if COD2X_WIN32
+		iwd_afterMapCommand();
+	#endif
 
 	// Flag is still true, it means SV_SpawnServer was not called (dues to missing map, other error)
 	/*if (cmd_map_called == true) {
