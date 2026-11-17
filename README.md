@@ -202,6 +202,8 @@ It focuses on fixing bugs and adding new features to the game.
 
 - `obituary` - Extended original function, up to 4 extra killfeed icons can be added after the weapon icon: `obituary(victim, attacker, sWeapon, sMeansOfDeath [, icon1, icon2, icon3, icon4])`. Icons are shaders precached by `precacheShader`, `undefined` and `""` are skipped, e.g. `obituary(self, attacker, sWeapon, sMeansOfDeath, "killiconheadshot", "killiconwallbang")`. With at least one icon the CoD2x client shows the weapon icon followed by the icons - also for `MOD_HEAD_SHOT` and `MOD_MELEE`, where vanilla shows only the headshot / melee icon (pass `"killiconheadshot"` / `"killiconmelee"` to keep it). Without icons the killfeed stays vanilla. Vanilla clients always see the vanilla killfeed.
 
+- `kick(<entity number>, <reason>)` - Original function extended with optional reason. With reason, the reason is shown in the kicked player's disconnect dialog and to all players as "<name> <reason>", and no temporary ban (sv_kickBanTime) is applied. Without reason it works as before. Older CoD2x versions ignore the reason.
+
 - `http_fetch` - Fetches data from an HTTP endpoint asynchronously. Allows specifying HTTP method, data, headers, and callbacks for success or error handling.
 
 - `websocket_connect` - Establishes a WebSocket connection to a specified URL with optional headers and callbacks for connection, message, close, and error events.

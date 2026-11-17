@@ -104,6 +104,11 @@ xfunction_t Scr_GetCustomFunction(const char **fname, int *fdev)
 {
 	// Try to find original function
 	xfunction_t m = Scr_GetFunction(fname, fdev);
+
+	// Original functions extended by CoD2x
+	if ( m && !strcasecmp(*fname, "kick") )
+		return gsc_player_kick_override(m);
+
 	if ( m )
 		return m;
 
@@ -309,6 +314,7 @@ gentity_t* GScr_Obituary_G_TempEntity(const float* origin, int event)
 
 /** Called every frame on frame start. */
 void gsc_frame() {
+	gsc_player_frame();
 	gsc_http_frame();
 	gsc_websocket_frame();
 }
